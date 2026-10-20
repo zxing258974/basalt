@@ -3,7 +3,7 @@ import { RotateCcw, Save } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { catalogKeys, useConnections } from "../../hooks/useCatalog";
 import { useConnectionActions } from "../../hooks/useConnectionActions";
-import { designKeys, useTableDesign } from "../../hooks/useTableDesign";
+import { designKeys, designQuery, useTableDesign } from "../../hooks/useTableDesign";
 import { getBackend } from "../../lib/api";
 import type { TableDesign } from "../../lib/designTypes";
 import { errorMessage, isCommandError, type TableRef } from "../../lib/types";
@@ -34,8 +34,9 @@ export function TableDesignView({ tab, active }: { tab: TableDesignTab; active: 
   const [base, setBase] = useState<TableDesign | null>(null);
   const [draft, setDraft] = useState<TableDesign | null>(null);
   if (ref && original && base !== original) {
-    // 结构重读了:没改过就跟着换;改过的草稿留着(后端每次都按库里的最新结构重新比较)。
-    if (!draft || same(draft, base)) setDraft(original);
+    // 结构重读了:没改过就跟着换;改过的草稿合并到新结构上(别人新加的东西保留,不当成用户删的)。
+    if (!draft || !base || same(draft, base)) setDraft(original);
+    else if (original.version !== base.version) setDraft(model.rebase(base, original, draft));
     setBase(original);
   }
   if (!ref && !base && connection) {
@@ -63,9 +64,9 @@ export function TableDesignView({ tab, active }: { tab: TableDesignTab; active: 
   };
 
   // ⌘S 可能在输入框里按下:下一轮再读最新的草稿。
-  const latest = useRef({ draft, preview });
+  const latest = useRef({ draft, preview, base });
   useLayoutEffect(() => {
-    latest.current = { draft, preview };
+    latest.current = { draft, preview, base };
   });
   // 每打开或关闭一次预览加一:生成期间用户取消了,迟到的结果不能再把对话框弹回来。
   const previewToken = useRef(0);
@@ -74,20 +75,36 @@ export function TableDesignView({ tab, active }: { tab: TableDesignTab; active: 
     setPreview({ phase: "closed" });
   }, []);
 
+  // 生成预览前先按库里的最新结构合并一次草稿:设计器开着的时候表可能被别人改过。
+  const rebaseOnLatest = useCallback(
+    async (table: TableRef) => {
+      const fresh = await queryClient.fetchQuery({ ...designQuery(tab.connectionId, table), staleTime: 0 });
+      const { base: was, draft: now } = latest.current;
+      if (!was || !now || fresh.version === was.version) return now;
+      const merged = same(now, was) ? fresh : model.rebase(was, fresh, now);
+      setBase(fresh);
+      setDraft(merged);
+      return merged;
+    },
+    [queryClient, tab.connectionId, setBase, setDraft],
+  );
+
   const openPreview = useCallback(async () => {
     const { draft: current, preview: shown } = latest.current;
     if (!current || shown.phase !== "closed") return;
     const token = ++previewToken.current;
     setPreview({ phase: "loading" });
     try {
-      const result = await (await getBackend()).previewTableDesign(tab.connectionId, ref, current);
+      const design = ref ? await rebaseOnLatest(ref) : current;
+      if (token !== previewToken.current || !design) return;
+      const result = await (await getBackend()).previewTableDesign(tab.connectionId, ref, design);
       if (token === previewToken.current) {
-        setPreview({ ...result, phase: "ready", design: current, applying: false, error: null, partial: false });
+        setPreview({ ...result, phase: "ready", design, applying: false, error: null, partial: false });
       }
     } catch (error) {
       if (token === previewToken.current) setPreview({ phase: "invalid", message: errorMessage(error) });
     }
-  }, [ref, tab.connectionId]);
+  }, [ref, rebaseOnLatest, tab.connectionId]);
 
   const submit = useCallback(async () => {
     const shown = latest.current.preview;
@@ -99,7 +116,9 @@ export function TableDesignView({ tab, active }: { tab: TableDesignTab; active: 
       const outcome = await backend.applyTableDesign(tab.connectionId, ref, shown.design, shown.statements);
       await queryClient.invalidateQueries({ queryKey: tablesKey });
       if (!ref || outcome.table.table !== ref.table) {
-        // 建好或改了名:换成新表名的设计器,它自己去读结构。
+        // 建好或改了名:换成新表名的设计器,它自己去读结构;新旧两个名字缓存的结构都作废。
+        queryClient.removeQueries({ queryKey: designKeys.table(tab.connectionId, outcome.table) });
+        if (ref) queryClient.removeQueries({ queryKey: designKeys.table(tab.connectionId, ref) });
         closePreview();
         const next = tableDesignTab(tab.connectionId, tab.database, tab.schema, outcome.table.table);
         useTabs.getState().replace(tab.id, next);

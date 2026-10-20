@@ -64,6 +64,10 @@ describe("mock table designs", () => {
       `ALTER TABLE "public"."customers" COMMENT = '客户'`,
     ]);
     expectError(
+      () => designs.preview("c", "postgres", ref("customers", "public"), { ...target, version: "old" }),
+      "这张表在你打开设计器之后被改过，草稿是按旧结构做的。请再保存一次（会先按最新结构重新合并你的修改）。",
+    );
+    expectError(
       () => designs.apply("c", "postgres", ref("customers", "public"), target, ["旧的"]),
       "表结构在预览之后变了，要执行的 SQL 和预览的不一样。请重新预览后再保存。",
     );

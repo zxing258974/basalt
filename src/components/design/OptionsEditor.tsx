@@ -38,7 +38,13 @@ export function OptionsEditor({ driver, draft, onChange }: OptionsEditorProps) {
                 value={options.charset ?? ""}
                 options={CHARSETS}
                 placeholder="跟随库"
-                onChange={(charset) => set({ charset: text(charset) })}
+                onChange={(charset) =>
+                  // 换了字符集,不属于它的排序规则就不能留着,否则 MySQL 会报错。
+                  set({
+                    charset: text(charset),
+                    collation: options.collation?.startsWith(`${charset}_`) ? options.collation : null,
+                  })
+                }
               />
             </OptionRow>
             <OptionRow label="排序规则" hint="只改表的默认值，已有字段不受影响。">

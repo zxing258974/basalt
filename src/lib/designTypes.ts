@@ -94,6 +94,8 @@ export interface TableDesign {
   /** 只读,SQLite 才有。 */
   triggers: TriggerDef[];
   options: TableOptions;
+  /** 读出来时的结构指纹;草稿带着它,后端据此发现「打开设计器之后表被别人改过」。新表为空。 */
+  version: string;
 }
 
 /** transaction:一个事务里执行;autocommit:MySQL 逐条执行;rebuild:SQLite 重建表。 */

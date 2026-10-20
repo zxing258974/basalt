@@ -117,6 +117,7 @@ export function newTableDesign(driver: DriverKind, database: string, schema: str
       withoutRowid: false,
       strict: false,
     },
+    version: "",
   };
 }
 
@@ -284,4 +285,45 @@ export function canMove(
   if (driver !== "postgres" || !original) return true;
   const existing = (columnId: string) => original.columns.some((c) => c.id === columnId);
   return !existing(id) && !existing(target.id);
+}
+
+/**
+ * 三方合并一个列表:`before` 是草稿当初的基准,`after` 是重新读到的结构。
+ * 用户没动过的跟着新结构走;用户改过的保留用户的;别人加的插在它在新结构里的前一项后面;
+ * 别人删掉、用户又改过的,`reissue` 时换个新 id 当成新加的(索引、外键),否则原样留着让后端报出来。
+ */
+function mergeList<T extends { id: string }>(before: T[], after: T[], draft: T[], reissue: boolean): T[] {
+  const result: T[] = [];
+  for (const item of draft) {
+    const old = before.find((b) => b.id === item.id);
+    const fresh = after.find((a) => a.id === item.id);
+    if (!old) result.push(item);
+    else if (fresh) result.push(same(item, old) ? fresh : item);
+    else if (!same(item, old)) result.push(reissue ? { ...item, id: newId() } : item);
+  }
+  after.forEach((item, index) => {
+    if (before.some((b) => b.id === item.id) || result.some((r) => r.id === item.id)) return;
+    const previous = after[index - 1];
+    const at = previous ? result.findIndex((r) => r.id === previous.id) : -1;
+    result.splice(previous && at < 0 ? result.length : at + 1, 0, item);
+  });
+  return result;
+}
+
+/** 把草稿挪到重新读到的结构上,保留用户的修改,不把别人新加的东西当成用户删掉的。 */
+export function rebase(before: TableDesign, after: TableDesign, draft: TableDesign): TableDesign {
+  const pick = <T>(mine: T, base: T, theirs: T) => (same(mine, base) ? theirs : mine);
+  return {
+    ...draft,
+    table: { ...draft.table, table: pick(draft.table.table, before.table.table, after.table.table) },
+    columns: mergeList(before.columns, after.columns, draft.columns, false),
+    primaryKey: pick(draft.primaryKey, before.primaryKey, after.primaryKey),
+    primaryKeyName: pick(draft.primaryKeyName, before.primaryKeyName, after.primaryKeyName),
+    indexes: mergeList(before.indexes, after.indexes, draft.indexes, true),
+    foreignKeys: mergeList(before.foreignKeys, after.foreignKeys, draft.foreignKeys, true),
+    checks: after.checks,
+    triggers: after.triggers,
+    options: pick(draft.options, before.options, after.options),
+    version: after.version,
+  };
 }

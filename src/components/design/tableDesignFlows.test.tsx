@@ -128,6 +128,39 @@ describe("designing an existing table", () => {
   });
 });
 
+describe("tables changed by someone else", () => {
+  it("merges the draft onto the latest structure before previewing instead of dropping the newcomer", async () => {
+    const { user, backend } = await designCustomers();
+    await user.click(screen.getByRole("checkbox", { name: "city：非空" }));
+
+    // 设计器开着的时候,别处给这张表加了一个字段。
+    const ref = { database: "shop", schema: null, table: "customers" };
+    const elsewhere = await backend.readTableDesign("mock-mysql", ref);
+    elsewhere.columns.push({ ...elsewhere.columns[1]!, id: "new:x", name: "added_elsewhere", nullable: true });
+    const { statements } = await backend.previewTableDesign("mock-mysql", ref, elsewhere);
+    await backend.applyTableDesign("mock-mysql", ref, elsewhere, statements);
+
+    await user.keyboard("{Meta>}s{/Meta}");
+    const dialog = await screen.findByRole("dialog", { name: "保存表结构" });
+    const list = await within(dialog).findByRole("list", { name: "将要执行的语句" });
+    expect(list).not.toHaveTextContent("DROP COLUMN");
+    expect(list).toHaveTextContent("MODIFY COLUMN `city`");
+    expect(screen.getByRole("textbox", { name: "added_elsewhere：字段名" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "city：非空" })).toBeChecked();
+  });
+
+  it("explains a stale draft if the table changes between merging and previewing", async () => {
+    const backend = createMockBackend();
+    const stale: CommandError = { code: "invalid_edit", message: "这张表在你打开设计器之后被改过", fields: [] };
+    vi.spyOn(backend, "previewTableDesign").mockRejectedValueOnce(stale);
+    const { user } = await designCustomers(backend);
+    await user.click(screen.getByRole("checkbox", { name: "city：非空" }));
+    await user.keyboard("{Meta>}s{/Meta}");
+    const dialog = await screen.findByRole("dialog", { name: "保存表结构" });
+    expect(await within(dialog).findByText(/被改过/)).toBeInTheDocument();
+  });
+});
+
 describe("creating a table", () => {
   it("starts from an id column, refuses an empty name, then creates and reopens the new table", async () => {
     const { user } = await openShop();

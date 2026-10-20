@@ -49,6 +49,7 @@ function users(): TableDesign {
     checks: [],
     triggers: [],
     options: { engine: "InnoDB", charset: null, collation: null, comment: null, withoutRowid: false, strict: false },
+    version: "v1",
   };
 }
 
@@ -176,5 +177,49 @@ describe("change tracking", () => {
     draft = model.updateOptions(model.renameTable(draft, "members"), { comment: "x" });
     // 改名、删字段、换顺序、主键、加索引、删外键(随字段删掉)、选项、表名。
     expect(model.changeCount(original, draft)).toBe(8);
+  });
+});
+
+describe("rebasing a draft onto a newer structure", () => {
+  it("keeps the user's edits and takes everything else from the newer structure", () => {
+    const before = users();
+    let draft = model.updateColumn(before, "col:name", { comment: "名字" });
+    draft = model.removeIndex(draft, "idx:idx_name");
+    const [withNew, newId] = model.addColumn(draft, "mysql");
+    draft = withNew;
+
+    const after: TableDesign = {
+      ...users(),
+      version: "v2",
+      columns: [col("id"), col("email", "varchar(9)"), col("name", "varchar(50)"), col("team_id", "bigint")],
+      indexes: [...users().indexes, { ...users().indexes[0]!, id: "idx:idx_email", name: "idx_email" }],
+      options: { ...users().options, comment: "别人改的" },
+    };
+    const merged = model.rebase(before, after, draft);
+
+    expect(merged.version).toBe("v2");
+    expect(merged.columns.map((c) => c.name)).toEqual(["id", "email", "name", "team_id", ""]);
+    expect(merged.columns.find((c) => c.name === "name")!.comment).toBe("名字");
+    expect(merged.columns.find((c) => c.name === "team_id")!.dataType).toBe("bigint");
+    expect(merged.columns.at(-1)!.id).toBe(newId);
+    expect(merged.indexes.map((i) => i.name)).toEqual(["idx_email"]);
+    expect(merged.options.comment).toBe("别人改的");
+  });
+
+  it("re-adds a changed foreign key someone else dropped, and drops an untouched one", () => {
+    const before = users();
+    const changed = model.updateForeignKey(before, "fk:fk_team", { onDelete: "setNull" });
+    const after: TableDesign = { ...users(), version: "v2", foreignKeys: [] };
+    const merged = model.rebase(before, after, changed);
+    expect(merged.foreignKeys).toHaveLength(1);
+    expect(merged.foreignKeys[0]!.id).not.toBe("fk:fk_team");
+    expect(model.rebase(before, after, before).foreignKeys).toEqual([]);
+
+    const renamed = model.renameTable(before, "members");
+    expect(model.rebase(before, { ...after, table: { ...after.table, table: "x" } }, renamed).table.table).toBe(
+      "members",
+    );
+    const first: TableDesign = { ...after, columns: [col("zero"), ...after.columns] };
+    expect(model.rebase(before, first, before).columns[0]!.name).toBe("zero");
   });
 });

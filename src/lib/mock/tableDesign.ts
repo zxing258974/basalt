@@ -88,7 +88,16 @@ function fromSeed(driver: DriverKind, table: TableRef): TableDesign {
       withoutRowid: false,
       strict: false,
     },
+    version: "",
   };
+}
+
+/** 结构指纹:和后端一样,除指纹本身以外的内容变了它就变。 */
+function fingerprint(design: TableDesign): string {
+  const text = JSON.stringify({ ...design, version: "" });
+  let hash = 5381;
+  for (let i = 0; i < text.length; i += 1) hash = (hash * 33 + text.charCodeAt(i)) >>> 0;
+  return hash.toString(16).padStart(8, "0");
 }
 
 function validate(driver: DriverKind, design: TableDesign): void {
@@ -198,12 +207,21 @@ export function createMockDesigns() {
   const added = new Map<string, string[]>();
   const removed = new Map<string, string[]>();
 
-  const read = (id: string, driver: DriverKind, table: TableRef) =>
-    structuredClone(designs.get(keyOf(id, table)) ?? fromSeed(driver, table));
+  const read = (id: string, driver: DriverKind, table: TableRef): TableDesign => {
+    const design = structuredClone(designs.get(keyOf(id, table)) ?? fromSeed(driver, table));
+    return { ...design, version: fingerprint(design) };
+  };
 
   const plan = (id: string, driver: DriverKind, original: TableRef | null, design: TableDesign) => {
     validate(driver, design);
-    const statements = original ? alterTable(driver, read(id, driver, original), design) : createTable(driver, design);
+    const before = original ? read(id, driver, original) : null;
+    if (before && before.version !== design.version) {
+      fail(
+        "invalid_edit",
+        "这张表在你打开设计器之后被改过，草稿是按旧结构做的。请再保存一次（会先按最新结构重新合并你的修改）。",
+      );
+    }
+    const statements = before ? alterTable(driver, before, design) : createTable(driver, design);
     const mode: DdlPreview["mode"] = isMysql(driver) ? "autocommit" : "transaction";
     return { statements, mode };
   };

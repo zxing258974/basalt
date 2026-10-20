@@ -85,7 +85,26 @@ fn integers_check_syntax_range_and_excel_precision() {
     assert!(err(Dialect::Mysql, "int", text("5.0")).contains("整数"));
     assert!(err(Dialect::Mysql, "int", text("")).contains("整数"));
     assert!(err(Dialect::Sqlite, "INTEGER", SourceValue::Number(1.5)).contains("不是整数"));
-    assert!(err(Dialect::Mysql, "bigint", SourceValue::Number(1e17)).contains("15 位"));
+    assert_eq!(
+        ok(Dialect::Mysql, "bigint", SourceValue::Number(1e17)),
+        BindValue::Int(100_000_000_000_000_000)
+    );
+    assert_eq!(
+        ok(
+            Dialect::Mysql,
+            "bigint",
+            SourceValue::Number(-1_234_567_890_123_450_000.0)
+        ),
+        BindValue::Int(-1_234_567_890_123_450_000)
+    );
+    assert!(
+        err(
+            Dialect::Mysql,
+            "bigint",
+            SourceValue::Number(9_007_199_254_740_993.0 * 3.0)
+        )
+        .contains("15 位")
+    );
     let date = NaiveDate::from_ymd_opt(2026, 1, 1)
         .unwrap()
         .and_hms_opt(0, 0, 0)
@@ -219,130 +238,6 @@ fn bits_booleans_and_binary() {
             BinaryEncoding::Base64
         )
         .is_err()
-    );
-}
-
-#[test]
-fn dates_and_times_are_validated_per_dialect() {
-    let day = NaiveDate::from_ymd_opt(2026, 10, 20).unwrap();
-    assert_eq!(
-        ok(Dialect::Mysql, "date", text("2026/10/20")),
-        BindValue::Text("2026-10-20".into())
-    );
-    assert_eq!(
-        ok(Dialect::Mysql, "date", text("2026-10-20 00:00:00")),
-        BindValue::Text("2026-10-20".into())
-    );
-    assert_eq!(
-        ok(
-            Dialect::Mysql,
-            "date",
-            SourceValue::DateTime(day.and_hms_opt(0, 0, 0).unwrap())
-        ),
-        BindValue::Text("2026-10-20".into())
-    );
-    assert_eq!(
-        ok(Dialect::Mysql, "date", text("0000-00-00")),
-        BindValue::Text("0000-00-00".into())
-    );
-    assert!(err(Dialect::Postgres, "date", text("0000-00-00")).contains("日期"));
-    assert!(err(Dialect::Mysql, "date", text("2026-02-30")).contains("日期"));
-    assert!(err(Dialect::Mysql, "date", text("2026-10-20 08:00:00")).contains("时间部分"));
-    assert!(
-        err(
-            Dialect::Mysql,
-            "date",
-            SourceValue::DateTime(day.and_hms_opt(8, 0, 0).unwrap())
-        )
-        .contains("时间部分")
-    );
-    assert_eq!(
-        ok(Dialect::Postgres, "date", text("infinity")),
-        BindValue::Text("infinity".into())
-    );
-    assert_eq!(
-        ok(Dialect::Postgres, "date", text("0044-03-15 BC")),
-        BindValue::Text("0044-03-15 BC".into())
-    );
-
-    assert_eq!(
-        ok(
-            Dialect::Mysql,
-            "datetime(6)",
-            text("2026-10-20T08:05:09.123456")
-        ),
-        BindValue::Text("2026-10-20 08:05:09.123456".into())
-    );
-    assert_eq!(
-        ok(Dialect::Mysql, "datetime", text("2026-10-20")),
-        BindValue::Text("2026-10-20 00:00:00".into())
-    );
-    assert_eq!(
-        ok(
-            Dialect::Mysql,
-            "datetime",
-            SourceValue::DateTime(day.and_hms_milli_opt(8, 5, 9, 120).unwrap())
-        ),
-        BindValue::Text("2026-10-20 08:05:09.12".into())
-    );
-    assert_eq!(
-        ok(
-            Dialect::Postgres,
-            "timestamp with time zone",
-            text("2026-10-20 08:05:09+08")
-        ),
-        BindValue::Text("2026-10-20 08:05:09+08".into())
-    );
-    assert!(
-        err(
-            Dialect::Postgres,
-            "timestamp without time zone",
-            text("2026-10-20 08:05:09+08:00")
-        )
-        .contains("时区")
-    );
-    assert!(err(Dialect::Mysql, "datetime", text("2026-10-20 25:00:00")).contains("日期时间"));
-    assert!(err(Dialect::Mysql, "datetime", text("昨天")).contains("日期时间"));
-    assert_eq!(
-        ok(Dialect::Mysql, "datetime", text("0000-00-00 00:00:00")),
-        BindValue::Text("0000-00-00 00:00:00".into())
-    );
-
-    assert_eq!(
-        ok(Dialect::Mysql, "time", text("-838:59:59")),
-        BindValue::Text("-838:59:59".into())
-    );
-    assert!(
-        err(
-            Dialect::Postgres,
-            "time without time zone",
-            text("-01:00:00")
-        )
-        .contains("时间")
-    );
-    assert_eq!(
-        ok(
-            Dialect::Postgres,
-            "time with time zone",
-            text("10:00:00+08")
-        ),
-        BindValue::Text("10:00:00+08".into())
-    );
-    let excel_time = NaiveDate::from_ymd_opt(1899, 12, 30)
-        .unwrap()
-        .and_hms_opt(13, 5, 0)
-        .unwrap();
-    assert_eq!(
-        ok(Dialect::Mysql, "time", SourceValue::DateTime(excel_time)),
-        BindValue::Text("13:05:00".into())
-    );
-    assert!(
-        err(
-            Dialect::Mysql,
-            "time",
-            SourceValue::DateTime(day.and_hms_opt(1, 0, 0).unwrap())
-        )
-        .contains("日期时间")
     );
 }
 

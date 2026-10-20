@@ -235,9 +235,6 @@ pub fn read_rows(
 ) -> CoreResult<()> {
     let mut header_pending = spec.has_header;
     let mut handle = |record: SourceRecord| -> CoreResult<bool> {
-        if record.values.iter().all(|v| *v == SourceValue::Null) {
-            return Ok(true);
-        }
         if header_pending {
             header_pending = false;
             let names = record
@@ -312,7 +309,8 @@ fn read_csv(
                 .finish(&mut records)
                 .map_err(CoreError::InvalidData)?;
         }
-        for record in records.drain(..) {
+        // 只跳过真正的空行;`,,` 是一行全是 NULL 的数据,照常交出去。
+        for record in records.drain(..).filter(|r| !r.is_blank()) {
             if !visit(csv_values(record))? {
                 return Ok(());
             }

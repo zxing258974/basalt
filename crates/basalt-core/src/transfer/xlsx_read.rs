@@ -120,6 +120,10 @@ pub fn read_sheet(
             for (offset, cells) in range.rows().enumerate() {
                 let mut values = vec![SourceValue::Null; first_col as usize];
                 values.extend(cells.iter().map(from_data));
+                // 电子表格里整行空着就是没有这一行(xlsx 流式读取本来就不会给出空行)。
+                if values.iter().all(|v| *v == SourceValue::Null) {
+                    continue;
+                }
                 let record = SourceRecord {
                     row: u64::from(first_row) + offset as u64 + 1,
                     values,

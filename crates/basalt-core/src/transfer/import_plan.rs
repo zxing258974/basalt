@@ -28,6 +28,8 @@ pub(super) struct Plan {
     dialect: Dialect,
     pub targets: Vec<Target>,
     binary: BinaryEncoding,
+    /// CSV 的每一行字段数都应该和列名行一样;Excel 的行末尾空着的格子本来就不算。
+    csv: bool,
 }
 
 impl Plan {
@@ -36,6 +38,7 @@ impl Plan {
         columns: Vec<ColumnInfo>,
         mapping: &[ColumnMapping],
         binary: BinaryEncoding,
+        csv: bool,
     ) -> CoreResult<Self> {
         let mut targets = Vec::new();
         for item in mapping {
@@ -68,11 +71,13 @@ impl Plan {
             dialect,
             targets,
             binary,
+            csv,
         })
     }
 
     /// 一行转成参数;任何一格转换不了,整行失败。`width` 是列名行的列数:
-    /// 一行比它多出非空的字段,多半是值里有没加引号的分隔符,数据已经错位,整行算失败。
+    /// 一行比它多出非空的字段,多半是值里有没加引号的分隔符;CSV 的一行比它少,多半是值里有没加引号的
+    /// 换行。数据已经错位,整行算失败,不拿 NULL 补齐。
     pub(super) fn convert(
         &self,
         record: &SourceRecord,
@@ -93,6 +98,21 @@ impl Plan {
                 reason: format!(
                     "这一行有 {used} 个字段，比列名行多 {} 个，可能是值里有没加引号的分隔符",
                     used - width
+                ),
+            });
+        }
+        if let Some(width) = width
+            && self.csv
+            && record.values.len() < width
+        {
+            return Err(ImportFailure {
+                row: record.row,
+                column: None,
+                value: None,
+                reason: format!(
+                    "这一行只有 {} 个字段，比列名行少 {} 个，可能是值里有没加引号的换行",
+                    record.values.len(),
+                    width - record.values.len()
                 ),
             });
         }

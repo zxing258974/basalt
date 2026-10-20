@@ -222,7 +222,7 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
                 driver: driver ?? "mysql",
                 title: `${tab.title} 的${result.label}`,
                 baseName: guessTableName(result.sql),
-                scope: { kind: "query", editorId: tab.id, scope: tab.scope, sql: result.sql, set: result.set },
+                scope: { kind: "query", editorId: tab.id, scope: result.scope, sql: result.sql, set: result.set },
               })
             }
           />

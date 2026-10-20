@@ -143,11 +143,18 @@ impl EditorLease {
         self.state.as_mut().ok_or(CoreError::Superseded)
     }
 
-    async fn enter(&self) {
-        *self.slot.phase.lock().await = Phase::Running(Running {
+    /// 登记成「执行中」。取消请求已经来了就不登记,返回 false:检查和登记在同一把锁里,
+    /// 不会出现「刚检查完没取消、取消就到了、语句照样执行到底」的空当。
+    async fn enter(&self) -> bool {
+        let mut phase = self.slot.phase.lock().await;
+        if self.cancel_requested() {
+            return false;
+        }
+        *phase = Phase::Running(Running {
             handle: self.handle.clone(),
             requested: self.requested.clone(),
         });
+        true
     }
 
     /// 回到「已借出」。取消请求说到一半时要等它说完(它持着这把锁),KILL 才不会落到下一条上。
@@ -161,7 +168,9 @@ impl EditorLease {
         query: StreamQuery<'_>,
         sink: &mut dyn RowSink,
     ) -> CoreResult<StreamEnd> {
-        self.enter().await;
+        if !self.enter().await {
+            return Ok(StreamEnd::Cancelled);
+        }
         let (handle, requested) = (self.handle.clone(), self.requested.clone());
         let driven = match self.open() {
             Ok(open) => {
@@ -205,17 +214,17 @@ impl EditorLease {
         self.step(Step::Sql(sql)).await
     }
 
-    /// 收尾用(ROLLBACK):取消之后也要执行,也不让 SQLite 的取消标志打断它。
+    /// 收尾用(COMMIT、ROLLBACK):取消之后也要执行;执行期间来的取消只记下来,不去中止它
+    /// (被 KILL 的 COMMIT 也可能已经生效,说不清),也不让 SQLite 的取消标志打断它。
     pub async fn cleanup_sql(&mut self, sql: &str) -> Result<u64, ExecError> {
         self.step(Step::Cleanup(sql)).await
     }
 
     async fn step(&mut self, step: Step<'_>) -> Result<u64, ExecError> {
         let cleanup = matches!(step, Step::Cleanup(_));
-        if self.cancel_requested() && !cleanup {
+        if !cleanup && !self.enter().await {
             return Err(ExecError::Cancelled);
         }
-        self.enter().await;
         let handle = self.handle.clone();
         let result = match self.state.as_mut() {
             Some(open) => {
@@ -231,7 +240,9 @@ impl EditorLease {
             }
             None => return Err(ExecError::Lost(CoreError::Superseded.to_string())),
         };
-        self.leave().await;
+        if !cleanup {
+            self.leave().await;
+        }
         result.map_err(|error| {
             if self.cancel_requested() && !cleanup {
                 ExecError::Cancelled

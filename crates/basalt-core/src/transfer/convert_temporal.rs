@@ -74,15 +74,36 @@ fn split_offset(text: &str) -> (&str, &str) {
     }
 }
 
-pub(super) fn time(value: &SourceValue, zoned: bool, long: bool) -> Result<String, String> {
+/// 秒的小数位超过列的精度时数据库会四舍五入(23:59:59.6 存进 DATETIME 变成第二天),不能悄悄进位。
+fn check_fraction(fraction: &str, fsp: Option<u32>) -> Result<(), String> {
+    let digits = fraction.trim_end_matches('0').len();
+    match fsp {
+        Some(fsp) if digits > fsp as usize => Err(if fsp == 0 {
+            "带有秒的小数，这一列只精确到秒（数据库会四舍五入）".into()
+        } else {
+            format!("秒的小数超过这一列的 {fsp} 位（数据库会四舍五入）")
+        }),
+        _ => Ok(()),
+    }
+}
+
+/// `fsp` 是列能存的秒的小数位数,`None` 是不限。
+pub(super) fn time(
+    value: &SourceValue,
+    zoned: bool,
+    long: bool,
+    fsp: Option<u32>,
+) -> Result<String, String> {
     let fail = || "不是有效的时间（时:分:秒）".to_owned();
+    let owned;
     let text = match value {
         SourceValue::DateTime(value) => {
             let date = value.date().to_string();
-            if date == "1899-12-30" || date == "1899-12-31" {
-                return Ok(format_time(value.time()));
+            if date != "1899-12-30" && date != "1899-12-31" {
+                return Err("是日期时间，不是时间".into());
             }
-            return Err("是日期时间，不是时间".into());
+            owned = format_time(value.time());
+            owned.as_str()
         }
         SourceValue::Text(text) => text.trim(),
         _ => return Err(fail()),
@@ -93,6 +114,7 @@ pub(super) fn time(value: &SourceValue, zoned: bool, long: bool) -> Result<Strin
     if clock.hour > max_hour || (clock.negative && !long) {
         return Err(fail());
     }
+    check_fraction(clock.fraction, fsp)?;
     Ok(text.to_owned())
 }
 
@@ -100,10 +122,15 @@ pub(super) fn datetime(
     dialect: Dialect,
     value: &SourceValue,
     zoned: bool,
+    fsp: Option<u32>,
 ) -> Result<String, String> {
     let fail = || "不是有效的日期时间（年-月-日 时:分:秒）".to_owned();
+    let owned;
     let text = match value {
-        SourceValue::DateTime(value) => return Ok(format_datetime(*value)),
+        SourceValue::DateTime(value) => {
+            owned = format_datetime(*value);
+            owned.as_str()
+        }
         SourceValue::Text(text) => text.trim(),
         _ => return Err(fail()),
     };
@@ -133,5 +160,10 @@ pub(super) fn datetime(
     if clock.negative || clock.hour > 23 {
         return Err(fail());
     }
+    check_fraction(clock.fraction, fsp)?;
     Ok(format!("{date} {clock_text}{offset}{era}"))
 }
+
+#[cfg(test)]
+#[path = "convert_temporal_tests.rs"]
+mod tests;

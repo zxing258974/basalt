@@ -347,3 +347,32 @@ async fn preview_and_plan_validation() {
         .unwrap_err();
     assert!(error.to_string().contains("nope"), "{error}");
 }
+
+#[tokio::test]
+async fn all_null_rows_are_kept_and_short_rows_are_reported() {
+    let (dir, sessions) = open_sqlite(SQLITE_SCHEMA).await;
+    let path = write(&dir, "n.csv", "id,name,big\n,,\n7\n8,庚,1\n\n");
+    let report = import(
+        &sessions,
+        &path,
+        "people_copy",
+        options(OnError::Skip, 10, false),
+    )
+    .await;
+    assert_eq!(
+        (report.inserted, report.failed),
+        (1, 2),
+        "{}",
+        report.summary
+    );
+    let mut failures = report.failures.clone();
+    failures.sort_by_key(|f| f.row);
+    assert_eq!(failures[0].row, 2, "全是 NULL 的一行不能悄悄丢掉");
+    assert!(failures[0].reason.contains("不能为空"));
+    assert_eq!(failures[1].row, 3);
+    assert!(
+        failures[1].reason.contains("少 2 个"),
+        "{}",
+        failures[1].reason
+    );
+}

@@ -7,7 +7,6 @@ mod common;
 mod transfer_support;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use basalt_core::session::SessionManager;
@@ -20,56 +19,12 @@ use basalt_core::transfer::progress::{CancelFlag, Progress, ignore};
 use basalt_core::transfer::source::SourceSpec;
 use basalt_core::transfer::{BinaryEncoding, CsvOptions, ExportFormat, ExportOptions};
 use common::*;
+use transfer_support::rss::{RssProbe, rss_kb};
 use transfer_support::*;
 
 const ROWS: u64 = 100_000;
 /// 导出期间进程内存最多比开始时多这么多。数据有 100 MB,攒在内存里一定超过。
 const MAX_GROWTH_KB: u64 = 48 * 1024;
-
-/// 后台每 50 毫秒量一次本进程的常驻内存(KB),记下最大值。
-struct RssProbe {
-    stop: Arc<AtomicBool>,
-    peak: Arc<AtomicU64>,
-    thread: Option<std::thread::JoinHandle<()>>,
-}
-
-fn rss_kb() -> u64 {
-    let output = std::process::Command::new("ps")
-        .args(["-o", "rss=", "-p", &std::process::id().to_string()])
-        .output()
-        .expect("ps");
-    String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .parse()
-        .unwrap_or(0)
-}
-
-impl RssProbe {
-    fn start() -> Self {
-        let stop = Arc::new(AtomicBool::new(false));
-        let peak = Arc::new(AtomicU64::new(rss_kb()));
-        let (s, p) = (stop.clone(), peak.clone());
-        let thread = std::thread::spawn(move || {
-            while !s.load(Ordering::Relaxed) {
-                p.fetch_max(rss_kb(), Ordering::Relaxed);
-                std::thread::sleep(Duration::from_millis(50));
-            }
-        });
-        Self {
-            stop,
-            peak,
-            thread: Some(thread),
-        }
-    }
-
-    fn finish(mut self) -> u64 {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(thread) = self.thread.take() {
-            thread.join().unwrap();
-        }
-        self.peak.load(Ordering::Relaxed).max(rss_kb())
-    }
-}
 
 fn request(table: &TableRef, format: ExportFormat, path: &std::path::Path) -> ExportRequest {
     ExportRequest {

@@ -77,8 +77,8 @@ pub fn convert(
         TargetKind::Bool => Typed::Bool(boolean(value)?),
         TargetKind::Binary => Typed::Bytes(bytes(value, binary)?),
         TargetKind::Date => Typed::Text(date(dialect, value)?),
-        TargetKind::Time { zoned, long } => Typed::Text(time(value, *zoned, *long)?),
-        TargetKind::DateTime { zoned } => Typed::Text(datetime(dialect, value, *zoned)?),
+        TargetKind::Time { zoned, long, fsp } => Typed::Text(time(value, *zoned, *long, *fsp)?),
+        TargetKind::DateTime { zoned, fsp } => Typed::Text(datetime(dialect, value, *zoned, *fsp)?),
         TargetKind::Json => Typed::Text(json(value)?),
         TargetKind::Enum(members) => Typed::Text(member(&text_of(value), members)?),
         TargetKind::Set(members) => Typed::Text(set(&text_of(value), members)?),
@@ -127,18 +127,24 @@ fn dynamic(value: &SourceValue) -> Typed {
     }
 }
 
+/// Excel 的数字(双精度浮点)按整数读。2^53 以内一定精确;再大的,最短写法不超过 15 位有效数字的
+/// 就是 Excel 显示、也是我们导出时写进去的那个数(导出时 15 位以内的整数才写成数字),照它读;
+/// 超过 15 位的 Excel 里存的已经不是用户填的数了,报错让他把这一列设成文本。
 fn integral(number: f64) -> Result<i128, String> {
     if !number.is_finite() || number.fract() != 0.0 {
         return Err("不是整数".into());
     }
-    if number.abs() > EXACT_FLOAT_INTEGER {
-        return Err(
-            "超过 15 位，Excel 里存的已经不是精确值；请把这一列设成文本格式后再导入".into(),
-        );
+    if number.abs() <= EXACT_FLOAT_INTEGER {
+        // 2^53 以内的整数,转换是精确的。
+        #[allow(clippy::cast_possible_truncation)]
+        return Ok(number as i128);
     }
-    // 上面已经确认是 2^53 以内的整数,转换是精确的。
-    #[allow(clippy::cast_possible_truncation)]
-    Ok(number as i128)
+    let text = format_float(number);
+    let digits = text.trim_start_matches('-').trim_end_matches('0').len();
+    match text.parse::<i128>() {
+        Ok(n) if digits <= 15 => Ok(n),
+        _ => Err("超过 15 位，Excel 里存的已经不是精确值；请把这一列设成文本格式后再导入".into()),
+    }
 }
 
 fn integer(value: &SourceValue, min: i128, max: i128) -> Result<i128, String> {

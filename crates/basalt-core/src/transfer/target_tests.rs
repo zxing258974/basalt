@@ -96,13 +96,17 @@ fn mysql_decimals_texts_and_lists() {
     assert_eq!(mysql_kind("bit(8)"), TargetKind::Bit { bits: 8 });
     assert_eq!(
         mysql_kind("datetime(6)"),
-        TargetKind::DateTime { zoned: false }
+        TargetKind::DateTime {
+            zoned: false,
+            fsp: Some(6)
+        }
     );
     assert_eq!(
         mysql_kind("time"),
         TargetKind::Time {
             zoned: false,
-            long: true
+            long: true,
+            fsp: Some(0)
         }
     );
     assert_eq!(mysql_kind("longblob"), TargetKind::Binary);
@@ -150,17 +154,24 @@ fn postgres_types_from_format_type() {
     );
     assert_eq!(
         pg_kind("timestamp(3) with time zone"),
-        TargetKind::DateTime { zoned: true }
+        TargetKind::DateTime {
+            zoned: true,
+            fsp: Some(3)
+        }
     );
     assert_eq!(
         pg_kind("timestamp without time zone"),
-        TargetKind::DateTime { zoned: false }
+        TargetKind::DateTime {
+            zoned: false,
+            fsp: Some(6)
+        }
     );
     assert_eq!(
         pg_kind("time with time zone"),
         TargetKind::Time {
             zoned: true,
-            long: false
+            long: false,
+            fsp: Some(6)
         }
     );
     assert_eq!(
@@ -191,7 +202,10 @@ fn sqlite_affinity_with_dates_and_booleans() {
     assert_eq!(kind("BLOB", ValueType::Binary), TargetKind::Binary);
     assert_eq!(
         kind("DATETIME", ValueType::Decimal),
-        TargetKind::DateTime { zoned: true }
+        TargetKind::DateTime {
+            zoned: true,
+            fsp: None
+        }
     );
     assert_eq!(kind("DATE", ValueType::Decimal), TargetKind::Date);
     assert_eq!(kind("BOOLEAN", ValueType::Decimal), TargetKind::Bool);

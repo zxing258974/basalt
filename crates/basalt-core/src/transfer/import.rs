@@ -11,7 +11,7 @@ use super::import_plan::{Plan, ReadEvent, check, spawn_reader};
 use super::mapping::{ColumnMapping, auto_map};
 use super::progress::{CancelFlag, Phase, Progress, ProgressSink, Throttle};
 use super::report::{Failures, ImportFailure};
-use super::source::{SourcePreview, SourceSpec, inspect};
+use super::source::{SourceFormat, SourcePreview, SourceSpec, inspect};
 use crate::error::{CoreError, CoreResult};
 use crate::query::QueryScope;
 use crate::session::{Session, SessionManager};
@@ -103,6 +103,10 @@ pub async fn preview_import(
     })
 }
 
+/// 导入用的 MySQL 连接打开严格模式:非严格模式下数据库会把装不下的字符换成 ?、把超范围的值截断、
+/// 把不合法的时间存成零值,只给警告。这条连接导入完就关掉,不影响别的连接。
+const STRICT_SESSION: &str = "SET SESSION sql_mode = CONCAT(@@SESSION.sql_mode, IF(@@SESSION.sql_mode = '', '', ','), 'STRICT_ALL_TABLES')";
+
 /// MySQL 的表用的是不是支持事务的引擎。
 async fn transactional(session: &Session, table: &TableRef) -> CoreResult<bool> {
     let Session::Mysql(mysql) = session else {
@@ -128,7 +132,14 @@ pub async fn run_import(
     let session = sessions.get(&request.connection_id).await?;
     let dialect = session.dialect();
     let columns = session.table_columns(&request.table).await?;
-    let plan = Plan::new(dialect, columns, &request.mapping, request.options.binary)?;
+    let csv = matches!(request.source.format, Some(SourceFormat::Csv { .. }));
+    let plan = Plan::new(
+        dialect,
+        columns,
+        &request.mapping,
+        request.options.binary,
+        csv,
+    )?;
     let transactional = transactional(&session, &request.table).await?;
     let stop_on_error = request.options.on_error == OnError::Stop;
     let mut failures = Failures::default();
@@ -157,9 +168,26 @@ pub async fn run_import(
         database: Some(request.table.database.clone()),
         schema: None,
     };
-    let mut lease = sessions
+    // 借不到(准备期间取消、连不上)也要把为这次导入新开的连接关掉。
+    let mut lease = match sessions
         .lease_editor(&editor, &request.connection_id, &scope)
-        .await?;
+        .await
+    {
+        Ok(lease) => lease,
+        Err(error) => {
+            sessions.close_editor(&editor).await;
+            return Err(error);
+        }
+    };
+    if dialect == Dialect::Mysql
+        && let Err(error) = lease.execute_sql(STRICT_SESSION).await
+    {
+        lease.release().await;
+        sessions.close_editor(&editor).await;
+        return Err(CoreError::Database(format!(
+            "无法把导入用的连接设成严格模式：{error:?}"
+        )));
+    }
     let mut writer = BatchWriter {
         lease: &mut lease,
         dialect,

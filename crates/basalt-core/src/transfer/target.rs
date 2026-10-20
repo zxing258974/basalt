@@ -31,13 +31,16 @@ pub enum TargetKind {
     Bool,
     Binary,
     Date,
-    /// `long`:MySQL 的 TIME 可以是负数、可以超过 24 小时;`zoned`:PostgreSQL 的 timetz。
+    /// `long`:MySQL 的 TIME 可以是负数、可以超过 24 小时;`zoned`:PostgreSQL 的 timetz;
+    /// `fsp`:秒的小数最多几位(`None` 不限)。
     Time {
         zoned: bool,
         long: bool,
+        fsp: Option<u32>,
     },
     DateTime {
         zoned: bool,
+        fsp: Option<u32>,
     },
     Json,
     Enum(Vec<String>),
@@ -154,8 +157,12 @@ fn mysql(data_type: &str) -> TargetKind {
         "time" => TargetKind::Time {
             zoned: false,
             long: true,
+            fsp: Some(numbers.first().copied().unwrap_or(0)),
         },
-        "datetime" | "timestamp" => TargetKind::DateTime { zoned: false },
+        "datetime" | "timestamp" => TargetKind::DateTime {
+            zoned: false,
+            fsp: Some(numbers.first().copied().unwrap_or(0)),
+        },
         "json" => TargetKind::Json,
         "enum" => TargetKind::Enum(quoted_list(args.unwrap_or_default())),
         "set" => TargetKind::Set(quoted_list(args.unwrap_or_default())),
@@ -187,6 +194,8 @@ fn postgres(data_type: &str) -> TargetKind {
     let (base, args) = split_type(&lower);
     let numbers = numbers(args);
     let zoned = lower.contains("with time zone");
+    // 不写精度时 PostgreSQL 存到微秒。
+    let fsp = Some(numbers.first().copied().unwrap_or(6));
     match base.as_str() {
         "smallint" => signed(16),
         "integer" => signed(32),
@@ -200,11 +209,13 @@ fn postgres(data_type: &str) -> TargetKind {
         "boolean" => TargetKind::Bool,
         "bytea" => TargetKind::Binary,
         "date" => TargetKind::Date,
-        "time" | "time without time zone" | "time with time zone" => {
-            TargetKind::Time { zoned, long: false }
-        }
+        "time" | "time without time zone" | "time with time zone" => TargetKind::Time {
+            zoned,
+            long: false,
+            fsp,
+        },
         "timestamp" | "timestamp without time zone" | "timestamp with time zone" => {
-            TargetKind::DateTime { zoned }
+            TargetKind::DateTime { zoned, fsp }
         }
         "json" | "jsonb" => TargetKind::Json,
         "character varying" | "character" => TargetKind::Text {
@@ -239,13 +250,17 @@ fn sqlite(declared: &str) -> TargetKind {
     } else if has(&["BOOL"]) {
         TargetKind::Bool
     } else if has(&["DATETIME", "TIMESTAMP"]) {
-        TargetKind::DateTime { zoned: true }
+        TargetKind::DateTime {
+            zoned: true,
+            fsp: None,
+        }
     } else if has(&["DATE"]) {
         TargetKind::Date
     } else if has(&["TIME"]) {
         TargetKind::Time {
             zoned: false,
             long: false,
+            fsp: None,
         }
     } else if has(&["DECIMAL", "NUMERIC"]) {
         TargetKind::Decimal {

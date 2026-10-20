@@ -158,14 +158,18 @@ impl BatchWriter<'_> {
         Ok(())
     }
 
+    /// 提交不能被取消打断(被 KILL 的 COMMIT 可能已经生效);出了错一律说不清生效没有。
     async fn commit(&mut self) -> Result<(), Abort> {
         if self.transactional {
-            self.sql("COMMIT").await.map_err(|error| match error {
-                ExecError::Cancelled => Abort::Cancelled,
-                ExecError::Lost(message) | ExecError::Rejected(message) => {
-                    Abort::CommitFailed(message)
-                }
-            })?;
+            self.lease
+                .cleanup_sql("COMMIT")
+                .await
+                .map_err(|error| match error {
+                    ExecError::Cancelled => Abort::CommitFailed("提交时被取消".into()),
+                    ExecError::Lost(message) | ExecError::Rejected(message) => {
+                        Abort::CommitFailed(message)
+                    }
+                })?;
         }
         self.committed = self.inserted;
         self.committed_batches += 1;

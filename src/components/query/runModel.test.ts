@@ -121,4 +121,13 @@ describe("resultTabs", () => {
       ["r2-0", "结果 3", "SELECT 1"],
     ]);
   });
+
+  it("remembers where each result was produced", () => {
+    const entries = [
+      entry("SELECT 1", outcome({ resultSets: [set(1)], scope: { database: "shop", schema: null } })),
+      entry("USE shop_archive", outcome({ scope: { database: "shop_archive", schema: null } })),
+      entry("SELECT 2", outcome({ resultSets: [set(1)], scope: { database: "shop_archive", schema: null } })),
+    ];
+    expect(resultTabs(entries).map((t) => t.scope.database)).toEqual(["shop", "shop_archive"]);
+  });
 });

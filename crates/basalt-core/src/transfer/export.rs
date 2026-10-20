@@ -12,6 +12,7 @@ use crate::error::{CoreError, CoreResult};
 use crate::query::lease::{RowSink, StreamEnd, StreamQuery};
 use crate::query::{QueryScope, ResultColumn, leading_keyword};
 use crate::session::SessionManager;
+use crate::sql::Dialect;
 use crate::sql::select::select_all;
 use crate::table::{SortSpec, TableRef};
 use crate::value::CellValue;
@@ -289,6 +290,11 @@ pub async fn run_export(
 }
 
 /// 借连接、流式读完、还连接。返回准备连接时的提示。
+/// 在查询标签页自己的连接上重新执行时,中途停下(取消、写不出来)要让数据库中止语句。PostgreSQL 里
+/// 这会让标签页开着的事务整个失效,之后的 COMMIT 只会悄悄变成回滚——所以先试着开一个保存点,
+/// 停下了就回到保存点。不在事务里时 SAVEPOINT 会报错,那也没关系,本来就没有事务可坏。
+const EXPORT_SAVEPOINT: &str = "basalt_export";
+
 async fn stream(
     sessions: &SessionManager,
     editor_id: &str,
@@ -305,7 +311,25 @@ async fn stream(
         .lease_editor(editor_id, connection_id, scope)
         .await?;
     let notice = lease.notice().map(str::to_owned);
+    let guard = matches!(query, StreamQuery::Text(_))
+        && lease.session().dialect() == Dialect::Postgres
+        && lease
+            .execute_sql(&format!("SAVEPOINT {EXPORT_SAVEPOINT}"))
+            .await
+            .is_ok();
     let ended = lease.stream(query, sink).await;
+    if guard {
+        let finished = matches!(ended, Ok(StreamEnd::Finished { .. }));
+        let steps = [
+            (!finished).then(|| format!("ROLLBACK TO SAVEPOINT {EXPORT_SAVEPOINT}")),
+            Some(format!("RELEASE SAVEPOINT {EXPORT_SAVEPOINT}")),
+        ];
+        for sql in steps.into_iter().flatten() {
+            if let Err(error) = lease.cleanup_sql(&sql).await {
+                log::warn!("导出后恢复查询标签页的事务失败：{error:?}");
+            }
+        }
+    }
     lease.release().await;
     match ended? {
         StreamEnd::Finished { .. } => Ok(notice),

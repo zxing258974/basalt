@@ -1,6 +1,8 @@
 //! 导入导出集成测试共用:导出一张表、导回另一张表、逐行比较。
 #![allow(dead_code)]
 
+pub mod rss;
+
 use std::path::Path;
 
 use basalt_core::session::SessionManager;

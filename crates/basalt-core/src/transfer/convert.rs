@@ -6,7 +6,7 @@ use serde::de::IgnoredAny;
 
 use super::BinaryEncoding;
 use super::convert_temporal::{date, datetime, time};
-use super::render::parse_binary_text;
+use super::render::{float_text, parse_binary_text};
 use super::source::{SourceValue, describe_datetime};
 use super::target::TargetKind;
 use crate::sql::Dialect;
@@ -87,6 +87,7 @@ pub fn convert(
             max_bytes,
         } => Typed::Text(limited(text_of(value), *max_chars, *max_bytes)?),
         TargetKind::Other => Typed::Text(text_of(value)),
+        TargetKind::Dynamic => dynamic(value),
     };
     Ok(bind(dialect, typed))
 }
@@ -97,6 +98,32 @@ fn text_of(value: &SourceValue) -> String {
         SourceValue::Text(text) => text.clone(),
         SourceValue::DateTime(value) => describe_datetime(*value),
         other => other.display().unwrap_or_default(),
+    }
+}
+
+/// 没有类型的列:来源本来就是数字,或者文本恰好是数字的规范写法(读回来一字不差),就存成数字。
+fn dynamic(value: &SourceValue) -> Typed {
+    match value {
+        SourceValue::Integer(n) => Typed::Int(i128::from(*n)),
+        // Excel 的数字都是浮点数:整数值的当整数(远比整数值的浮点数常见)。
+        SourceValue::Number(f) => match integral(*f) {
+            Ok(n) => Typed::Int(n),
+            Err(_) => Typed::Float(*f, float_text(*f)),
+        },
+        SourceValue::Text(text) => {
+            if let Ok(n) = text.parse::<i64>()
+                && n.to_string() == *text
+            {
+                return Typed::Int(i128::from(n));
+            }
+            match text.parse::<f64>() {
+                Ok(f) if f.is_finite() && f.fract() != 0.0 && float_text(f) == *text => {
+                    Typed::Float(f, text.clone())
+                }
+                _ => Typed::Text(text.clone()),
+            }
+        }
+        other => Typed::Text(text_of(other)),
     }
 }
 

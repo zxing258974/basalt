@@ -187,7 +187,7 @@ fn sqlite_affinity_with_dates_and_booleans() {
         kind("INTEGER", ValueType::Integer { unsigned: false }),
         signed(64)
     );
-    assert_eq!(kind("", ValueType::Binary), TargetKind::Other);
+    assert_eq!(kind("", ValueType::Binary), TargetKind::Dynamic);
     assert_eq!(kind("BLOB", ValueType::Binary), TargetKind::Binary);
     assert_eq!(
         kind("DATETIME", ValueType::Decimal),

@@ -48,6 +48,9 @@ pub enum TargetKind {
     },
     /// 原样以文本交给数据库,由它按列类型解析。
     Other,
+    /// SQLite 没有声明类型的列,什么都能存:规范写法的数字按数字存(导出时就是这么写的),
+    /// 其余按文本存。
+    Dynamic,
 }
 
 /// `int(10) unsigned` → (`int`, Some(`10`))。类型名转小写。
@@ -221,8 +224,7 @@ fn sqlite(declared: &str) -> TargetKind {
     let upper = declared.to_ascii_uppercase();
     let has = |keys: &[&str]| keys.iter().any(|k| upper.contains(k));
     if upper.trim().is_empty() {
-        // 没有声明类型:什么都能存,原样交给它。
-        TargetKind::Other
+        TargetKind::Dynamic
     } else if has(&["INT"]) {
         signed(64)
     } else if has(&["CHAR", "CLOB", "TEXT"]) {

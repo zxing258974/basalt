@@ -8,6 +8,7 @@ import { useUi } from "../../stores/ui";
 import { databaseKey, groupKey, schemaKey, tableKey, type GroupKind } from "./treeKeys";
 import { useTreeMenu } from "./treeMenu";
 import { TreeRow, TreeStatusRow } from "./TreeRow";
+import { designTableItem, newTableItem } from "../design/designMenu";
 
 interface QueryLike<T> {
   data?: T;
@@ -103,6 +104,7 @@ function DatabaseNode({
             onSelect: () =>
               void queryClient.invalidateQueries({ queryKey: [...catalogKeys.connection(connection.id)] }),
           },
+          ...(isPostgres ? [] : ["separator" as const, newTableItem(connection.id, database, null)]),
         ])
       }
     >
@@ -139,6 +141,8 @@ function SchemaList({ connection, database, depth }: { connection: ConnectionVie
               onContextMenu={(event) =>
                 openMenu(event, [
                   { label: "打开对象列表", icon: <TableProperties />, onSelect: () => openObjects(database, schema) },
+                  "separator",
+                  newTableItem(connection.id, database, schema),
                 ])
               }
             >
@@ -208,6 +212,9 @@ function ObjectGroups({
                   openMenu(event, [
                     { label: "打开数据", icon: <Rows3 />, shortcut: "↩", onSelect: () => openData(table.name) },
                     { label: "打开对象列表", icon: <TableProperties />, onSelect: () => openObjects(database, schema) },
+                    ...(table.kind === "table"
+                      ? ["separator" as const, designTableItem(connection.id, database, schema, table.name)]
+                      : []),
                   ])
                 }
               />

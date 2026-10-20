@@ -20,7 +20,18 @@ export interface TableDataTab {
   table: TableRef;
 }
 
-export type Tab = ObjectsTab | TableDataTab;
+/** 表结构设计器。`table` 为 null 是还没建的新表;建好、改名之后换成新表名的标签页。 */
+export interface TableDesignTab {
+  kind: "tableDesign";
+  id: string;
+  title: string;
+  connectionId: string;
+  database: string;
+  schema: string | null;
+  table: string | null;
+}
+
+export type Tab = ObjectsTab | TableDataTab | TableDesignTab;
 
 export interface TabsState {
   tabs: Tab[];
@@ -52,6 +63,42 @@ export function tableDataTab(
     title: table,
     connectionId,
     table: { database, schema, table },
+  };
+}
+
+export function tableDesignTab(
+  connectionId: string,
+  database: string,
+  schema: string | null,
+  table: string,
+): TableDesignTab {
+  const parts = [connectionId, database, schema ?? "", table].map(encodeURIComponent);
+  return { kind: "tableDesign", id: `design:${parts.join(":")}`, title: table, connectionId, database, schema, table };
+}
+
+/** 新建表:每次都是一个新标签页。 */
+export function newTableTab(connectionId: string, database: string, schema: string | null): TableDesignTab {
+  return {
+    kind: "tableDesign",
+    id: `design-new:${crypto.randomUUID()}`,
+    title: "新表",
+    connectionId,
+    database,
+    schema,
+    table: null,
+  };
+}
+
+/** 原地换成另一个标签页(建表、改名之后);新的已经开着就关掉旧的、激活新的。 */
+export function replaceTab(state: TabsState, oldId: string, tab: Tab): TabsState {
+  if (oldId === tab.id) return state;
+  if (state.tabs.some((t) => t.id === tab.id)) {
+    const closed = closeTab(state, oldId);
+    return { ...closed, activeId: tab.id };
+  }
+  return {
+    tabs: state.tabs.map((t) => (t.id === oldId ? tab : t)),
+    activeId: state.activeId === oldId ? tab.id : state.activeId,
   };
 }
 
@@ -93,6 +140,10 @@ interface TabsStore extends TabsState {
   /** 表数据页未提交的修改行数,关闭前据此确认。 */
   pending: Readonly<Record<string, number>>;
   setPending(id: string, count: number): void;
+  /** 有没保存的改动的标签页(表结构设计器),关闭前同样要确认。 */
+  unsaved: Readonly<Record<string, true>>;
+  setUnsaved(id: string, unsaved: boolean): void;
+  replace(oldId: string, tab: Tab): void;
   open(tab: Tab): void;
   close(id: string): void;
   closeConnection(connectionId: string): void;
@@ -108,6 +159,14 @@ export const useTabs = create<TabsStore>((set) => ({
       const { [id]: _previous, ...rest } = s.pending;
       return { pending: count > 0 ? { ...rest, [id]: count } : rest };
     }),
+  unsaved: {},
+  setUnsaved: (id, unsaved) =>
+    set((s) => {
+      if (Boolean(s.unsaved[id]) === unsaved) return s;
+      const { [id]: _previous, ...rest } = s.unsaved;
+      return { unsaved: unsaved ? { ...rest, [id]: true } : rest };
+    }),
+  replace: (oldId, tab) => set((s) => replaceTab(s, oldId, tab)),
   open: (tab) => set((s) => openTab(s, tab)),
   close: (id) => set((s) => closeTab(s, id)),
   closeConnection: (connectionId) => set((s) => closeConnectionTabs(s, connectionId)),

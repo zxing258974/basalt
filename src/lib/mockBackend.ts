@@ -1,6 +1,7 @@
 // 浏览器里开发界面用的假后端:内存数据 + 少量延迟,行为尽量贴近 Rust 端。
 import type { Backend } from "./api";
 import { createMockTables } from "./mock/tableData";
+import { createMockDesigns } from "./mock/tableDesign";
 import { classifyMockImport, mockImportSources, planMockImport } from "./mockImport";
 import type {
   CommandError,
@@ -168,6 +169,7 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
   let connections = [...seed];
   const passwords = new Map<string, string>([["mock-mysql", "root"]]);
   const open = new Set<string>();
+  const designs = createMockDesigns();
   const tableData = createMockTables();
 
   const find = (id: string) =>
@@ -269,11 +271,13 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
     async listTables(id, database, schema) {
       await wait();
       const config = requireOpen(id);
-      if (config.driver === "sqlite") {
-        return [table("notes"), table("tags"), table("recent_notes", { kind: "view" })];
-      }
-      if (config.driver === "postgres") return PG_TABLES[schema ?? ""] ?? [];
-      return MYSQL_TABLES[database] ?? [];
+      const base =
+        config.driver === "sqlite"
+          ? [table("notes"), table("tags"), table("recent_notes", { kind: "view" })]
+          : config.driver === "postgres"
+            ? (PG_TABLES[schema ?? ""] ?? [])
+            : (MYSQL_TABLES[database] ?? []);
+      return designs.tables(id, database, schema ?? null, base);
     },
     async readTablePage(id, table, request) {
       await wait();
@@ -289,6 +293,21 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       await wait(200);
       const config = requireOpen(id);
       return tableData.apply(id, config.driver, table, changes, expected);
+    },
+    async readTableDesign(id, table) {
+      await wait();
+      const config = requireOpen(id);
+      return designs.read(id, config.driver, table);
+    },
+    async previewTableDesign(id, original, design) {
+      await wait(80);
+      const config = requireOpen(id);
+      return designs.preview(id, config.driver, original, design);
+    },
+    async applyTableDesign(id, original, design, expected) {
+      await wait(200);
+      const config = requireOpen(id);
+      return designs.apply(id, config.driver, original, design, expected);
     },
     async pickSqliteFile() {
       await wait(60);

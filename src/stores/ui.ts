@@ -12,7 +12,10 @@ export interface Notice {
 
 /** 关闭标签页或连接会丢掉未提交的修改时,先问一句。 */
 export interface DiscardPrompt {
+  /** 表格里未提交的修改行数。 */
   count: number;
+  /** 表结构没保存的设计器个数。 */
+  designs: number;
   onConfirm(): void;
   onCancel?(): void;
 }

@@ -1,4 +1,4 @@
-import { Table2, TableProperties, X } from "lucide-react";
+import { PencilRuler, Table2, TableProperties, X } from "lucide-react";
 import { useConnections } from "../../hooks/useCatalog";
 import { closeTabGuarded } from "../../stores/discard";
 import { useTabs, type Tab } from "../../stores/tabs";
@@ -32,6 +32,8 @@ export function TabBar() {
           >
             {tab.kind === "tableData" ? (
               <Table2 className="tab-icon" aria-hidden />
+            ) : tab.kind === "tableDesign" ? (
+              <PencilRuler className="tab-icon" aria-hidden />
             ) : (
               <TableProperties className="tab-icon" aria-hidden />
             )}
@@ -58,6 +60,8 @@ function tabTooltip(tab: Tab, connectionName: string | undefined): string {
   const path =
     tab.kind === "tableData"
       ? [tab.table.database, tab.table.schema, tab.table.table].filter(Boolean).join(".")
-      : tab.title;
+      : tab.kind === "tableDesign"
+        ? `${[tab.database, tab.schema, tab.table ?? "新表"].filter(Boolean).join(".")}（表结构）`
+        : tab.title;
   return connectionName ? `${connectionName} / ${path}` : path;
 }

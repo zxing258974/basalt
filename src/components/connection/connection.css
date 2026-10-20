@@ -1,0 +1,152 @@
+/* ---------- 数据库徽标 ---------- */
+.driver-badge {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: var(--radius-xs);
+  background: var(--badge-color);
+  color: var(--text-on-accent);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
+  box-shadow: inset 0 -1px 0 oklch(0% 0 0 / 0.18), inset 0 1px 0 oklch(100% 0 0 / 0.2);
+}
+.driver-badge-sm {
+  width: 16px;
+  height: 16px;
+  font-size: 8.5px;
+}
+.driver-badge-lg {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  font-size: 17px;
+}
+.driver-badge-live {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 1.5px var(--surface-sidebar);
+}
+
+/* ---------- 选择数据库类型 ---------- */
+.driver-picker {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+  padding-bottom: var(--space-4);
+}
+.driver-card {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-4) var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-canvas);
+  transition:
+    border-color var(--duration-fast) ease,
+    transform var(--duration-normal) var(--ease-out),
+    box-shadow var(--duration-normal) var(--ease-out);
+}
+.driver-card:hover,
+.driver-card:focus-visible {
+  border-color: var(--badge-color);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px oklch(20% 0.02 60 / 0.1);
+  outline: none;
+}
+.driver-card:active {
+  transform: translateY(0);
+}
+.driver-card-label {
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+}
+.driver-card-meta {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+/* ---------- 连接表单 ---------- */
+.connection-form {
+  display: grid;
+  gap: var(--space-6);
+}
+.connection-form-driver {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.select {
+  height: 26px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-canvas);
+}
+/* 6 列:连接名 / 主机占 4,分组 / 端口占 2,用户名 / 密码 / 初始库各占 2 */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+.form-grid > * {
+  grid-column: span 2;
+}
+.form-grid > .span-4 {
+  grid-column: span 4;
+}
+.form-grid > .span-full {
+  grid-column: 1 / -1;
+}
+.test-result {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  animation: dialog-in var(--duration-normal) var(--ease-out);
+}
+.test-result svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin-top: 1px;
+}
+.test-result.is-ok {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.test-result.is-error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.connection-form-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: 0 calc(-1 * var(--space-7)) calc(-1 * var(--space-6));
+  padding: var(--space-5) var(--space-7);
+  border-top: 1px solid var(--line-hairline);
+  background: var(--surface-chrome);
+}
+.footer-spacer {
+  flex: 1;
+}
+.stack {
+  display: grid;
+  gap: var(--space-5);
+}
+.dialog-text {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.55;
+}

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+target/
+*.log
+.DS_Store
+coverage/
+test-results/
+playwright-report/
+
+# 本机 Claude 预览配置
+.claude/

@@ -1,0 +1,52 @@
+// 连接与元数据的读取(TanStack Query)。查询键集中在这里,方便统一失效。
+import { skipToken, useQuery } from "@tanstack/react-query";
+import type { ServerInfo } from "../lib/types";
+import { getBackend } from "../lib/api";
+
+export const catalogKeys = {
+  connections: ["connections"] as const,
+  connection: (id: string) => ["catalog", id] as const,
+  server: (id: string) => ["catalog", id, "server"] as const,
+  databases: (id: string) => ["catalog", id, "databases"] as const,
+  schemas: (id: string, database: string) => ["catalog", id, "schemas", database] as const,
+  tables: (id: string, database: string, schema: string | null) =>
+    ["catalog", id, "tables", database, schema ?? ""] as const,
+};
+
+export const connectionsQuery = {
+  queryKey: catalogKeys.connections,
+  queryFn: async () => (await getBackend()).listConnections(),
+};
+
+export function useConnections() {
+  return useQuery(connectionsQuery);
+}
+
+/** 打开连接时写入缓存的服务器版本;没打开时为 undefined。 */
+export function useServerInfo(id: string | null) {
+  return useQuery<ServerInfo>({ queryKey: catalogKeys.server(id ?? ""), queryFn: skipToken });
+}
+
+export function useDatabases(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: catalogKeys.databases(id),
+    queryFn: async () => (await getBackend()).listDatabases(id),
+    enabled,
+  });
+}
+
+export function useSchemas(id: string, database: string, enabled: boolean) {
+  return useQuery({
+    queryKey: catalogKeys.schemas(id, database),
+    queryFn: async () => (await getBackend()).listSchemas(id, database),
+    enabled,
+  });
+}
+
+export function useTables(id: string, database: string, schema: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: catalogKeys.tables(id, database, schema),
+    queryFn: async () => (await getBackend()).listTables(id, database, schema),
+    enabled,
+  });
+}

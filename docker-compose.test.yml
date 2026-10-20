@@ -1,0 +1,31 @@
+# 集成测试专用的数据库容器,只监听本机。
+# 启动:docker compose -f docker-compose.test.yml up -d
+# 测试:BASALT_IT=1 cargo test -p basalt-core --test drivers
+# 这些账号密码只用于本机一次性测试容器。
+services:
+  mysql57:
+    image: biarms/mysql:5.7
+    environment:
+      MYSQL_ROOT_PASSWORD: basalt-test
+    ports: ["127.0.0.1:23306:3306"]
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+
+  mysql84:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: basalt-test
+    ports: ["127.0.0.1:23307:3306"]
+    profiles: ["full"]
+
+  mariadb:
+    image: mariadb:11.4
+    environment:
+      MARIADB_ROOT_PASSWORD: basalt-test
+    ports: ["127.0.0.1:23308:3306"]
+    profiles: ["full"]
+
+  postgres:
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_PASSWORD: basalt-test
+    ports: ["127.0.0.1:25432:5432"]

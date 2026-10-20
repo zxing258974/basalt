@@ -1,0 +1,136 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--surface-sidebar);
+  border-right: 1px solid var(--line);
+}
+.sidebar-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: var(--space-5) var(--space-5) var(--space-3) var(--space-6);
+}
+.sidebar-title {
+  margin: 0;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.sidebar-meta {
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+}
+.sidebar-body {
+  flex: 1;
+  overflow: auto;
+  padding: 0 var(--space-3) var(--space-6);
+}
+
+.tree {
+  outline: none;
+}
+.tree-item {
+  outline: none;
+}
+.tree-row {
+  --indent: 14px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--tree-row-height);
+  padding: 0 var(--space-4) 0 calc(var(--space-2) + var(--depth, 0) * var(--indent));
+  border-radius: var(--radius-sm);
+  font-size: var(--text-md);
+  color: var(--text);
+  white-space: nowrap;
+}
+.tree-row:hover {
+  background: var(--surface-hover);
+}
+.tree-row.is-selected {
+  background: var(--surface-selected);
+  color: var(--text-strong);
+}
+.tree:focus-within .tree-item:focus > .tree-row.is-selected {
+  background: var(--surface-selected-strong);
+  color: var(--text-on-accent);
+}
+.tree:focus-within .tree-item:focus > .tree-row.is-selected .tree-icon,
+.tree:focus-within .tree-item:focus > .tree-row.is-selected .tree-count {
+  color: inherit;
+}
+.tree-item:focus-visible > .tree-row {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+}
+.tree-twisty {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--text-faint);
+}
+.tree-twisty svg {
+  width: 12px;
+  height: 12px;
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.tree-twisty.is-open svg {
+  transform: rotate(90deg);
+}
+.tree-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  color: var(--text-muted);
+}
+.tree-icon svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 1.75;
+}
+.tree-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tree-count {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+.connection-name.is-open {
+  font-weight: var(--weight-medium);
+  color: var(--text-strong);
+}
+.tree-status {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.tree-status:hover {
+  background: none;
+}
+.tree-status.is-error {
+  color: var(--danger);
+}
+.tree-status.is-empty {
+  color: var(--text-faint);
+  font-style: italic;
+}
+.tree-status .spinner {
+  width: 10px;
+  height: 10px;
+}
+.tree-retry {
+  border: none;
+  background: none;
+  padding: 0 var(--space-2);
+  color: var(--accent);
+  font-size: var(--text-sm);
+}
+.tree-retry:hover {
+  text-decoration: underline;
+}

@@ -1,0 +1,123 @@
+/*
+ * Basalt 设计令牌。
+ * 方向:macOS 原生工具感 + 瑞士式克制排版。玄武岩的炭灰做底,余烬琥珀做唯一强调色;
+ * 每种数据库一个识别色,只出现在连接图标和标签页左边条上。
+ */
+:root {
+  color-scheme: light;
+
+  /* 表面:由外到内逐层变亮,靠明度差而不是边框分区 */
+  --surface-chrome: oklch(95.5% 0.004 75);
+  --surface-sidebar: oklch(97% 0.004 75);
+  --surface-canvas: oklch(99.5% 0.002 75);
+  --surface-raised: oklch(100% 0 0);
+  --surface-sunken: oklch(94% 0.005 75);
+  --surface-hover: oklch(92.5% 0.006 75);
+  --surface-selected: oklch(91% 0.045 60);
+  --surface-selected-strong: oklch(62% 0.165 48);
+
+  --text-strong: oklch(21% 0.012 60);
+  --text: oklch(33% 0.01 60);
+  --text-muted: oklch(52% 0.008 60);
+  --text-faint: oklch(66% 0.006 60);
+  --text-on-accent: oklch(99% 0 0);
+
+  --line: oklch(88% 0.006 75);
+  --line-strong: oklch(80% 0.008 75);
+  --line-hairline: oklch(91% 0.005 75);
+
+  /* 余烬:主操作、焦点、选中 */
+  --accent: oklch(62% 0.165 48);
+  --accent-hover: oklch(57% 0.17 45);
+  --accent-soft: oklch(94% 0.04 60);
+  --focus-ring: oklch(70% 0.15 50 / 0.55);
+
+  /* 语义色 */
+  --danger: oklch(55% 0.19 27);
+  --danger-soft: oklch(95% 0.03 27);
+  --success: oklch(56% 0.13 150);
+  --success-soft: oklch(95% 0.035 150);
+
+  /* 数据库识别色 */
+  --db-mysql: oklch(58% 0.11 205);
+  --db-mariadb: oklch(52% 0.09 55);
+  --db-postgres: oklch(52% 0.12 255);
+  --db-sqlite: oklch(55% 0.07 130);
+
+  /* 字体:界面跟系统走以贴近原生,数据与 SQL 用等宽 */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, "PingFang SC", monospace;
+
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --text-xl: 20px;
+  --text-display: 28px;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* 间距:4 的倍数,密集区(树、表格)用小档,对话框用大档 */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --space-7: 24px;
+  --space-8: 32px;
+  --space-9: 48px;
+
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 11px;
+
+  --shadow-popover: 0 0 0 0.5px oklch(0% 0 0 / 0.12), 0 6px 18px oklch(20% 0.02 60 / 0.14);
+  --shadow-dialog: 0 0 0 0.5px oklch(0% 0 0 / 0.14), 0 22px 60px oklch(20% 0.02 60 / 0.24),
+    0 6px 16px oklch(20% 0.02 60 / 0.1);
+
+  --toolbar-height: 52px;
+  --statusbar-height: 24px;
+  --tabbar-height: 32px;
+  --tree-row-height: 24px;
+  /* 红绿灯按钮占位(Overlay 标题栏) */
+  --traffic-light-inset: 78px;
+
+  --duration-fast: 120ms;
+  --duration-normal: 220ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-chrome: oklch(23% 0.006 60);
+    --surface-sidebar: oklch(21% 0.006 60);
+    --surface-canvas: oklch(18.5% 0.005 60);
+    --surface-raised: oklch(26% 0.007 60);
+    --surface-sunken: oklch(16% 0.005 60);
+    --surface-hover: oklch(28% 0.008 60);
+    --surface-selected: oklch(33% 0.05 50);
+    --surface-selected-strong: oklch(60% 0.15 48);
+    --text-strong: oklch(96% 0.004 75);
+    --text: oklch(86% 0.005 75);
+    --text-muted: oklch(68% 0.006 75);
+    --text-faint: oklch(54% 0.006 75);
+    --line: oklch(32% 0.007 60);
+    --line-strong: oklch(40% 0.008 60);
+    --line-hairline: oklch(27% 0.006 60);
+    --accent: oklch(68% 0.155 52);
+    --accent-hover: oklch(73% 0.15 55);
+    --accent-soft: oklch(31% 0.06 50);
+    --danger: oklch(66% 0.17 27);
+    --danger-soft: oklch(28% 0.06 27);
+    --success: oklch(70% 0.13 150);
+    --success-soft: oklch(27% 0.05 150);
+    --shadow-popover: 0 0 0 0.5px oklch(100% 0 0 / 0.1), 0 8px 24px oklch(0% 0 0 / 0.5);
+    --shadow-dialog: 0 0 0 0.5px oklch(100% 0 0 / 0.12), 0 24px 70px oklch(0% 0 0 / 0.6);
+  }
+}

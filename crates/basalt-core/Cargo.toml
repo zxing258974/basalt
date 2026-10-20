@@ -1,0 +1,22 @@
+[package]
+name = "basalt-core"
+description = "Basalt 的数据库核心:连接配置、驱动、元数据、SQL 生成"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+sqlx.workspace = true
+chrono.workspace = true
+rust_decimal.workspace = true
+uuid.workspace = true
+keyring.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

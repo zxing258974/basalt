@@ -1,0 +1,33 @@
+[workspace]
+resolver = "3"
+members = ["crates/basalt-core", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+
+[workspace.dependencies]
+basalt-core = { path = "crates/basalt-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
+sqlx = { version = "0.8", default-features = false, features = [
+  "runtime-tokio",
+  "tls-rustls",
+  "mysql",
+  "postgres",
+  "sqlite",
+  "chrono",
+  "rust_decimal",
+  "uuid",
+  "json",
+] }
+chrono = { version = "0.4", features = ["serde"] }
+rust_decimal = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+keyring = { version = "3", features = ["apple-native"] }
+tempfile = "3"
+log = "0.4"

@@ -40,6 +40,9 @@ const COLUMNS: Record<OptionalColumn, ColumnSpec> = {
   comment: { label: "注释", render: (t) => t.comment ?? "" },
 };
 
+// 数据没到时用同一个空数组,免得下面的 useMemo 每次渲染都重算。
+const NO_TABLES: TableInfo[] = [];
+
 const FILTERS: { value: KindFilter; label: string }[] = [
   { value: "all", label: "全部" },
   { value: "tables", label: "表" },
@@ -54,7 +57,7 @@ export function ObjectListView({ tab }: { tab: ObjectsTab }) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<TableSort>({ key: "name", direction: "asc" });
 
-  const all = query.data ?? [];
+  const all = query.data ?? NO_TABLES;
   const columns = useMemo(() => visibleColumns(all), [all]);
   const rows = useMemo(() => sortTables(filterTables(all, { kind, search }), sort), [all, kind, search, sort]);
   const tableCount = all.filter((t) => t.kind === "table").length;
@@ -181,7 +184,13 @@ export function ObjectListView({ tab }: { tab: ObjectsTab }) {
   );
 }
 
-function SortableHeader({ label, sortKey, sort, numeric, onSort }: {
+function SortableHeader({
+  label,
+  sortKey,
+  sort,
+  numeric,
+  onSort,
+}: {
   label: string;
   sortKey: SortKey;
   sort: TableSort;
@@ -200,7 +209,12 @@ function SortableHeader({ label, sortKey, sort, numeric, onSort }: {
   );
 }
 
-function EmptyState({ title, detail, tone, action }: {
+function EmptyState({
+  title,
+  detail,
+  tone,
+  action,
+}: {
   title: string;
   detail?: string;
   tone?: "error";

@@ -19,9 +19,7 @@ export function DriverPicker({ onPick }: DriverPickerProps) {
         >
           <DriverBadge driver={driver.kind} size="lg" />
           <span className="driver-card-label">{driver.label}</span>
-          <span className="driver-card-meta mono">
-            {driver.defaultPort ? `:${driver.defaultPort}` : "本地文件"}
-          </span>
+          <span className="driver-card-meta mono">{driver.defaultPort ? `:${driver.defaultPort}` : "本地文件"}</span>
         </button>
       ))}
     </div>

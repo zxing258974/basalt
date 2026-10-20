@@ -10,8 +10,7 @@ export const connectionKey = (id: string): string => segment("c", id);
 /** 连接分组文件夹。不以 c: 开头,不会被当成某个连接的子节点。 */
 export const folderKey = (group: string): string => segment("folder", group);
 
-export const databaseKey = (id: string, database: string): string =>
-  `${connectionKey(id)}/${segment("d", database)}`;
+export const databaseKey = (id: string, database: string): string => `${connectionKey(id)}/${segment("d", database)}`;
 
 export const schemaKey = (id: string, database: string, schema: string): string =>
   `${databaseKey(id, database)}/${segment("s", schema)}`;
@@ -21,7 +20,7 @@ export function containerKey(id: string, database: string, schema: string | null
   return schema === null ? databaseKey(id, database) : schemaKey(id, database, schema);
 }
 
-export const groupKey = (id: string, database: string, schema: string | null, group: GroupKind | string): string =>
+export const groupKey = (id: string, database: string, schema: string | null, group: GroupKind): string =>
   `${containerKey(id, database, schema)}/${segment("g", group)}`;
 
 export const tableKey = (id: string, database: string, schema: string | null, table: string): string =>

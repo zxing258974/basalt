@@ -17,7 +17,12 @@ interface QueryLike<T> {
 }
 
 /** 统一处理子节点的加载中、出错、为空三种状态。 */
-function Children<T>({ query, depth, empty, children }: {
+function Children<T>({
+  query,
+  depth,
+  empty,
+  children,
+}: {
   query: QueryLike<T[]>;
   depth: number;
   empty: string;
@@ -57,7 +62,15 @@ export function DatabaseList({ connection, depth }: { connection: ConnectionView
   );
 }
 
-function DatabaseNode({ connection, database, depth }: { connection: ConnectionView; database: string; depth: number }) {
+function DatabaseNode({
+  connection,
+  database,
+  depth,
+}: {
+  connection: ConnectionView;
+  database: string;
+  depth: number;
+}) {
   const openMenu = useTreeMenu();
   const queryClient = useQueryClient();
   const openObjects = useOpenObjects(connection);
@@ -143,7 +156,12 @@ const GROUPS: { kind: GroupKind; label: string; matches(table: TableInfo): boole
   { kind: "views", label: "视图", matches: (t) => t.kind !== "table" },
 ];
 
-function ObjectGroups({ connection, database, schema, depth }: {
+function ObjectGroups({
+  connection,
+  database,
+  schema,
+  depth,
+}: {
   connection: ConnectionView;
   database: string;
   schema: string | null;
@@ -152,7 +170,11 @@ function ObjectGroups({ connection, database, schema, depth }: {
   const query = useTables(connection.id, database, schema, true);
   const openObjects = useOpenObjects(connection);
   if (query.isPending || query.error) {
-    return <Children query={query} depth={depth} empty="">{() => null}</Children>;
+    return (
+      <Children query={query} depth={depth} empty="">
+        {() => null}
+      </Children>
+    );
   }
   const tables = query.data ?? [];
   return (

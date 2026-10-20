@@ -99,12 +99,25 @@ function ConnectionNode({ connection, depth }: { connection: ConnectionView; dep
 
   const items: MenuEntry[] = [
     connection.isOpen
-      ? { label: "关闭连接", icon: <Plug />, onSelect: () => actions.withNotice("关闭连接", () => actions.close(connection.id)) }
+      ? {
+          label: "关闭连接",
+          icon: <Plug />,
+          onSelect: () => actions.withNotice("关闭连接", () => actions.close(connection.id)),
+        }
       : { label: "打开连接", icon: <PlugZap />, onSelect: () => void openSafely() },
     "separator",
     { label: "编辑连接…", icon: <Pencil />, onSelect: () => openConnectionDialog({ mode: "edit", connection }) },
-    { label: "复制连接", icon: <Copy />, onSelect: () => actions.withNotice("复制连接", () => actions.duplicate(connection.id)) },
-    { label: "刷新", icon: <RefreshCw />, disabled: !connection.isOpen, onSelect: () => actions.withNotice("刷新", () => actions.refresh(connection.id)) },
+    {
+      label: "复制连接",
+      icon: <Copy />,
+      onSelect: () => actions.withNotice("复制连接", () => actions.duplicate(connection.id)),
+    },
+    {
+      label: "刷新",
+      icon: <RefreshCw />,
+      disabled: !connection.isOpen,
+      onSelect: () => actions.withNotice("刷新", () => actions.refresh(connection.id)),
+    },
     "separator",
     { label: "删除连接…", icon: <Trash2 />, danger: true, onSelect: () => confirmDelete(connection) },
   ];
@@ -113,7 +126,9 @@ function ConnectionNode({ connection, depth }: { connection: ConnectionView; dep
     <TreeRow
       nodeKey={connectionKey(connection.id)}
       depth={depth}
-      label={<span className={connection.isOpen ? "connection-name is-open" : "connection-name"}>{connection.name}</span>}
+      label={
+        <span className={connection.isOpen ? "connection-name is-open" : "connection-name"}>{connection.name}</span>
+      }
       accessibleName={connection.name}
       title={endpointSummary(connection)}
       icon={<DriverBadge driver={connection.driver} live={connection.isOpen} />}

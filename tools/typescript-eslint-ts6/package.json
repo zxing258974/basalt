@@ -1,0 +1,15 @@
+{
+  "name": "@basalt/typescript-eslint-ts6",
+  "private": true,
+  "version": "0.0.0",
+  "description": "让 typescript-eslint 用 TypeScript 6 解析代码:项目用的 TypeScript 7 是原生版,没有它需要的 JS 编译器接口。",
+  "type": "module",
+  "main": "index.js",
+  "dependencies": {
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.72.0"
+  },
+  "peerDependencies": {
+    "eslint": "^10.0.0"
+  }
+}

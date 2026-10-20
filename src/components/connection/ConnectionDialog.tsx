@@ -8,14 +8,7 @@ import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Checkbox, Field } from "../ui/Field";
 import { connectionKey } from "../sidebar/treeKeys";
-import {
-  defaultName,
-  emptyForm,
-  formFromConfig,
-  toDraft,
-  withDriver,
-  type ConnectionForm,
-} from "./connectionForm";
+import { defaultName, emptyForm, formFromConfig, toDraft, withDriver, type ConnectionForm } from "./connectionForm";
 import { driverMeta, DRIVERS } from "./driverMeta";
 import { DriverPicker } from "./DriverPicker";
 
@@ -153,7 +146,7 @@ function ConnectionFormBody({ initial, onBack, onDone }: BodyProps) {
             error={errorFor("path")}
             onValueChange={(path) => update({ path })}
             trailing={
-              <Button icon={<FolderOpen />} onClick={browse}>
+              <Button icon={<FolderOpen />} onClick={() => void browse()}>
                 浏览…
               </Button>
             }

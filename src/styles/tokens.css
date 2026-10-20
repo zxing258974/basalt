@@ -77,8 +77,8 @@
   --radius-lg: 11px;
 
   --shadow-popover: 0 0 0 0.5px oklch(0% 0 0 / 0.12), 0 6px 18px oklch(20% 0.02 60 / 0.14);
-  --shadow-dialog: 0 0 0 0.5px oklch(0% 0 0 / 0.14), 0 22px 60px oklch(20% 0.02 60 / 0.24),
-    0 6px 16px oklch(20% 0.02 60 / 0.1);
+  --shadow-dialog:
+    0 0 0 0.5px oklch(0% 0 0 / 0.14), 0 22px 60px oklch(20% 0.02 60 / 0.24), 0 6px 16px oklch(20% 0.02 60 / 0.1);
 
   --toolbar-height: 52px;
   --statusbar-height: 24px;

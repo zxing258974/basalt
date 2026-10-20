@@ -1,10 +1,4 @@
-import type {
-  ConnectionConfig,
-  ConnectionDraft,
-  ConnectionView,
-  ServerInfo,
-  TableInfo,
-} from "./types";
+import type { ConnectionConfig, ConnectionDraft, ConnectionView, ServerInfo, TableInfo } from "./types";
 
 /** 前端能调用的全部后端能力。Tauri 与 mock 后端都实现它。 */
 export interface Backend {
@@ -40,8 +34,7 @@ function createTauriBackend(): Backend {
     closeConnection: (id) => call("close_connection", { id }),
     listDatabases: (id) => call("list_databases", { id }),
     listSchemas: (id, database) => call("list_schemas", { id, database }),
-    listTables: (id, database, schema) =>
-      call("list_tables", { id, database, schema: schema ?? null }),
+    listTables: (id, database, schema) => call("list_tables", { id, database, schema: schema ?? null }),
     pickSqliteFile: async () => {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const picked = await open({

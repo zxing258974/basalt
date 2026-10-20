@@ -5,7 +5,13 @@ import { useConnectionActions } from "../../hooks/useConnectionActions";
 import { useUi } from "../../stores/ui";
 import { connectionIdFromKey } from "../sidebar/treeKeys";
 
-function ToolbarButton({ icon, label, shortcut, disabled, onClick }: {
+function ToolbarButton({
+  icon,
+  label,
+  shortcut,
+  disabled,
+  onClick,
+}: {
   icon: ReactNode;
   label: string;
   shortcut?: string;
@@ -41,7 +47,11 @@ export function Toolbar() {
           onClick={() => openConnectionDialog({ mode: "create", driver: null })}
         />
         {connection?.isOpen ? (
-          <ToolbarButton icon={<Plug />} label="关闭连接" onClick={() => actions.withNotice("关闭连接", () => actions.close(connection.id))} />
+          <ToolbarButton
+            icon={<Plug />}
+            label="关闭连接"
+            onClick={() => actions.withNotice("关闭连接", () => actions.close(connection.id))}
+          />
         ) : (
           <ToolbarButton
             icon={<PlugZap />}

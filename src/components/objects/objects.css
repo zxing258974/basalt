@@ -71,7 +71,9 @@
 .segmented-item.is-active {
   background: var(--surface-raised);
   color: var(--text-strong);
-  box-shadow: 0 1px 2px oklch(20% 0.02 60 / 0.12), 0 0 0 0.5px oklch(0% 0 0 / 0.06);
+  box-shadow:
+    0 1px 2px oklch(20% 0.02 60 / 0.12),
+    0 0 0 0.5px oklch(0% 0 0 / 0.06);
 }
 
 .search-box {

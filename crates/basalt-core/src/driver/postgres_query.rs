@@ -15,7 +15,7 @@ use crate::sql::{Dialect, quote_ident};
 use crate::value::{CellValue, from_hex};
 
 pub(crate) struct PgEditor {
-    conn: PgConnection,
+    pub(super) conn: PgConnection,
     pid: i32,
     database: String,
 }

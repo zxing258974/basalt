@@ -12,6 +12,7 @@ use crate::driver::postgres::PgSession;
 use crate::driver::sqlite::SqliteSession;
 use crate::driver::{ConnectParams, ServerInfo, TableInfo};
 use crate::error::{CoreError, CoreResult};
+use crate::query::lease::EditorLease;
 use crate::query::{EditorRegistry, QueryScope, StatementOutcome};
 
 pub enum Session {
@@ -231,6 +232,19 @@ impl SessionManager {
     /// 查询标签页关了,断开它的专用连接。
     pub async fn close_editor(&self, editor_id: &str) {
         self.editors.close(editor_id).await;
+    }
+
+    /// 导入导出借用 `editor_id` 的专用连接(查询标签页的,或者为这次导入导出新开的)。
+    pub async fn lease_editor(
+        &self,
+        editor_id: &str,
+        connection_id: &str,
+        scope: &QueryScope,
+    ) -> CoreResult<EditorLease> {
+        let session = self.get(connection_id).await?;
+        self.editors
+            .lease(editor_id, connection_id, &session, scope)
+            .await
     }
 
     #[cfg(test)]

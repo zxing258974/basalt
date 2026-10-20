@@ -28,36 +28,41 @@ const RECONNECTED: &str =
     "与服务器的连接断开过，已经重新连上；之前会话里的变量、临时表和未提交的事务都没有了。";
 
 /// 已经建立的专用连接。`session` 记住它是从哪一次打开的会话里来的:连接关掉再打开以后,旧连接作废。
-struct OpenEditor {
+pub(super) struct OpenEditor {
     session: Weak<Session>,
-    conn: EditorConnection,
-    scope: QueryScope,
-    last_used: Instant,
+    pub(super) conn: EditorConnection,
+    pub(super) scope: QueryScope,
+    pub(super) last_used: Instant,
 }
 
-struct Running {
-    handle: CancelHandle,
-    requested: Arc<AtomicBool>,
+pub(super) struct Running {
+    pub(super) handle: CancelHandle,
+    pub(super) requested: Arc<AtomicBool>,
 }
 
 /// 标签页上这一次执行走到哪了。还在准备(建连接、切库)时取消,就不再开始执行。
-enum Phase {
+pub(super) enum Phase {
     Idle,
-    Preparing { cancel_requested: bool },
+    Preparing {
+        cancel_requested: bool,
+    },
     Running(Running),
+    /// 导入导出借走了这条连接(见 [`super::lease`]),两条语句之间:取消只记下来。
+    Leased(Arc<AtomicBool>),
 }
 
-struct EditorSlot {
+pub(super) struct EditorSlot {
     connection_id: String,
-    state: Mutex<Option<OpenEditor>>,
-    phase: Mutex<Phase>,
+    /// 导入导出借用时要跨方法持有这把锁,所以放在 Arc 里(`lock_owned`)。
+    pub(super) state: Arc<Mutex<Option<OpenEditor>>>,
+    pub(super) phase: Mutex<Phase>,
 }
 
 impl EditorSlot {
     fn new(connection_id: &str) -> Self {
         Self {
             connection_id: connection_id.to_owned(),
-            state: Mutex::new(None),
+            state: Arc::new(Mutex::new(None)),
             phase: Mutex::new(Phase::Idle),
         }
     }
@@ -75,6 +80,10 @@ impl EditorSlot {
             Phase::Running(running) => {
                 running.requested.store(true, Ordering::Relaxed);
                 running.handle.cancel().await?;
+                Ok(true)
+            }
+            Phase::Leased(requested) => {
+                requested.store(true, Ordering::Relaxed);
                 Ok(true)
             }
         }
@@ -109,7 +118,7 @@ impl EditorRegistry {
     }
 
     /// 标签页换了连接时,旧连接上的那条专用连接一并断开。
-    async fn slot(&self, editor_id: &str, connection_id: &str) -> Arc<EditorSlot> {
+    pub(super) async fn slot(&self, editor_id: &str, connection_id: &str) -> Arc<EditorSlot> {
         let (slot, replaced) = {
             let mut slots = self.slots();
             match slots.get(editor_id) {
@@ -247,7 +256,7 @@ fn cancelled_before_start(scope: QueryScope, notice: Option<String>) -> Statemen
 }
 
 /// 确保有一条可用的专用连接,并切到要求的库 / schema。返回要告诉用户的事。
-async fn prepare(
+pub(super) async fn prepare(
     state: &mut Option<OpenEditor>,
     session: &Arc<Session>,
     scope: &QueryScope,
@@ -290,7 +299,7 @@ async fn prepare(
 }
 
 /// 连接层面的失败(断网、服务器关了连接):这条连接不能再用。
-fn is_connection_lost(error: &sqlx::Error) -> bool {
+pub(super) fn is_connection_lost(error: &sqlx::Error) -> bool {
     matches!(
         error,
         sqlx::Error::Io(_) | sqlx::Error::Protocol(_) | sqlx::Error::WorkerCrashed
@@ -298,7 +307,7 @@ fn is_connection_lost(error: &sqlx::Error) -> bool {
 }
 
 /// 数据库报错带上错误号(MySQL)或详情、提示(PostgreSQL),和命令行客户端看到的一样。
-fn error_text(error: sqlx::Error) -> String {
+pub(super) fn error_text(error: sqlx::Error) -> String {
     let sqlx::Error::Database(db) = &error else {
         return CoreError::from(error).to_string();
     };
@@ -381,30 +390,5 @@ async fn finish(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn cancel_is_remembered_while_preparing_and_ignored_when_idle() {
-        let slot = EditorSlot::new("c1");
-        assert!(!slot.request_cancel().await.unwrap(), "什么都没在做");
-        *slot.phase.lock().await = Phase::Preparing {
-            cancel_requested: false,
-        };
-        assert!(slot.request_cancel().await.unwrap());
-        assert!(matches!(
-            *slot.phase.lock().await,
-            Phase::Preparing {
-                cancel_requested: true
-            }
-        ));
-    }
-
-    #[test]
-    fn statements_cancelled_before_start_report_it() {
-        let outcome = cancelled_before_start(QueryScope::default(), Some("重连了".into()));
-        assert_eq!(outcome.status, OutcomeStatus::Cancelled);
-        assert!(outcome.result_sets.is_empty());
-        assert_eq!(outcome.notice.as_deref(), Some("重连了"));
-    }
-}
+#[path = "editor_tests.rs"]
+mod tests;

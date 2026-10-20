@@ -11,6 +11,7 @@ pub mod secret;
 pub mod session;
 pub mod sql;
 pub mod table;
+pub mod transfer;
 pub mod value;
 
 pub use error::{CoreError, CoreResult, FieldError};

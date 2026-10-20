@@ -156,7 +156,7 @@ impl PgSession {
     }
 }
 
-fn bind(
+pub(super) fn bind(
     query: Query<'_, Postgres, PgArguments>,
     value: BindValue,
 ) -> Query<'_, Postgres, PgArguments> {

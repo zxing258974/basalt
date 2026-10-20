@@ -7,6 +7,7 @@
 pub(crate) mod collect;
 pub(crate) mod editor;
 pub mod history;
+pub mod lease;
 pub mod saved;
 
 pub use editor::EditorRegistry;
@@ -27,7 +28,7 @@ pub struct QueryScope {
     pub schema: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResultColumn {
     pub name: String,

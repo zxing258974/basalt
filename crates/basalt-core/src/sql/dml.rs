@@ -84,31 +84,31 @@ impl Statement {
     }
 }
 
-struct Builder {
+pub(super) struct Builder {
     dialect: Dialect,
     parts: Vec<Part>,
 }
 
 impl Builder {
-    fn new(dialect: Dialect) -> Self {
+    pub(super) fn new(dialect: Dialect) -> Self {
         Self {
             dialect,
             parts: Vec::new(),
         }
     }
 
-    fn sql(&mut self, sql: &str) {
+    pub(super) fn sql(&mut self, sql: &str) {
         match self.parts.last_mut() {
             Some(Part::Sql(last)) => last.push_str(sql),
             _ => self.parts.push(Part::Sql(sql.to_owned())),
         }
     }
 
-    fn param(&mut self, (value, cast): (BindValue, Option<String>)) {
+    pub(super) fn param(&mut self, (value, cast): (BindValue, Option<String>)) {
         self.parts.push(Part::Param { value, cast });
     }
 
-    fn finish(self) -> Statement {
+    pub(super) fn finish(self) -> Statement {
         Statement {
             dialect: self.dialect,
             parts: self.parts,

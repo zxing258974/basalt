@@ -113,7 +113,7 @@ impl SqliteSession {
     }
 }
 
-fn bind<'q>(
+pub(super) fn bind<'q>(
     query: Query<'q, Sqlite, SqliteArguments<'q>>,
     value: BindValue,
 ) -> Query<'q, Sqlite, SqliteArguments<'q>> {

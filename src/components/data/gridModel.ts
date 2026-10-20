@@ -29,6 +29,23 @@ export function gridRows(page: TablePage, edits: EditState): GridRow[] {
   return [...existing, ...added];
 }
 
+/** 选中的格子;row 是 gridRows 里的序号。 */
+export interface GridSelection {
+  row: number;
+  col: number;
+}
+
+/** 行或列变少后(撤销新行、提交删除后重读)把选区收进还在的格子;一行或一列都不剩就清空。没越界时原样返回。 */
+export function fitSelection(
+  selection: GridSelection | null,
+  rowCount: number,
+  colCount: number,
+): GridSelection | null {
+  if (!selection || rowCount === 0 || colCount === 0) return null;
+  if (selection.row < rowCount && selection.col < colCount) return selection;
+  return { row: Math.min(selection.row, rowCount - 1), col: Math.min(selection.col, colCount - 1) };
+}
+
 export type CellTone = "value" | "null" | "unsupported" | "placeholder";
 
 export interface CellView {

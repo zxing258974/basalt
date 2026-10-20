@@ -12,11 +12,11 @@ import { DriverBadge } from "../connection/DriverBadge";
 import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/EmptyState";
 import { DataFooter } from "./DataFooter";
-import { DataGrid, type GridActions, type GridSelection } from "./DataGrid";
+import { DataGrid, type GridActions } from "./DataGrid";
 import { DataToolbar } from "./DataToolbar";
 import * as editing from "./editState";
 import { nextSort } from "./GridHeader";
-import { gridRows } from "./gridModel";
+import { fitSelection, gridRows, type GridSelection } from "./gridModel";
 import { PreviewDialog, type PreviewState } from "./PreviewDialog";
 
 const DEFAULT_LIMIT = 1000;
@@ -41,7 +41,10 @@ export function TableDataView({ tab, active }: { tab: TableDataTab; active: bool
   const locked = pending > 0;
   const editable = Boolean(page && !page.readOnlyReason && isOpen);
   const rows = useMemo(() => (page ? gridRows(page, edits) : []), [page, edits]);
-  const selectedRow = selection ? rows[selection.row] : undefined;
+  // 行数变少(撤销新行、提交删除后重读)时选区收进还在的行,免得按键、复制、删除行指向不存在的行。
+  const fitted = fitSelection(selection, rows.length, page?.columns.length ?? 0);
+  if (fitted !== selection) setSelection(fitted);
+  const selectedRow = fitted ? rows[fitted.row] : undefined;
 
   // 告诉标签栏这页有多少行没提交:关闭标签页或连接前要确认。
   const setPending = useTabs((s) => s.setPending);
@@ -249,7 +252,7 @@ export function TableDataView({ tab, active }: { tab: TableDataTab; active: bool
           edits={edits}
           rowOffset={request.offset}
           editable={editable}
-          selection={selection}
+          selection={fitted}
           onSelectionChange={setSelection}
           sort={request.sort}
           sortDisabled={locked}

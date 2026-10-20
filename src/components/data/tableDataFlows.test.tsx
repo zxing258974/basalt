@@ -1,7 +1,7 @@
-// 表数据页的交互流程:编辑 → ⌘S 预览 → 提交、失败保留修改、只读表、筛选与锁定翻页。
+// 表数据页的交互流程:编辑 → ⌘S 预览 → 提交、失败保留修改、只读表、筛选与锁定翻页、选中格直接打字(含输入法)、行数变少后选区收紧。
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createQueryClient } from "../../App";
 import { setBackendForTesting } from "../../lib/api";
@@ -159,6 +159,9 @@ describe("table data", () => {
     expect(screen.getByRole("button", { name: "新增行" })).toBeDisabled();
     await user.dblClick(cell(grid, 0, 1));
     expect(screen.queryByRole("textbox", { name: /编辑/ })).not.toBeInTheDocument();
+    await user.click(cell(grid, 0, 1));
+    await user.keyboard("x");
+    expect(screen.queryByRole("textbox", { name: /编辑/ })).not.toBeInTheDocument();
   });
 
   it("filters on the server and offers to clear a filter that fails", async () => {
@@ -216,5 +219,179 @@ describe("table data", () => {
     // 等过 mock 后端生成预览的延迟,迟到的结果不能再把对话框弹出来。
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
+describe("typing on a selected cell", () => {
+  const editorFor = (column: string) => screen.queryByRole("textbox", { name: `编辑「${column}」` });
+
+  /** 点选格子,返回接收键盘的输入框:它应该就是当前焦点。 */
+  async function selectCell(grid: HTMLElement, user: UserEvent, row: number, col: number, table = "customers") {
+    await user.click(cell(grid, row, col));
+    const input = screen.getByRole("textbox", { name: `${table} 的数据` });
+    expect(input).toHaveFocus();
+    return input;
+  }
+
+  /** 输入法组字:keyCode 229 的按键归输入法,组字中的文字先进输入框。 */
+  function compose(input: HTMLElement, ...steps: string[]) {
+    fireEvent.keyDown(input, { key: steps[0]?.at(-1) ?? "n", keyCode: 229 });
+    fireEvent.compositionStart(input, { data: "" });
+    for (const value of steps) {
+      fireEvent.input(input, { target: { value }, inputType: "insertCompositionText", isComposing: true });
+    }
+  }
+
+  it("starts editing with a typed character and keeps the rest of the typing", async () => {
+    const { grid, user } = await renderTable();
+    await selectCell(grid, user, 0, 3);
+    await user.keyboard("xy");
+    expect(editorFor("city")).toHaveValue("xy");
+    await user.keyboard("{Enter}");
+    expect(cell(grid, 0, 3)).toHaveTextContent("xy");
+    expect(cell(grid, 0, 3)).toHaveClass("is-edited");
+  });
+
+  // 结束组字的事件顺序:Chromium 先发最后一个组字中的 input 再 compositionend;
+  // WebKit 先发 compositionend(文字已经在框里),之后再补一个不算组字的 input。
+  it.each([
+    [
+      "input, then compositionend",
+      (input: HTMLElement) => {
+        fireEvent.input(input, { target: { value: "你" }, inputType: "insertCompositionText", isComposing: true });
+        fireEvent.compositionEnd(input, { data: "你" });
+      },
+    ],
+    [
+      "compositionend, then input",
+      (input: HTMLElement) => {
+        (input as HTMLTextAreaElement).value = "你";
+        fireEvent.compositionEnd(input, { data: "你" });
+        fireEvent.input(input, { inputType: "insertText" });
+      },
+    ],
+  ])("composes with an input method before opening the editor (%s)", async (_order, finish) => {
+    const { grid, user } = await renderTable();
+    const input = await selectCell(grid, user, 0, 3);
+    compose(input, "n", "ni");
+    // 组字期间挑候选、回车上屏的键都归输入法:不移动选区,也不打开编辑框。
+    fireEvent.keyDown(input, { key: "ArrowDown", keyCode: 229, isComposing: true });
+    fireEvent.keyDown(input, { key: "Enter", keyCode: 229, isComposing: true });
+    expect(editorFor("city")).not.toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-activedescendant", cell(grid, 0, 3).id);
+
+    finish(input);
+    const editor = editorFor("city");
+    expect(editor).toHaveValue("你");
+    expect(editor).toHaveFocus();
+    await user.keyboard("好{Enter}");
+    expect(cell(grid, 0, 3)).toHaveTextContent("你好");
+  });
+
+  it("drops a cancelled composition and keeps the keyboard on the grid", async () => {
+    const { grid, user } = await renderTable();
+    const input = await selectCell(grid, user, 0, 3);
+    compose(input, "n", "ni", "");
+    fireEvent.compositionEnd(input, { data: "" });
+    expect(editorFor("city")).not.toBeInTheDocument();
+    expect(input).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(input).toHaveAttribute("aria-activedescendant", cell(grid, 1, 3).id);
+    // 取消掉的组字不能把之后的输入带回原来那一格。
+    await user.keyboard("x");
+    expect(cell(grid, 1, 3)).toContainElement(editorFor("city"));
+  });
+
+  it("starts editing with text an input method commits without composing", async () => {
+    // 拼音模式下的中文标点直接上屏,不经过组字。
+    const { grid, user } = await renderTable();
+    const input = await selectCell(grid, user, 0, 3);
+    fireEvent.keyDown(input, { key: ",", keyCode: 229 });
+    fireEvent.input(input, { target: { value: "，" }, inputType: "insertText" });
+    expect(editorFor("city")).toHaveValue("，");
+  });
+
+  it("keeps the grid shortcuts, the tab order and the active cell on the keyboard input", async () => {
+    const { grid, user } = await renderTable();
+    const input = await selectCell(grid, user, 0, 1);
+    expect(input).toHaveAttribute("aria-activedescendant", cell(grid, 0, 1).id);
+
+    await user.keyboard("{Meta>}c{/Meta}");
+    expect(await navigator.clipboard.readText()).toBe(cell(grid, 0, 1).textContent);
+    await user.paste("粘贴的文字");
+    expect(editorFor("name")).not.toBeInTheDocument();
+
+    await user.keyboard("{ArrowRight}");
+    expect(input).toHaveAttribute("aria-activedescendant", cell(grid, 0, 2).id);
+    // 滚动容器不占 Tab 位:往回 Tab 一次就离开表格,不会停在滚动容器上再被转回来。
+    await user.tab({ shift: true });
+    expect(document.activeElement).not.toBe(document.body);
+    expect(input.closest(".data-grid")).not.toContainElement(document.activeElement as HTMLElement);
+  });
+
+  it("lets the input method run on a read-only cell but drops the text", async () => {
+    const { grid, user } = await renderTable("v_daily_sales");
+    const input = await selectCell(grid, user, 0, 1, "v_daily_sales");
+    compose(input, "n", "ni");
+    expect(input).not.toHaveClass("is-composing");
+    fireEvent.compositionEnd(input, { data: "你" });
+    expect(screen.queryByRole("textbox", { name: /编辑/ })).not.toBeInTheDocument();
+    expect(input).toHaveFocus();
+  });
+
+  it("does not open the editor for text that arrives after the input lost focus", async () => {
+    const { grid, user } = await renderTable();
+    const input = await selectCell(grid, user, 0, 3);
+    compose(input, "n", "ni");
+    expect(input).toHaveClass("is-composing");
+    await user.click(screen.getByRole("textbox", { name: "筛选条件（WHERE 子句）" }));
+    expect(input).not.toHaveClass("is-composing");
+    fireEvent.compositionEnd(input, { data: "你" });
+    expect(editorFor("city")).not.toBeInTheDocument();
+  });
+
+  it("types straight into a new row and returns to the grid after the context menu", async () => {
+    const { grid, user } = await renderTable("widgets");
+    await user.click(screen.getByRole("button", { name: "新增行" }));
+    await waitFor(() => expect(within(grid).getAllByRole("row").at(-1)).toHaveClass("is-new"));
+    await user.keyboard("7");
+    const newRow = within(grid).getAllByRole("row").at(-1)!;
+    // 新行选中的是第一个要手填的格子(跳过自增和有默认值的列)。
+    expect(within(newRow).getByRole("textbox", { name: /^编辑/ })).toHaveValue("7");
+    await user.keyboard("{Escape}");
+
+    await user.pointer({ keys: "[MouseRight]", target: cell(grid, 0, 1) });
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "widgets 的数据" })).toHaveFocus();
+  });
+});
+
+// widgets 是 25 行的通用表(id、name、updated_at),新行选中的是第一个要手填的 name 列。
+describe("selection after rows go away", () => {
+  it("moves the selection to the last row when an added row is reverted", async () => {
+    const { grid, user } = await renderTable("widgets");
+    await user.click(screen.getByRole("button", { name: "新增行" }));
+    await user.click(screen.getByRole("button", { name: "撤销修改" }));
+    const input = screen.getByRole("textbox", { name: "widgets 的数据" });
+    act(() => input.focus());
+    expect(input).toHaveAttribute("aria-activedescendant", cell(grid, 24, 1).id);
+    expect(screen.getByRole("button", { name: "删除行" })).toBeEnabled();
+    await user.keyboard("{Meta>}c{/Meta}");
+    expect(await navigator.clipboard.readText()).toBe("widgets #25");
+    await user.keyboard("{F2}");
+    expect(cell(grid, 24, 1)).toContainElement(screen.getByRole("textbox", { name: "编辑「name」" }));
+  });
+
+  it("keeps the selection on a remaining row after a deleted row is committed", async () => {
+    const { grid, user } = await renderTable("widgets");
+    await user.click(cell(grid, 24, 1));
+    await user.keyboard("{Meta>}{Backspace}{/Meta}{Meta>}s{/Meta}");
+    await screen.findByRole("list", { name: "将要执行的语句" });
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "提交" }));
+    expect(await screen.findByText("已提交 1 条语句，影响 1 行。")).toBeInTheDocument();
+    // 提交后焦点回到表格,原来选中的第 25 行已经没了。
+    await user.keyboard("{Enter}");
+    expect(cell(grid, 23, 1)).toContainElement(screen.getByRole("textbox", { name: "编辑「name」" }));
   });
 });

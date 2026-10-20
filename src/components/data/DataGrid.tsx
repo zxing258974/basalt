@@ -15,8 +15,9 @@ import { ContextMenu, type MenuEntry } from "../ui/ContextMenu";
 import type { EditMove } from "./CellEditor";
 import type { EditState, RowTarget } from "./editState";
 import { GridHeader } from "./GridHeader";
+import { GridInput } from "./GridInput";
 import { cellId, GridRowView, type EditingCell } from "./GridRowView";
-import { cellView, gridRows, initialWidth, type GridRow } from "./gridModel";
+import { cellView, gridRows, initialWidth, type GridRow, type GridSelection } from "./gridModel";
 
 /** 行高、表头高度、行号槽宽度:虚拟滚动按这些数字算位置,同时作为 CSS 变量下发。 */
 const ROW_HEIGHT = 26;
@@ -24,11 +25,6 @@ const HEADER_HEIGHT = 40;
 const GUTTER_WIDTH = 56;
 /** 估初始列宽时看前多少行。 */
 const WIDTH_SAMPLE_ROWS = 50;
-
-export interface GridSelection {
-  row: number;
-  col: number;
-}
 
 export interface GridActions {
   setCell(target: RowTarget, column: string, value: EditInput): void;
@@ -44,6 +40,7 @@ interface DataGridProps {
   /** 本页第一行在整张表里的序号(从 0 开始),行号槽据此显示。 */
   rowOffset: number;
   editable: boolean;
+  /** 必须落在 gridRows(page, edits) 的范围里:行数变少时由持有选区的一方用 fitSelection 收紧。 */
   selection: GridSelection | null;
   onSelectionChange(selection: GridSelection): void;
   sort: SortSpec | null;
@@ -70,6 +67,9 @@ export function DataGrid(props: DataGridProps) {
   const { page, edits, editable, selection, onSelectionChange, actions } = props;
   const gridId = useId();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  /** 组字开始时选中的格子:组字中途点了别的格子,文字仍然进开始时那一格。 */
+  const composingAt = useRef<GridSelection | null>(null);
   const rows = useMemo(() => gridRows(page, edits), [page, edits]);
   const lastCol = page.columns.length - 1;
 
@@ -107,7 +107,7 @@ export function DataGrid(props: DataGridProps) {
   }, [selectedRow, selectedCol, virtualizer, widths]);
 
   useEffect(() => {
-    if (props.focusRequest > 0) scrollRef.current?.focus({ preventScroll: true });
+    if (props.focusRequest > 0) inputRef.current?.focus({ preventScroll: true });
   }, [props.focusRequest]);
 
   useEffect(() => {
@@ -115,7 +115,7 @@ export function DataGrid(props: DataGridProps) {
   }, [props.scrollKey]);
 
   const viewOf = (row: number, col: number) => cellView(page, edits, rows[row]!, col);
-  const focusGrid = () => scrollRef.current?.focus({ preventScroll: true });
+  const focusGrid = () => inputRef.current?.focus({ preventScroll: true });
   const select = (row: number, col: number) => {
     if (rows.length === 0 || lastCol < 0) return;
     onSelectionChange({
@@ -149,8 +149,10 @@ export function DataGrid(props: DataGridProps) {
     else actions.deleteRow(target);
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (editing || rows.length === 0) return;
+    // 输入法正在处理这个键(组字、挑候选、上屏):整个交给输入法,文字上屏后由 onText 接手。
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     const { row, col } = selection ?? { row: 0, col: 0 };
     const meta = event.metaKey || event.ctrlKey;
     const pageRows = Math.max(1, Math.floor((scrollRef.current?.clientHeight ?? 0) / ROW_HEIGHT) - 2);
@@ -177,10 +179,16 @@ export function DataGrid(props: DataGridProps) {
     } else if (meta && event.key.toLowerCase() === "c") {
       event.preventDefault();
       copy(row, col);
-    } else if (!meta && !event.altKey && event.key.length === 1) {
-      event.preventDefault();
-      startEditing(row, col, event.key);
     }
+    // 可打印的键不在这里拦:让字照常打进输入框,输入法才有机会组字。
+  };
+
+  const onText = (text: string, composed: boolean) => {
+    const target = (composed ? composingAt.current : null) ?? selection ?? { row: 0, col: 0 };
+    composingAt.current = null;
+    // 输入框已经不是焦点(比如对话框打开后才上屏的字):打开的编辑框拿不到焦点,不如不开。
+    if (editing || rows.length === 0 || document.activeElement !== inputRef.current) return;
+    startEditing(target.row, target.col, text);
   };
 
   const menuItems = (row: number, col: number): MenuEntry[] => {
@@ -237,6 +245,16 @@ export function DataGrid(props: DataGridProps) {
       ? cellId(gridId, selection.row, selection.col)
       : undefined;
 
+  // 输入框盖在选中格上(没有选区时在第一格),位置和编辑框打开时一致。
+  const at = selection ?? { row: 0, col: 0 };
+  const inputStyle: CSSProperties = {
+    top: HEADER_HEIGHT + at.row * ROW_HEIGHT - 1,
+    left: GUTTER_WIDTH + widths.slice(0, at.col).reduce((sum, w) => sum + w, 0) - 1,
+    width: (widths[at.col] ?? 0) + 2,
+    height: ROW_HEIGHT + 2,
+  };
+  const canType = editable && rows.length > 0 && at.row < rows.length && viewOf(at.row, at.col).editable;
+
   const style = {
     "--grid-columns": `${GUTTER_WIDTH}px ${widths.map((w) => `${w}px`).join(" ")}`,
     "--grid-width": `${GUTTER_WIDTH + widths.reduce((sum, w) => sum + w, 0)}px`,
@@ -246,58 +264,78 @@ export function DataGrid(props: DataGridProps) {
 
   return (
     <>
+      {/* 滚动容器可以被点中(tabIndex -1),但不占 Tab 位:焦点一到就转给输入框。 */}
       <div
         ref={scrollRef}
         className="data-grid"
-        role="grid"
-        aria-label={props.label}
-        aria-rowcount={rows.length + 1}
-        aria-colcount={page.columns.length + 1}
-        aria-activedescendant={activeCell}
-        tabIndex={0}
+        tabIndex={-1}
         style={style}
-        onKeyDown={onKeyDown}
+        onFocus={(event) => {
+          if (event.target === event.currentTarget) focusGrid();
+        }}
       >
-        <GridHeader
-          columns={page.columns}
-          widths={widths}
-          sort={props.sort}
-          sortDisabled={props.sortDisabled}
-          onSort={props.onSort}
-          onResize={(index, width) =>
-            setSized((current) => ({ ...current, widths: current.widths.map((w, i) => (i === index ? width : w)) }))
-          }
+        <GridInput
+          ref={inputRef}
+          label={props.label}
+          controls={`${gridId}-grid`}
+          activeCell={activeCell}
+          editable={canType}
+          style={inputStyle}
+          onKeyDown={onKeyDown}
+          onCompositionStart={() => {
+            composingAt.current = selection;
+          }}
+          onText={onText}
         />
-        <div className="grid-body" role="rowgroup" style={{ height: virtualizer.getTotalSize() }}>
-          {rows.length === 0 && <p className="grid-empty">没有符合条件的行</p>}
-          {virtualRows.map((item) => {
-            const row = rows[item.index]!;
-            const number = row.target.kind === "existing" ? String(props.rowOffset + row.target.index + 1) : "+";
-            return (
-              <GridRowView
-                key={row.key}
-                gridId={gridId}
-                row={row}
-                rowIndex={item.index}
-                label={number}
-                columns={page.columns}
-                views={page.columns.map((_, col) => viewOf(item.index, col))}
-                top={item.start}
-                selectedCol={selection?.row === item.index ? selection.col : null}
-                editing={editing?.row === item.index ? editing : null}
-                onCellMouseDown={(r, c) => {
-                  if (!editing) select(r, c);
-                }}
-                onCellDoubleClick={(r, c) => startEditing(r, c)}
-                onCellContextMenu={onCellContextMenu}
-                onCommit={commit}
-                onCancel={() => {
-                  setEditing(null);
-                  focusGrid();
-                }}
-              />
-            );
-          })}
+        <div
+          id={`${gridId}-grid`}
+          role="grid"
+          className="grid-table"
+          aria-label={props.label}
+          aria-rowcount={rows.length + 1}
+          aria-colcount={page.columns.length + 1}
+        >
+          <GridHeader
+            columns={page.columns}
+            widths={widths}
+            sort={props.sort}
+            sortDisabled={props.sortDisabled}
+            onSort={props.onSort}
+            onResize={(index, width) =>
+              setSized((current) => ({ ...current, widths: current.widths.map((w, i) => (i === index ? width : w)) }))
+            }
+          />
+          <div className="grid-body" role="rowgroup" style={{ height: virtualizer.getTotalSize() }}>
+            {rows.length === 0 && <p className="grid-empty">没有符合条件的行</p>}
+            {virtualRows.map((item) => {
+              const row = rows[item.index]!;
+              const number = row.target.kind === "existing" ? String(props.rowOffset + row.target.index + 1) : "+";
+              return (
+                <GridRowView
+                  key={row.key}
+                  gridId={gridId}
+                  row={row}
+                  rowIndex={item.index}
+                  label={number}
+                  columns={page.columns}
+                  views={page.columns.map((_, col) => viewOf(item.index, col))}
+                  top={item.start}
+                  selectedCol={selection?.row === item.index ? selection.col : null}
+                  editing={editing?.row === item.index ? editing : null}
+                  onCellMouseDown={(r, c) => {
+                    if (!editing) select(r, c);
+                  }}
+                  onCellDoubleClick={(r, c) => startEditing(r, c)}
+                  onCellContextMenu={onCellContextMenu}
+                  onCommit={commit}
+                  onCancel={() => {
+                    setEditing(null);
+                    focusGrid();
+                  }}
+                />
+              );
+            })}
+          </div>
         </div>
       </div>
       {menu && (

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CellValue, ColumnInfo, TablePage } from "../../lib/types";
 import { EMPTY_EDITS, addRow, deleteRow, setCell } from "./editState";
-import { MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH, cellView, gridRows, initialWidth } from "./gridModel";
+import { MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH, cellView, fitSelection, gridRows, initialWidth } from "./gridModel";
 
 function column(name: string, partial: Partial<ColumnInfo> = {}): ColumnInfo {
   return {
@@ -118,6 +118,24 @@ describe("cellView", () => {
     expect(cellView(page, state, row, 1)).toMatchObject({ text: "必填", tone: "placeholder" });
     expect(cellView(page, state, row, 2)).toMatchObject({ text: "NULL", tone: "placeholder" });
     expect(cellView(page, state, row, 4)).toMatchObject({ text: "自动生成", editable: false });
+  });
+});
+
+describe("fitSelection", () => {
+  it("keeps a selection that is still in range as the same object", () => {
+    const selection = { row: 1, col: 4 };
+    expect(fitSelection(selection, 2, 5)).toBe(selection);
+    expect(fitSelection(null, 2, 5)).toBeNull();
+  });
+
+  it("pulls the selection back onto the last row and column that remain", () => {
+    expect(fitSelection({ row: 25, col: 1 }, 25, 3)).toEqual({ row: 24, col: 1 });
+    expect(fitSelection({ row: 0, col: 4 }, 2, 3)).toEqual({ row: 0, col: 2 });
+  });
+
+  it("clears the selection when no rows or columns are left", () => {
+    expect(fitSelection({ row: 0, col: 0 }, 0, 3)).toBeNull();
+    expect(fitSelection({ row: 0, col: 0 }, 2, 0)).toBeNull();
   });
 });
 

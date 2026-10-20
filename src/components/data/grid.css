@@ -235,31 +235,57 @@
   z-index: 1;
 }
 
-/* 编辑框:盖在格子上,多行时向下展开,不撑开列宽 */
-.cell-editor {
+/* 编辑框和键盘输入框排版一致:输入框里的光标正好在编辑框文字的起点,输入法候选窗落在格子旁 */
+.cell-editor,
+.grid-input {
   position: absolute;
-  top: -1px;
-  left: -1px;
   z-index: 2;
-  width: max(calc(100% + 2px), 200px);
-  min-height: calc(100% + 2px);
   margin: 0;
   padding: 4px var(--space-5);
   border: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 18px;
+  resize: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+/* 编辑框的样子;输入法组字时,键盘输入框也显示成这样 */
+.cell-editor,
+.grid-input.is-composing {
   border-radius: var(--radius-xs);
   outline: 2px solid var(--accent);
   outline-offset: -1px;
   background: var(--surface-raised);
   box-shadow: var(--shadow-popover);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  line-height: 18px;
   color: var(--text-strong);
+}
+
+/* 编辑框:盖在格子上,多行时向下展开,不撑开列宽 */
+.cell-editor {
+  top: -1px;
+  left: -1px;
+  width: max(calc(100% + 2px), 200px);
+  min-height: calc(100% + 2px);
   white-space: pre-wrap;
-  resize: none;
-  user-select: text;
-  -webkit-user-select: text;
 }
 .cell-editor.is-multiline {
   width: max(calc(100% + 2px), 360px);
+}
+
+/* 键盘输入框:位置由行内样式给出(盖在选中格上),平时看不见也不挡鼠标 */
+.grid-input {
+  overflow: hidden;
+  white-space: pre;
+  outline: none;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  opacity: 0;
+  pointer-events: none;
+}
+.grid-input.is-composing {
+  min-width: 200px;
+  caret-color: auto;
+  opacity: 1;
 }

@@ -29,6 +29,7 @@ export interface ImportCandidate {
 export interface ImportedConnection {
   id: string;
   name: string;
+  driver: DriverKind;
   passwordSaved: boolean;
 }
 

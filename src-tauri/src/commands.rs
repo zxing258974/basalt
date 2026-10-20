@@ -91,10 +91,10 @@ pub async fn list_tables(
     service::list_tables(&state, &id, &database, schema.as_deref()).await
 }
 
-/// 本机 Navicat 的配置在用户主目录下。
-fn local_navicat(app: &AppHandle) -> CommandResult<NavicatLocation> {
-    let home = app.path().home_dir().map_err(service::home_error)?;
-    Ok(NavicatLocation::under_home(&home))
+/// 本机 Navicat 的配置在用户主目录下;找不到主目录只影响本机来源,不妨碍导入 .ncx。
+fn local_navicat(app: &AppHandle) -> Option<NavicatLocation> {
+    let home = app.path().home_dir().ok()?;
+    Some(NavicatLocation::under_home(&home))
 }
 
 #[tauri::command]
@@ -103,7 +103,7 @@ pub async fn scan_import_source(
     state: State<'_, AppState>,
     source: ImportSource,
 ) -> CommandResult<Vec<ImportCandidate>> {
-    service::scan_import_source(&state, &source, &local_navicat(&app)?).await
+    service::scan_import_source(&state, &source, local_navicat(&app).as_ref()).await
 }
 
 #[tauri::command]
@@ -113,5 +113,5 @@ pub async fn import_connections(
     source: ImportSource,
     ids: Vec<String>,
 ) -> CommandResult<ImportReport> {
-    service::import_connections(&state, &source, &ids, &local_navicat(&app)?).await
+    service::import_connections(&state, &source, &ids, local_navicat(&app).as_ref()).await
 }

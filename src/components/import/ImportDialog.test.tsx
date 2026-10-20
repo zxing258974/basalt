@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "../../App";
 import { setBackendForTesting, type Backend } from "../../lib/api";
 import { createMockBackend } from "../../lib/mockBackend";
+import type { ImportReport } from "../../lib/importTypes";
 import type { CommandError } from "../../lib/types";
 import { ImportDialog } from "./ImportDialog";
 
@@ -91,6 +92,7 @@ describe("import dialog", () => {
     await user.click(screen.getByRole("button", { name: /^导入 \d+ 个连接$/ }));
     expect(await screen.findByText(/已导入 \d+ 个连接/)).toBeInTheDocument();
     expect(screen.getAllByText("密码已存入钥匙串").length).toBeGreaterThan(0);
+    expect(within(screen.getByText("本地笔记").closest("li")!).getByText("无需密码")).toBeInTheDocument();
     const reminder = screen.getByRole("note");
     expect(reminder).toHaveTextContent("请删除");
     expect(reminder).toHaveTextContent(NCX_PATH);
@@ -108,6 +110,7 @@ describe("import dialog", () => {
 
     const local = await screen.findByRole("radio", { name: /本机 Navicat.*未检测到/ });
     expect(local).toBeDisabled();
+    expect(screen.getByText(/没有找到本机 Navicat 的连接配置/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^导入/ })).toBeDisabled();
 
     await user.click(screen.getByRole("radio", { name: /Navicat 导出文件/ }));
@@ -125,6 +128,22 @@ describe("import dialog", () => {
 
     await user.click(all);
     expect(screen.getByRole("button", { name: "导入 0 个连接" })).toBeDisabled();
+  });
+
+  it("cannot be closed while the import is running", async () => {
+    let finish: (report: ImportReport) => void = () => {};
+    const { onClose, user } = setup({
+      importConnections: vi.fn(() => new Promise<ImportReport>((resolve) => (finish = resolve))),
+    });
+    await screen.findByRole("checkbox", { name: "选择「订单库」" });
+    await user.click(screen.getByRole("button", { name: "导入 3 个连接" }));
+
+    expect(screen.getByRole("button", { name: "取消" })).toBeDisabled();
+    await user.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+
+    finish({ imported: [{ id: "x", name: "订单库", driver: "mysql", passwordSaved: false }], skipped: [] });
+    expect(await screen.findByText("已导入 1 个连接")).toBeInTheDocument();
   });
 
   it("shows the import error and stays on the preview", async () => {

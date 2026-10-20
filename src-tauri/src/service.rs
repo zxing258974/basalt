@@ -9,7 +9,7 @@ use serde::Serialize;
 use crate::state::AppState;
 
 mod import;
-pub use import::{ImportReport, ImportSource, home_error, import_connections, scan_import_source};
+pub use import::{ImportReport, ImportSource, import_connections, scan_import_source};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

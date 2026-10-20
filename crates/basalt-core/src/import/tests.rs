@@ -129,6 +129,52 @@ fn same_name_counts_as_existing_even_with_another_address() {
 }
 
 #[test]
+fn later_duplicates_within_the_same_source_are_not_checked_by_default() {
+    let sources = [
+        source(
+            "1",
+            "订单库",
+            DriverKind::Mysql,
+            network("a.test", 3306, "app"),
+        ),
+        source(
+            "2",
+            "订单库",
+            DriverKind::Mysql,
+            network("b.test", 3306, "app"),
+        ),
+        source(
+            "3",
+            "别名",
+            DriverKind::Mysql,
+            network("A.test", 3306, "app"),
+        ),
+        source(
+            "4",
+            "另一个",
+            DriverKind::Mysql,
+            network("c.test", 3306, "app"),
+        ),
+    ];
+    let statuses: Vec<_> = classify(&sources, &ConnectionList::default())
+        .into_iter()
+        .map(|c| c.status)
+        .collect();
+    let existing = |name: &str| CandidateStatus::Existing {
+        existing_name: name.into(),
+    };
+    assert_eq!(
+        statuses,
+        [
+            CandidateStatus::New,
+            existing("订单库"),
+            existing("订单库"),
+            CandidateStatus::New
+        ]
+    );
+}
+
+#[test]
 fn sqlite_duplicates_are_matched_by_file_path() {
     let file = |path: &str| Endpoint::File { path: path.into() };
     let existing = list(vec![saved("笔记", DriverKind::Sqlite, file("/data/a.db"))]);

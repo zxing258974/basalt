@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use basalt_core::config::ConnectionConfig;
+use basalt_core::config::{ConnectionConfig, DriverKind};
 use basalt_core::import::navicat::{self, NavicatLocation};
 use basalt_core::import::{ImportCandidate, SourceConnection, SourceTarget, classify};
 use basalt_core::secret::password_key;
@@ -25,6 +25,8 @@ pub enum ImportSource {
 pub struct ImportedConnection {
     pub(crate) id: String,
     pub(crate) name: String,
+    /// SQLite 这类文件库没有密码,汇报时不必提示输入。
+    pub(crate) driver: DriverKind,
     /// 密码已写进钥匙串;否则首次打开时要输入。
     pub(crate) password_saved: bool,
 }
@@ -43,12 +45,15 @@ pub struct ImportReport {
     pub(crate) skipped: Vec<SkippedConnection>,
 }
 
+/// `local` 是本机 Navicat 的位置;找不到用户主目录时为 `None`,只影响本机来源。
 fn load_source(
     source: &ImportSource,
-    local: &NavicatLocation,
+    local: Option<&NavicatLocation>,
 ) -> CoreResult<Vec<SourceConnection>> {
     match source {
-        ImportSource::LocalNavicat => local.load(),
+        ImportSource::LocalNavicat => local
+            .ok_or_else(|| CoreError::Storage("找不到用户主目录，无法定位本机 Navicat".into()))?
+            .load(),
         ImportSource::NcxFile { path } => navicat::load_ncx(path.as_ref()),
     }
 }
@@ -57,7 +62,7 @@ fn load_source(
 pub async fn scan_import_source(
     state: &AppState,
     source: &ImportSource,
-    local: &NavicatLocation,
+    local: Option<&NavicatLocation>,
 ) -> CommandResult<Vec<ImportCandidate>> {
     let sources = load_source(source, local)?;
     Ok(classify(&sources, &state.load()?))
@@ -98,7 +103,7 @@ pub async fn import_connections(
     state: &AppState,
     source: &ImportSource,
     ids: &[String],
-    local: &NavicatLocation,
+    local: Option<&NavicatLocation>,
 ) -> CommandResult<ImportReport> {
     let sources = load_source(source, local)?;
     let wanted: HashSet<&str> = ids.iter().map(String::as_str).collect();
@@ -158,6 +163,7 @@ pub async fn import_connections(
         .map(|item| ImportedConnection {
             id: item.config.id,
             name: item.config.name,
+            driver: item.config.driver,
             password_saved: item.password.is_some(),
         })
         .collect();
@@ -168,11 +174,6 @@ fn rollback(state: &AppState, keys: &[String]) {
     for key in keys {
         restore_secret(state, key, None);
     }
-}
-
-/// 找不到主目录时的错误,命令层用。
-pub fn home_error(error: impl std::fmt::Display) -> CoreError {
-    CoreError::Storage(format!("找不到用户主目录：{error}"))
 }
 
 #[cfg(test)]

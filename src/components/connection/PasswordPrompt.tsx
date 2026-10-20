@@ -17,11 +17,12 @@ function PasswordPromptDialog({ prompt }: { prompt: PasswordPromptState }) {
   const { askPassword, notify } = useUi.getState();
   const { open, rememberPassword } = useConnectionActions();
   const [password, setPassword] = useState("");
-  const [remember, setRemember] = useState(false);
+  const { connection } = prompt;
+  // 连接本来就设为保存密码(比如导入后钥匙串里还没有)时默认记住,免得每次打开都先失败一次。
+  const [remember, setRemember] = useState(connection.savePassword);
   const [busy, setBusy] = useState(false);
   /** 认证失败由 open() 重新调用 askPassword 带回 prompt.error;其他错误记在这里。 */
   const [otherError, setOtherError] = useState<string>();
-  const { connection } = prompt;
 
   const submit = async () => {
     setBusy(true);

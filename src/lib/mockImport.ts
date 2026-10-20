@@ -96,18 +96,23 @@ function sameAddress(a: Endpoint, b: Endpoint): boolean {
   return a.host.toLowerCase() === b.host.toLowerCase() && a.port === b.port && a.username === b.username;
 }
 
+type Known = Pick<ConnectionConfig, "name" | "driver" | "endpoint">;
+
+/** 与 Rust 端一致:同一来源里后出现的重复项也算已存在。 */
 export function classifyMockImport(
   sources: readonly MockSource[],
   existing: readonly ConnectionConfig[],
 ): ImportCandidate[] {
+  let known: Known[] = [...existing];
   return sources.map(({ unsupportedReason, ...rest }) => {
     if (unsupportedReason || !rest.driver || !rest.endpoint) {
       return { ...rest, driver: null, endpoint: null, status: { kind: "unsupported", reason: unsupportedReason ?? "" } };
     }
     const { driver, endpoint } = rest;
-    const match = existing.find(
+    const match = known.find(
       (c) => c.name === rest.name || (c.driver === driver && sameAddress(c.endpoint, endpoint)),
     );
+    known = [...known, { name: rest.name, driver, endpoint }];
     return { ...rest, status: match ? { kind: "existing", existingName: match.name } : { kind: "new" } };
   });
 }
@@ -130,7 +135,12 @@ export function planMockImport(
   }));
   const known = new Set(sources.map((s) => s.id));
   const report: ImportReport = {
-    imported: configs.map((c, i) => ({ id: c.id, name: c.name, passwordSaved: importable[i]!.password === "included" })),
+    imported: configs.map((c, i) => ({
+      id: c.id,
+      name: c.name,
+      driver: c.driver,
+      passwordSaved: importable[i]!.password === "included",
+    })),
     skipped: [
       ...picked.filter((s) => !importable.includes(s)).map((s) => ({ name: s.name, reason: s.unsupportedReason ?? "无法导入" })),
       ...ids.filter((id) => !known.has(id)).map((id) => ({ name: id, reason: "扫描之后来源有变化，找不到这个连接，请重新扫描" })),

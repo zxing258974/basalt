@@ -8,7 +8,7 @@ mod cipher;
 mod conn_plist;
 mod ncx;
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 pub use cipher::decrypt_password;
@@ -140,19 +140,24 @@ fn resolve_target(raw: &RawConnection) -> (SourceTarget, Vec<String>) {
     (SourceTarget::Supported { driver, endpoint }, warnings)
 }
 
-/// 映射一批原始连接,并分配来源内唯一的 id:`类型:连接名`,重名的依次加 `#2`、`#3`。
+/// 来源内唯一的 id:`类型:连接名`,已被占用就依次加 `#2`、`#3`……直到不重复
+/// (连接名本身带 `#2` 也不会撞上)。
+fn unique_id(raw: &RawConnection, used: &mut HashSet<String>) -> String {
+    let base = format!("{}:{}", raw.conn_type.trim(), raw.name);
+    let id = std::iter::once(base.clone())
+        .chain((2..).map(|n| format!("{base}#{n}")))
+        .find(|candidate| !used.contains(candidate))
+        .unwrap_or(base);
+    used.insert(id.clone());
+    id
+}
+
+/// 映射一批原始连接,并分配来源内唯一的 id。
 fn into_sources(raws: Vec<RawConnection>) -> Vec<SourceConnection> {
-    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut used = HashSet::new();
     raws.into_iter()
         .map(|raw| {
-            let base = format!("{}:{}", raw.conn_type.trim(), raw.name);
-            let count = seen.entry(base.clone()).or_default();
-            *count += 1;
-            let id = if *count == 1 {
-                base
-            } else {
-                format!("{base}#{count}")
-            };
+            let id = unique_id(&raw, &mut used);
             let (target, warnings) = resolve_target(&raw);
             SourceConnection {
                 id,

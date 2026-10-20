@@ -87,8 +87,8 @@ describe("labels", () => {
   it("headlines the report", () => {
     const report: ImportReport = {
       imported: [
-        { id: "a", name: "A", passwordSaved: true },
-        { id: "b", name: "B", passwordSaved: false },
+        { id: "a", name: "A", driver: "mysql", passwordSaved: true },
+        { id: "b", name: "B", driver: "postgres", passwordSaved: false },
       ],
       skipped: [{ name: "C", reason: "暂不支持" }],
     };

@@ -72,6 +72,9 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
     }
   };
 
+  // 导入进行中不让关:后端照样会写完,关掉就看不到汇报了。
+  const close = busy ? () => {} : onClose;
+
   if (result) {
     return (
       <Dialog
@@ -100,12 +103,12 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
       title="导入连接"
       subtitle="从 Navicat 迁移连接配置；只新增连接，不改动已有的。"
       width={820}
-      onClose={onClose}
+      onClose={close}
       footer={
         <>
           <span className="import-footer-summary">{source && preview.data ? selectionSummary(candidates, selection) : ""}</span>
           <span className="footer-spacer" />
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" disabled={busy} onClick={onClose}>
             取消
           </Button>
           {/* 预览就绪时重新挂载并取得焦点:否则打开对话框时焦点落在来源卡片上,看着像被选中了 */}
@@ -140,7 +143,11 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
         {preview.data && (
           <ImportPreview candidates={candidates} selection={selection} onSelectionChange={setPicked} />
         )}
-        {!source && !local.isPending && <p className="import-placeholder">选择一个来源，预览要导入的连接。</p>}
+        {!source && !local.isPending && (
+          <p className="import-placeholder">
+            {local.error ? `${errorMessage(local.error)}。` : ""}选择一个来源，预览要导入的连接。
+          </p>
+        )}
         {error && <p className="test-result is-error">{error}</p>}
       </div>
     </Dialog>

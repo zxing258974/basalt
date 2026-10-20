@@ -100,6 +100,17 @@ fn ids_are_unique_within_a_source() {
 }
 
 #[test]
+fn ids_stay_unique_even_when_a_name_looks_like_a_suffix() {
+    let named = |name: &str| RawConnection {
+        name: name.into(),
+        ..raw("MySQL")
+    };
+    let sources = into_sources(vec![named("a"), named("a"), named("a#2")]);
+    let ids: std::collections::HashSet<_> = sources.iter().map(|s| s.id.as_str()).collect();
+    assert_eq!(ids.len(), 3, "{sources:?}");
+}
+
+#[test]
 fn location_points_into_the_navicat_support_folder() {
     let location = NavicatLocation::under_home(Path::new("/Users/someone"));
     assert!(

@@ -97,7 +97,7 @@ async fn scanning_local_navicat_marks_existing_and_unsupported_connections() {
         .await
         .unwrap();
 
-    let candidates = scan_import_source(&h.state, &ImportSource::LocalNavicat, &h.local)
+    let candidates = scan_import_source(&h.state, &ImportSource::LocalNavicat, Some(&h.local))
         .await
         .unwrap();
     let statuses: Vec<_> = candidates
@@ -121,7 +121,7 @@ async fn scanning_local_navicat_marks_existing_and_unsupported_connections() {
 #[tokio::test]
 async fn scanning_without_navicat_installed_reports_not_found() {
     let h = harness();
-    let error = scan_import_source(&h.state, &ImportSource::LocalNavicat, &h.local)
+    let error = scan_import_source(&h.state, &ImportSource::LocalNavicat, Some(&h.local))
         .await
         .unwrap_err();
     assert_eq!(error.code, "storage");
@@ -130,7 +130,7 @@ async fn scanning_without_navicat_installed_reports_not_found() {
 #[tokio::test]
 async fn scan_results_never_carry_plaintext_passwords() {
     let h = harness();
-    let candidates = scan_import_source(&h.state, &h.ncx(), &h.local)
+    let candidates = scan_import_source(&h.state, &h.ncx(), Some(&h.local))
         .await
         .unwrap();
     let json = serde_json::to_string(&candidates).unwrap();
@@ -151,7 +151,7 @@ async fn importing_from_ncx_stores_passwords_in_the_keychain_only() {
         "REDIS:缓存",
         "MYSQL:不存在",
     ]);
-    let report = import_connections(&h.state, &h.ncx(), &selected, &h.local)
+    let report = import_connections(&h.state, &h.ncx(), &selected, Some(&h.local))
         .await
         .unwrap();
 
@@ -215,9 +215,10 @@ async fn imported_sqlite_connection_opens() {
         db.display()
     ));
 
-    let report = import_connections(&h.state, &source, &ids(&["SQLITE:笔记"]), &h.local)
+    let report = import_connections(&h.state, &source, &ids(&["SQLITE:笔记"]), Some(&h.local))
         .await
         .unwrap();
+    assert_eq!(report.imported[0].driver, DriverKind::Sqlite);
     let id = &report.imported[0].id;
     let server = service::open_connection(&h.state, id, None).await.unwrap();
     assert_eq!(server.product, "SQLite");
@@ -226,7 +227,7 @@ async fn imported_sqlite_connection_opens() {
 #[tokio::test]
 async fn selecting_nothing_importable_does_not_touch_the_config() {
     let h = harness();
-    let report = import_connections(&h.state, &h.ncx(), &ids(&["REDIS:缓存"]), &h.local)
+    let report = import_connections(&h.state, &h.ncx(), &ids(&["REDIS:缓存"]), Some(&h.local))
         .await
         .unwrap();
     assert!(report.imported.is_empty());
@@ -256,7 +257,7 @@ async fn keychain_failure_leaves_no_imported_connections() {
         h.dir.path().join("locked/connections.json"),
         Arc::new(LockedKeychain),
     );
-    let error = import_connections(&state, &h.ncx(), &ids(&["MYSQL:订单库"]), &h.local)
+    let error = import_connections(&state, &h.ncx(), &ids(&["MYSQL:订单库"]), Some(&h.local))
         .await
         .unwrap_err();
     assert_eq!(error.code, "secret");
@@ -300,7 +301,7 @@ async fn config_write_failure_removes_the_passwords_just_written() {
     std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
 
     let selected = ids(&["MYSQL:订单库", "POSTGRESQL:报表 PG"]);
-    let result = import_connections(&state, &h.ncx(), &selected, &h.local).await;
+    let result = import_connections(&state, &h.ncx(), &selected, Some(&h.local)).await;
     std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
 
     assert_eq!(result.unwrap_err().code, "storage");
@@ -310,4 +311,62 @@ async fn config_write_failure_removes_the_passwords_just_written() {
     for key in written {
         assert_eq!(keychain.get(&key).unwrap(), None, "{key} 应该已回滚");
     }
+}
+
+#[tokio::test]
+async fn ncx_import_does_not_need_the_home_folder() {
+    let h = harness();
+    let report = import_connections(&h.state, &h.ncx(), &ids(&["MYSQL:订单库"]), None)
+        .await
+        .unwrap();
+    assert_eq!(report.imported.len(), 1);
+
+    let error = scan_import_source(&h.state, &ImportSource::LocalNavicat, None)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "storage");
+}
+
+/// 第二次写钥匙串时失败,模拟用户在第二个弹窗里点了「拒绝」。
+#[derive(Default)]
+struct FlakyKeychain {
+    inner: MemorySecretStore,
+    written: std::sync::Mutex<Vec<String>>,
+}
+
+impl SecretStore for FlakyKeychain {
+    fn get(&self, key: &str) -> basalt_core::CoreResult<Option<String>> {
+        self.inner.get(key)
+    }
+    fn set(&self, key: &str, secret: &str) -> basalt_core::CoreResult<()> {
+        let mut written = self.written.lock().unwrap();
+        if written.len() == 1 {
+            return Err(CoreError::Secret("用户拒绝访问钥匙串".into()));
+        }
+        written.push(key.to_owned());
+        self.inner.set(key, secret)
+    }
+    fn delete(&self, key: &str) -> basalt_core::CoreResult<()> {
+        self.inner.delete(key)
+    }
+}
+
+#[tokio::test]
+async fn keychain_failure_midway_removes_passwords_already_written() {
+    let h = harness();
+    let keychain = Arc::new(FlakyKeychain::default());
+    let state = AppState::new(
+        h.dir.path().join("flaky/connections.json"),
+        keychain.clone(),
+    );
+    let selected = ids(&["MYSQL:订单库", "POSTGRESQL:报表 PG"]);
+
+    let error = import_connections(&state, &h.ncx(), &selected, Some(&h.local))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "secret");
+    assert!(service::list_connections(&state).await.unwrap().is_empty());
+    let written = keychain.written.lock().unwrap().clone();
+    assert_eq!(written.len(), 1, "第一个密码已经写进去了");
+    assert_eq!(keychain.get(&written[0]).unwrap(), None, "应该已回滚");
 }

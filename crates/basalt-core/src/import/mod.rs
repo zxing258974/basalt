@@ -123,56 +123,78 @@ pub struct ImportCandidate {
     pub warnings: Vec<String>,
 }
 
-/// 对照已有连接给每个来源连接定状态。
+/// 对照已有连接给每个来源连接定状态。同一来源里后出现的重复项也算「已存在」,
+/// 免得默认勾选后导入两个一模一样的连接。
 pub fn classify(sources: &[SourceConnection], existing: &ConnectionList) -> Vec<ImportCandidate> {
-    sources
-        .iter()
-        .map(|source| {
-            let (driver, endpoint, status) = match &source.target {
-                SourceTarget::Supported { driver, endpoint } => {
-                    let status = match find_existing(&source.name, *driver, endpoint, existing) {
-                        Some(found) => CandidateStatus::Existing {
-                            existing_name: found.name.clone(),
-                        },
-                        None => CandidateStatus::New,
-                    };
-                    (Some(*driver), Some(endpoint.clone()), status)
-                }
-                SourceTarget::Unsupported(reason) => (
-                    None,
-                    None,
-                    CandidateStatus::Unsupported {
-                        reason: reason.clone(),
+    let mut known: Vec<Known<'_>> = existing.connections.iter().map(Known::from).collect();
+    let mut candidates = Vec::with_capacity(sources.len());
+    for source in sources {
+        let (driver, endpoint, status) = match &source.target {
+            SourceTarget::Supported { driver, endpoint } => {
+                let status = match find_duplicate(&source.name, *driver, endpoint, &known) {
+                    Some(found) => CandidateStatus::Existing {
+                        existing_name: found.name.to_owned(),
                     },
-                ),
-            };
-            ImportCandidate {
-                id: source.id.clone(),
-                name: source.name.clone(),
-                group: source.group.clone(),
-                source_type: source.source_type.clone(),
-                driver,
-                endpoint,
-                status,
-                password: PasswordStatus::from(&source.password),
-                warnings: source.warnings.clone(),
+                    None => CandidateStatus::New,
+                };
+                known.push(Known {
+                    name: source.name.trim(),
+                    driver: *driver,
+                    endpoint,
+                });
+                (Some(*driver), Some(endpoint.clone()), status)
             }
-        })
-        .collect()
+            SourceTarget::Unsupported(reason) => (
+                None,
+                None,
+                CandidateStatus::Unsupported {
+                    reason: reason.clone(),
+                },
+            ),
+        };
+        candidates.push(ImportCandidate {
+            id: source.id.clone(),
+            name: source.name.clone(),
+            group: source.group.clone(),
+            source_type: source.source_type.clone(),
+            driver,
+            endpoint,
+            status,
+            password: PasswordStatus::from(&source.password),
+            warnings: source.warnings.clone(),
+        });
+    }
+    candidates
 }
 
-/// 连接名相同,或者数据库类型和「连到哪、以谁的身份」都相同,就算已存在。
-fn find_existing<'a>(
+/// 判重时用到的连接要素:已保存的连接和本次来源里排在前面的连接都算。
+struct Known<'a> {
+    name: &'a str,
+    driver: DriverKind,
+    endpoint: &'a Endpoint,
+}
+
+impl<'a> From<&'a ConnectionConfig> for Known<'a> {
+    fn from(config: &'a ConnectionConfig) -> Self {
+        Self {
+            name: &config.name,
+            driver: config.driver,
+            endpoint: &config.endpoint,
+        }
+    }
+}
+
+/// 连接名相同,或者数据库类型和「连到哪、以谁的身份」都相同,就算重复。
+fn find_duplicate<'a, 'k>(
     name: &str,
     driver: DriverKind,
     endpoint: &Endpoint,
-    existing: &'a ConnectionList,
-) -> Option<&'a ConnectionConfig> {
+    known: &'k [Known<'a>],
+) -> Option<&'k Known<'a>> {
     let name = name.trim();
-    existing
-        .connections
+    known
         .iter()
-        .find(|c| c.name == name || (c.driver == driver && same_address(&c.endpoint, endpoint)))
+        .find(|k| k.name == name || (k.driver == driver && same_address(k.endpoint, endpoint)))
 }
 
 fn same_address(a: &Endpoint, b: &Endpoint) -> bool {

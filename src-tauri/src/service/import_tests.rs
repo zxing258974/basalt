@@ -174,10 +174,19 @@ async fn importing_from_ncx_stores_passwords_in_the_keychain_only() {
     assert!(report.skipped[0].reason.contains("Redis"));
 
     let saved = service::list_connections(&h.state).await.unwrap();
-    assert_eq!(saved.len(), 4);
-    assert!(
-        saved.iter().all(|c| c.config.save_password),
-        "导入的连接一律保存密码"
+    let save_flags: Vec<_> = saved
+        .iter()
+        .map(|c| (c.config.name.as_str(), c.config.save_password))
+        .collect();
+    assert_eq!(
+        save_flags,
+        [
+            ("订单库", true),
+            ("报表 PG", true),
+            ("跳板机后的库", false),
+            ("旧版导出", false)
+        ],
+        "只有带着密码的连接标为保存密码"
     );
     let secret = |name: &str| {
         let id = &report.imported.iter().find(|c| c.name == name).unwrap().id;

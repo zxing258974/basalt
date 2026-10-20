@@ -18,8 +18,8 @@ function PasswordPromptDialog({ prompt }: { prompt: PasswordPromptState }) {
   const { open, rememberPassword } = useConnectionActions();
   const [password, setPassword] = useState("");
   const { connection } = prompt;
-  // 连接本来就设为保存密码(比如导入后钥匙串里还没有)时默认记住,免得每次打开都先失败一次。
-  const [remember, setRemember] = useState(connection.savePassword);
+  // 默认记住:连接成功后写进钥匙串并把 savePassword 置为 true,用户只需输一次。
+  const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   /** 认证失败由 open() 重新调用 askPassword 带回 prompt.error;其他错误记在这里。 */
   const [otherError, setOtherError] = useState<string>();

@@ -50,7 +50,7 @@ describe("password prompt", () => {
     renderWithClient(<PasswordPrompt />);
 
     await user.type(screen.getByLabelText("密码"), "wrong");
-    await user.click(screen.getByLabelText("连接成功后把密码保存到钥匙串"));
+    expect(screen.getByLabelText("连接成功后把密码保存到钥匙串")).toBeChecked();
     await user.click(screen.getByRole("button", { name: "连接" }));
 
     expect(await screen.findByText("用户名或密码不正确：密码错误")).toBeInTheDocument();

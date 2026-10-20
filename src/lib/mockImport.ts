@@ -131,7 +131,7 @@ export function planMockImport(
     group: s.group,
     driver: s.driver!,
     endpoint: s.endpoint!,
-    savePassword: true,
+    savePassword: s.password === "included",
   }));
   const known = new Set(sources.map((s) => s.id));
   const report: ImportReport = {

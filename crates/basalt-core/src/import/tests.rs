@@ -211,7 +211,7 @@ fn unsupported_source_keeps_its_reason_and_has_no_target() {
 }
 
 #[test]
-fn draft_always_saves_password_and_carries_plaintext_only_when_present() {
+fn draft_saves_password_only_when_the_source_brings_one() {
     let with_password = source("a", "库", DriverKind::Mysql, network("h", 3306, "u"));
     let draft = with_password.to_draft().unwrap();
     assert!(draft.save_password);
@@ -225,7 +225,10 @@ fn draft_always_saves_password_and_carries_plaintext_only_when_present() {
         }
         .to_draft()
         .unwrap();
-        assert!(draft.save_password, "没有密码也保存,首次打开时再补输");
+        assert!(
+            !draft.save_password,
+            "没有密码就不标保存,打开前先弹密码框,不会拿空密码先失败一次"
+        );
         assert_eq!(draft.password, None);
     }
 

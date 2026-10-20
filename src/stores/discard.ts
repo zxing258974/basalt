@@ -1,4 +1,4 @@
-// 关闭标签页或连接之前,检查有没有未提交的表格修改、没保存的查询。
+// 关闭标签页或连接之前,检查有没有未提交的表格修改、没保存的查询和表结构。
 import { useTabs, type Tab } from "./tabs";
 import { useUi } from "./ui";
 
@@ -10,12 +10,13 @@ export function guardDiscard(affects: (tab: Tab) => boolean, action: () => void,
   const { tabs, pending, unsaved } = useTabs.getState();
   const closing = tabs.filter(affects);
   const count = closing.reduce((sum, tab) => sum + (pending[tab.id] ?? 0), 0);
-  const queries = closing.filter((tab) => unsaved[tab.id]).length;
-  if (count === 0 && queries === 0) {
+  const queries = closing.filter((tab) => tab.kind === "query" && unsaved[tab.id]).length;
+  const designs = closing.filter((tab) => tab.kind === "tableDesign" && unsaved[tab.id]).length;
+  if (count === 0 && queries === 0 && designs === 0) {
     action();
     return;
   }
-  useUi.getState().askDiscard({ count, queries, onConfirm: action, onCancel });
+  useUi.getState().askDiscard({ count, queries, designs, onConfirm: action, onCancel });
 }
 
 /** 关掉一个标签页;有未提交的修改先确认。 */

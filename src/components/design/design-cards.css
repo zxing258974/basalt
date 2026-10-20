@@ -1,0 +1,303 @@
+/* 表结构设计器:索引与外键卡片、字段标签、选项页、SQL 预览页。 */
+/* ---------- 索引、外键卡片 ---------- */
+.design-cards {
+  display: grid;
+  gap: var(--space-5);
+  align-content: start;
+  padding: var(--space-6);
+}
+.design-card {
+  display: grid;
+  gap: var(--space-5);
+  padding: var(--space-5) var(--space-6);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow:
+    0 0 0 0.5px var(--line-strong),
+    0 1px 2px oklch(20% 0.02 60 / 0.06);
+}
+.design-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  min-width: 0;
+}
+.design-card-name {
+  flex: 0 1 280px;
+  min-width: 0;
+  height: 26px;
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-strong);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+.design-card-name:hover:not(:disabled) {
+  border-color: var(--line);
+}
+.design-card-name:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.design-card-spacer {
+  flex: 1;
+}
+.design-badge {
+  padding: 1px var(--space-3);
+  border-radius: var(--radius-xs);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.design-badge.is-off {
+  background: var(--surface-sunken);
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+.design-select,
+.design-input {
+  height: 26px;
+  min-width: 0;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-canvas);
+  color: var(--text-strong);
+  font-size: var(--text-sm);
+}
+.design-input:focus,
+.design-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.design-textarea {
+  height: auto;
+  padding: var(--space-3) var(--space-4);
+  line-height: 1.5;
+  resize: vertical;
+}
+.design-raw {
+  display: grid;
+  gap: var(--space-3);
+}
+.design-raw code {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.design-raw p {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+/* 有顺序的字段标签 */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.chips-empty {
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 24px;
+  padding: 0 var(--space-1) 0 var(--space-4);
+  border-radius: 12px;
+  background: var(--surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.chip-label {
+  font-size: var(--text-sm);
+  color: var(--text-strong);
+}
+.chip-button {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-muted);
+}
+.chip-button:hover {
+  background: var(--surface-hover);
+  color: var(--text-strong);
+}
+.chip-button svg {
+  width: 11px;
+  height: 11px;
+}
+.chips-add {
+  height: 24px;
+  padding: 0 var(--space-3);
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.fk-mapping {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.4fr);
+  align-items: center;
+  gap: var(--space-5);
+}
+.fk-arrow {
+  width: 14px;
+  height: 14px;
+  color: var(--text-faint);
+}
+.fk-target {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.fk-schema {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.fk-table {
+  flex: 0 1 200px;
+}
+.fk-table .combo-input {
+  height: 26px;
+  border-color: var(--line-strong);
+  background: var(--surface-canvas);
+}
+.fk-actions {
+  display: flex;
+  gap: var(--space-7);
+}
+.fk-action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+/* ---------- 选项 ---------- */
+.options-form {
+  display: grid;
+  gap: var(--space-5);
+  max-width: 640px;
+  padding: var(--space-6);
+}
+.option-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-5);
+}
+.option-label {
+  padding-top: 5px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.option-control {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.option-control .combo-input {
+  height: 26px;
+  border-color: var(--line-strong);
+  background: var(--surface-canvas);
+}
+.option-hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+.design-flags {
+  display: flex;
+  gap: var(--space-3);
+  padding-top: 4px;
+}
+.readonly-list {
+  margin: 0 var(--space-6) var(--space-6);
+  max-width: 880px;
+}
+.readonly-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+}
+.readonly-note {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-regular);
+  color: var(--text-faint);
+}
+.readonly-list ul {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.readonly-list li {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+.readonly-name {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.readonly-list code {
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- SQL 预览 ---------- */
+.sql-pane {
+  padding: var(--space-6);
+  gap: var(--space-5);
+}
+.sql-pane-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-5);
+}
+.sql-pane-mode {
+  flex: 1;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+.ddl-list {
+  max-height: none;
+}
+.designer-footer {
+  justify-content: flex-start;
+  padding-left: var(--space-6);
+}

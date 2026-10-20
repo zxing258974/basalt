@@ -1,0 +1,179 @@
+@import "./design-grid.css";
+@import "./design-cards.css";
+
+/* ---------- 表结构设计器 ---------- */
+.designer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+/* body 默认不可选;WebKit 下输入框跟着不可选就没法拖选文字。 */
+.designer input,
+.designer textarea,
+.combo-input {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.designer-header {
+  display: grid;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--space-6) var(--space-4);
+}
+.designer-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+/* 表名:像标题一样的输入框,宽度跟着内容走(隐藏的 ::after 撑开同一格) */
+.designer-name {
+  display: inline-grid;
+  min-width: 0;
+  max-width: 100%;
+}
+.designer-name::after,
+.designer-name input {
+  grid-area: 1 / 1;
+  padding: 1px var(--space-3);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
+}
+.designer-name::after {
+  content: attr(data-value) " ";
+  visibility: hidden;
+  white-space: pre;
+}
+.designer-name input {
+  min-width: 4em;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-strong);
+  transition:
+    border-color var(--duration-fast) ease,
+    background-color var(--duration-fast) ease;
+}
+.designer-name input::placeholder {
+  color: var(--text-faint);
+  font-weight: var(--weight-regular);
+}
+.designer-name input:hover:not(:disabled) {
+  border-color: var(--line);
+}
+.designer-name input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface-raised);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.designer-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+/* 分段式页签:凹下去的轨道,选中的一格浮起来 */
+.designer-tabs {
+  display: inline-flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+.designer-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 24px;
+  padding: 0 var(--space-5);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+.designer-tab:hover:not([aria-selected="true"]) {
+  color: var(--text-strong);
+}
+.designer-tab[aria-selected="true"] {
+  background: var(--surface-raised);
+  color: var(--text-strong);
+  box-shadow:
+    0 0 0 0.5px var(--line-strong),
+    0 1px 2px oklch(20% 0.02 60 / 0.1);
+}
+.designer-tab-count {
+  min-width: 14px;
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  text-align: center;
+}
+.designer-tab[aria-selected="true"] .designer-tab-count {
+  color: var(--accent);
+}
+
+.designer-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  border-top: 1px solid var(--line-hairline);
+}
+.designer-panel {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.designer-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.designer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 34px;
+  padding: var(--space-2) var(--space-5);
+  border-bottom: 1px solid var(--line-hairline);
+  background: var(--surface-chrome);
+}
+.designer-toolbar-divider {
+  width: 1px;
+  height: 14px;
+  margin: 0 var(--space-3);
+  background: var(--line);
+}
+.designer-toolbar .btn[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.designer-toolbar-hint {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.designer-empty {
+  margin: var(--space-8) auto;
+  color: var(--text-faint);
+  font-size: var(--text-sm);
+}

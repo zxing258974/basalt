@@ -8,6 +8,7 @@ import "./components/sidebar/sidebar.css";
 import "./components/connection/connection.css";
 import "./components/import/import.css";
 import "./components/objects/objects.css";
+import "./components/design/design.css";
 import "./components/tabs/tabs.css";
 import "./components/data/data.css";
 import "./components/data/grid.css";

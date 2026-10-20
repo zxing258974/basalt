@@ -9,6 +9,8 @@ use serde::Serialize;
 
 use crate::state::AppState;
 
+mod design;
+pub use design::{apply_table_design, preview_table_design, read_table_design};
 mod import;
 pub use import::{ImportReport, ImportSource, import_connections, scan_import_source};
 pub mod query;

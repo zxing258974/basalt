@@ -1,3 +1,4 @@
+import type { DdlOutcome, DdlPreview, TableDesign } from "./designTypes";
 import type { ImportCandidate, ImportReport, ImportSource } from "./importTypes";
 import type {
   HistoryEntry,
@@ -41,6 +42,11 @@ export interface Backend {
   previewTableChanges(id: string, table: TableRef, changes: RowChange[]): Promise<string[]>;
   /** 一个事务里提交,任何一条失败都整体回滚。`expected` 是用户确认过的预览,后端生成的不一样就拒绝。 */
   applyTableChanges(id: string, table: TableRef, changes: RowChange[], expected: string[]): Promise<ApplyOutcome>;
+  readTableDesign(id: string, table: TableRef): Promise<TableDesign>;
+  /** 将要执行的 DDL;`original` 是要改的表,新建表时为 null。 */
+  previewTableDesign(id: string, original: TableRef | null, design: TableDesign): Promise<DdlPreview>;
+  /** `expected` 是用户确认过的预览,后端重新生成的不一样就拒绝执行。 */
+  applyTableDesign(id: string, original: TableRef | null, design: TableDesign, expected: string[]): Promise<DdlOutcome>;
   pickSqliteFile(): Promise<string | null>;
   /** 扫描导入来源,给出预览;不写任何东西。 */
   scanImportSource(source: ImportSource): Promise<ImportCandidate[]>;
@@ -88,6 +94,10 @@ function createTauriBackend(): Backend {
     readTablePage: (id, table, request) => call("read_table_page", { id, table, request }),
     previewTableChanges: (id, table, changes) => call("preview_table_changes", { id, table, changes }),
     applyTableChanges: (id, table, changes, expected) => call("apply_table_changes", { id, table, changes, expected }),
+    readTableDesign: (id, table) => call("read_table_design", { id, table }),
+    previewTableDesign: (id, original, design) => call("preview_table_design", { id, original, design }),
+    applyTableDesign: (id, original, design, expected) =>
+      call("apply_table_design", { id, original, design, expected }),
     pickSqliteFile: async () => {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const picked = await open({

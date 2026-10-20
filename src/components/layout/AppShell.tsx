@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useRef, useState, type PointerEvent } from "react";
 import { useConnections } from "../../hooks/useCatalog";
 import { useTabs, type Tab } from "../../stores/tabs";
+import { TableDesignView } from "../design/TableDesignView";
 import { TableDataView } from "../data/TableDataView";
 import { ObjectListView } from "../objects/ObjectListView";
 import { EmptyState } from "../ui/EmptyState";
@@ -122,6 +123,8 @@ function TabPanels() {
 
 function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
   switch (tab.kind) {
+    case "tableDesign":
+      return <TableDesignView tab={tab} active={active} />;
     case "objects":
       return <ObjectListView tab={tab} />;
     case "tableData":

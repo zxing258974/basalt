@@ -16,6 +16,8 @@ export interface DiscardPrompt {
   count: number;
   /** 没保存的查询标签页个数。 */
   queries: number;
+  /** 表结构没保存的设计器个数。 */
+  designs: number;
   onConfirm(): void;
   onCancel?(): void;
 }

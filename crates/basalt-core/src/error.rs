@@ -58,6 +58,9 @@ pub enum CoreError {
     AlreadyExists(String),
     #[error("{0}")]
     NotFound(String),
+    /// MySQL 逐条执行 DDL 时中途失败:前面的已经生效、无法回滚。
+    #[error("{0}")]
+    PartiallyApplied(String),
 }
 
 impl CoreError {
@@ -82,6 +85,7 @@ impl CoreError {
             Self::InvalidName(_) => "invalid_name",
             Self::AlreadyExists(_) => "already_exists",
             Self::NotFound(_) => "not_found",
+            Self::PartiallyApplied(_) => "partially_applied",
         }
     }
 

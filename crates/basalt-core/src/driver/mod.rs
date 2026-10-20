@@ -4,13 +4,17 @@
 pub(crate) mod editor;
 pub(crate) mod mysql;
 mod mysql_data;
+mod mysql_design;
 mod mysql_query;
 mod pg_binary;
 pub(crate) mod postgres;
 mod postgres_data;
+mod postgres_design;
 mod postgres_query;
 pub(crate) mod sqlite;
 mod sqlite_data;
+mod sqlite_ddl;
+mod sqlite_design;
 mod sqlite_query;
 
 use std::fmt;

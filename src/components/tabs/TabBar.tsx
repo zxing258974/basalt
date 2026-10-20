@@ -1,4 +1,4 @@
-import { FileCode2, Table2, TableProperties, X } from "lucide-react";
+import { FileCode2, PencilRuler, Table2, TableProperties, X } from "lucide-react";
 import { useConnections } from "../../hooks/useCatalog";
 import { closeTabGuarded } from "../../stores/discard";
 import { useTabs, type Tab } from "../../stores/tabs";
@@ -61,6 +61,8 @@ function TabIcon({ tab }: { tab: Tab }) {
       return <Table2 className="tab-icon" aria-hidden />;
     case "query":
       return <FileCode2 className="tab-icon" aria-hidden />;
+    case "tableDesign":
+      return <PencilRuler className="tab-icon" aria-hidden />;
     case "objects":
       return <TableProperties className="tab-icon" aria-hidden />;
   }
@@ -74,6 +76,8 @@ function tabPath(tab: Tab): string {
       const where = [tab.scope.database, tab.scope.schema].filter(Boolean).join(".");
       return where ? `${where} / ${tab.title}` : tab.title;
     }
+    case "tableDesign":
+      return `${[tab.database, tab.schema, tab.table ?? "新表"].filter(Boolean).join(".")}（表结构）`;
     case "objects":
       return tab.title;
   }

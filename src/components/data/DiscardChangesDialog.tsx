@@ -2,17 +2,20 @@ import { useUi } from "../../stores/ui";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 
-/** 确认框的标题和正文:只有表格修改、只有没保存的查询、两样都有,说法不同。 */
-export function discardText(count: number, queries: number): { title: string; message: string } {
+/** 确认框的标题和正文:表格修改、没保存的查询、没保存的表结构,有哪几样就说哪几样。 */
+export function discardText(count: number, queries: number, designs: number): { title: string; message: string } {
   const parts = [
     count > 0 ? `${count} 行修改还没有提交` : null,
     queries > 0 ? `${queries} 个查询还没有保存` : null,
+    designs > 0 ? `${designs} 张表的结构修改还没有保存` : null,
   ].filter((part) => part !== null);
-  const title = queries === 0 ? "放弃未提交的修改？" : count === 0 ? "放弃未保存的查询？" : "放弃未保存的修改？";
+  const onlyRows = queries === 0 && designs === 0;
+  const onlyQueries = count === 0 && designs === 0;
+  const title = onlyRows ? "放弃未提交的修改？" : onlyQueries ? "放弃未保存的查询？" : "放弃未保存的修改？";
   return { title, message: `有 ${parts.join("、")}，关闭后就没有了。` };
 }
 
-/** 关闭标签页或连接会丢掉未提交的表格修改或没保存的查询时的确认框。 */
+/** 关闭标签页或连接会丢掉未提交的表格修改、没保存的查询或表结构时的确认框。 */
 export function DiscardChangesDialog() {
   const prompt = useUi((s) => s.discardPrompt);
   const askDiscard = useUi((s) => s.askDiscard);
@@ -22,7 +25,7 @@ export function DiscardChangesDialog() {
     askDiscard(null);
     prompt.onCancel?.();
   };
-  const text = discardText(prompt.count, prompt.queries);
+  const text = discardText(prompt.count, prompt.queries, prompt.designs);
   return (
     <Dialog
       open

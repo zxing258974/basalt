@@ -10,7 +10,7 @@ use super::{
     CheckDef, ColumnDef, DdlContext, DdlPlan, DdlStatement, ExecMode, ForeignKeyDef, IndexDef,
     TableDesign, TableOptions,
 };
-use crate::error::CoreResult;
+use crate::error::{CoreError, CoreResult};
 use crate::sql::{Dialect, quote_ident, table_name};
 
 pub(super) const D: Dialect = Dialect::Sqlite;
@@ -29,6 +29,12 @@ pub(super) fn plan(
     };
     let diff = Diff::new(D, original, target);
     if needs_rebuild(&diff) {
+        if !context.rebuild_blockers.is_empty() {
+            return Err(CoreError::InvalidEdit(format!(
+                "这次修改要重建整张表，但表定义里有设计器保留不了的写法（{}），重建会把它们丢掉。请在 SQL 编辑器里手动修改。",
+                context.rebuild_blockers.join("、")
+            )));
+        }
         sqlite_rebuild::check_dependents(context, &diff)?;
         Ok(sqlite_rebuild::rebuild(context, &diff))
     } else {

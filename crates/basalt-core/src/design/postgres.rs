@@ -6,6 +6,7 @@
 
 use super::diff::{Diff, TargetColumn, ref_schema};
 use super::render::{actions, body, column_list, constraint_prefix, name_of, non_empty};
+use super::sqlite_parse::identifiers;
 use super::{
     ColumnDef, DdlPlan, DdlStatement, ExecMode, ForeignKeyDef, IndexDef, TableDesign,
     string_literal,
@@ -62,6 +63,7 @@ fn create_table(target: &TableDesign) -> Vec<String> {
 
 fn alter_table(diff: &Diff) -> CoreResult<Vec<String>> {
     check_order(diff)?;
+    check_raw_indexes(diff)?;
     let (original, target) = (diff.original, diff.target);
     let table = table_name(D, &original.table);
     let alter = |action: String| format!("ALTER TABLE {table} {action}");
@@ -158,6 +160,29 @@ fn check_order(diff: &Diff) -> CoreResult<()> {
     Ok(())
 }
 
+/// 留着的表达式索引、部分索引用到了要删的字段:PostgreSQL 删字段会把索引悄悄一起删掉,先拦下来。
+fn check_raw_indexes(diff: &Diff) -> CoreResult<()> {
+    for index in diff
+        .target
+        .indexes
+        .iter()
+        .filter(|i| i.definition.is_some())
+    {
+        let names = identifiers(index.definition.as_deref().unwrap_or_default());
+        if let Some(column) = diff
+            .dropped_columns
+            .iter()
+            .find(|c| names.contains(&c.name.to_lowercase()))
+        {
+            return Err(CoreError::InvalidEdit(format!(
+                "索引「{}」用到了要删除的字段「{}」，删字段会把这个索引一起删掉。请先在索引页删掉它，再删字段。",
+                index.name, column.name
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// 一个原有字段的改动。先去掉旧默认值再改类型(旧默认值可能转不过去),最后设新默认值。
 fn alter_column(column: &TargetColumn) -> CoreResult<Vec<String>> {
     let Some(before) = column.before else {
@@ -180,10 +205,11 @@ fn alter_column(column: &TargetColumn) -> CoreResult<Vec<String>> {
     if before.auto_increment && !after.auto_increment {
         out.push(action("DROP IDENTITY".into()));
     }
-    if before.data_type != after.data_type {
+    if before.data_type != after.data_type || before.collation != after.collation {
         let data_type = after.data_type.trim();
+        let collate = collate_clause(after);
         out.push(action(format!(
-            "TYPE {data_type} USING {name}::{data_type}"
+            "TYPE {data_type}{collate} USING {name}::{data_type}"
         )));
     }
     if before.nullable != after.nullable {
@@ -205,8 +231,38 @@ fn alter_column(column: &TargetColumn) -> CoreResult<Vec<String>> {
     Ok(out)
 }
 
+/// 排序规则只能加在字符串类型上;类型改成了别的,读出来的排序规则就不再写。
+fn collate_clause(column: &ColumnDef) -> String {
+    let head = column.data_type.trim().to_ascii_lowercase();
+    let textual = [
+        "text",
+        "char",
+        "varchar",
+        "character",
+        "bpchar",
+        "citext",
+        "name",
+    ]
+    .iter()
+    .any(|t| {
+        head == *t
+            || [" ", "(", "["]
+                .iter()
+                .any(|next| head.starts_with(&format!("{t}{next}")))
+    });
+    match &column.collation {
+        Some(collation) if textual => format!(" COLLATE {collation}"),
+        _ => String::new(),
+    }
+}
+
 fn column_definition(column: &ColumnDef) -> String {
-    let mut sql = format!("{} {}", q(&column.name), column.data_type.trim());
+    let mut sql = format!(
+        "{} {}{}",
+        q(&column.name),
+        column.data_type.trim(),
+        collate_clause(column)
+    );
     if let Some(generated) = &column.generated {
         let kind = if generated.stored {
             "STORED"

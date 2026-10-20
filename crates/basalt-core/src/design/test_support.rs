@@ -67,6 +67,7 @@ pub(super) fn design(dialect: Dialect, table: &str, columns: Vec<ColumnDef>) -> 
         checks: Vec::new(),
         triggers: Vec::new(),
         options: TableOptions::default(),
+        version: String::new(),
     }
 }
 

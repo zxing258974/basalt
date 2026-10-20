@@ -296,3 +296,56 @@ fn generated_expression_of_existing_column_cannot_change() {
     });
     assert!(plan_error(P, Some(&original), &target).contains("生成列"));
 }
+
+#[test]
+fn collation_survives_type_changes_on_text_columns_only() {
+    let mut original = users();
+    original.columns[1].collation = Some("pg_catalog.\"C\"".into());
+    let mut wider = original.clone();
+    wider.columns[1].data_type = "character varying(100)".into();
+    assert_eq!(
+        sqls(&plan_for(P, Some(&original), &wider)),
+        [
+            "ALTER TABLE \"public\".\"users\" ALTER COLUMN \"name\" TYPE character varying(100) COLLATE pg_catalog.\"C\" USING \"name\"::character varying(100)"
+        ]
+    );
+    let mut numeric = original.clone();
+    numeric.columns[1].data_type = "integer".into();
+    numeric.columns[1].default = None;
+    assert!(
+        sqls(&plan_for(P, Some(&original), &numeric))[1]
+            .ends_with("TYPE integer USING \"name\"::integer")
+    );
+
+    let created = plan_for(P, None, &original);
+    assert!(
+        sqls(&created)[0]
+            .contains("\"name\" character varying(50) COLLATE pg_catalog.\"C\" NOT NULL")
+    );
+    let bad = TableDesign {
+        columns: vec![ColumnDef {
+            collation: Some("x; DROP".into()),
+            ..col("a", "text")
+        }],
+        primary_key: Vec::new(),
+        indexes: Vec::new(),
+        ..users()
+    };
+    assert!(plan_error(P, None, &bad).contains("排序规则"));
+}
+
+#[test]
+fn dropping_a_column_used_by_an_expression_index_is_refused() {
+    let mut original = users();
+    let mut raw = index("idx_lower_email", &[]);
+    raw.definition =
+        Some("CREATE INDEX idx_lower_email ON public.users USING btree (lower(email))".into());
+    original.indexes.push(raw);
+    let mut target = original.clone();
+    target.columns.remove(2);
+    let message = plan_error(P, Some(&original), &target);
+    assert!(
+        message.contains("idx_lower_email") && message.contains("email"),
+        "{message}"
+    );
+}

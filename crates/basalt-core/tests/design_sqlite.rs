@@ -27,6 +27,7 @@ fn notes() -> TableDesign {
     title.default = Some("''".into());
     title.collation = Some("NOCASE".into());
     let mut design = TableDesign {
+        version: String::new(),
         table: table("notes"),
         primary_key: vec!["new:id".into()],
         primary_key_name: None,
@@ -175,6 +176,64 @@ async fn sqlite_alters_directly_or_rebuilds() {
         .unwrap_err();
     assert!(error.to_string().contains("v_notes"), "{error}");
 
+    // 设计器开着的时候别人加了字段:旧草稿不能把它当成「用户删了」。
+    let stale = session.read_design(&table("notes")).await.unwrap();
+    sql(&pool, "ALTER TABLE notes ADD COLUMN extra TEXT").await;
+    let mut edited = stale.clone();
+    column_mut(&mut edited, "title").data_type = "TEXT".into();
+    let error = session
+        .preview_design(Some(&table("notes")), &edited)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("被改过"), "{error}");
+
     session.close().await;
     pool.close().await;
+}
+
+#[tokio::test]
+async fn sqlite_rebuild_keeps_expression_defaults_and_differently_cased_triggers() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = "CREATE TABLE events (id INTEGER PRIMARY KEY, at TEXT DEFAULT (datetime('now')), note TEXT);
+                  CREATE TABLE log (id INTEGER);
+                  CREATE TRIGGER trg AFTER INSERT ON EVENTS BEGIN INSERT INTO log VALUES (NEW.id); END;
+                  CREATE TABLE strict_rows (id INTEGER PRIMARY KEY, n INT NOT NULL ON CONFLICT REPLACE DEFAULT 0);";
+    let path = sqlite_file(dir.path(), "m5b.db", script).await;
+    let session = Session::open(&sqlite_params(&path)).await.unwrap();
+
+    let read = session.read_design(&table("events")).await.unwrap();
+    assert_eq!(
+        read.columns[1].default.as_deref(),
+        Some("(datetime('now'))")
+    );
+    assert_eq!(
+        read.triggers.len(),
+        1,
+        "触发器的 tbl_name 大小写和表名不同也要认"
+    );
+    let mut next = read.clone();
+    column_mut(&mut next, "note").nullable = false;
+    column_mut(&mut next, "note").default = Some("''".into());
+    let preview = session
+        .preview_design(Some(&table("events")), &next)
+        .await
+        .unwrap();
+    assert_eq!(preview.mode, ExecMode::Rebuild);
+    save(&session, Some(&table("events")), &next).await.unwrap();
+    let rebuilt = session.read_design(&table("events")).await.unwrap();
+    assert_eq!(
+        rebuilt.columns[1].default.as_deref(),
+        Some("(datetime('now'))")
+    );
+    assert_eq!(rebuilt.triggers.len(), 1);
+
+    let lossy = session.read_design(&table("strict_rows")).await.unwrap();
+    let mut changed = lossy.clone();
+    column_mut(&mut changed, "n").data_type = "INTEGER".into();
+    let error = session
+        .preview_design(Some(&table("strict_rows")), &changed)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("ON CONFLICT"), "{error}");
+    session.close().await;
 }

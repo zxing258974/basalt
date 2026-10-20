@@ -67,6 +67,25 @@ pub struct TableDesign {
     pub triggers: Vec<TriggerDef>,
     #[serde(default)]
     pub options: TableOptions,
+    /// 读出来时的结构指纹。草稿从读出的结构复制而来,带着同一个指纹;
+    /// 生成 DDL 前重新读一遍,指纹变了说明这期间表被别人改过,草稿里没有的东西不能当成用户删的。
+    #[serde(default)]
+    pub version: String,
+}
+
+impl TableDesign {
+    /// 结构指纹:除指纹本身以外全部内容的哈希。
+    pub fn fingerprint(&self) -> String {
+        use std::hash::{Hash, Hasher};
+        let unversioned = TableDesign {
+            version: String::new(),
+            ..self.clone()
+        };
+        let text = serde_json::to_string(&unversioned).unwrap_or_default();
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        text.hash(&mut hasher);
+        format!("{:016x}", hasher.finish())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -311,6 +330,8 @@ pub struct DdlContext {
     pub schema_objects: Vec<SchemaObject>,
     /// SQLite:有外键引用这张表的其它表,重建后要一起做外键检查。
     pub referencing_tables: Vec<String>,
+    /// SQLite:表定义里重建会丢掉的写法,有就不能重建。
+    pub rebuild_blockers: Vec<String>,
 }
 
 impl DdlContext {
@@ -320,6 +341,7 @@ impl DdlContext {
             backslash_escapes: true,
             schema_objects: Vec::new(),
             referencing_tables: Vec::new(),
+            rebuild_blockers: Vec::new(),
         }
     }
 }

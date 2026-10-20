@@ -10,6 +10,7 @@ mod postgres_data;
 mod postgres_design;
 pub(crate) mod sqlite;
 mod sqlite_data;
+mod sqlite_ddl;
 mod sqlite_design;
 
 use std::fmt;

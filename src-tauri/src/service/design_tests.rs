@@ -49,6 +49,7 @@ fn column(name: &str, data_type: &str) -> ColumnDef {
 
 fn design(table: TableRef, id_type: &str) -> TableDesign {
     TableDesign {
+        version: String::new(),
         table,
         columns: vec![column("id", id_type), column("body", "text")],
         primary_key: vec!["new:id".into()],

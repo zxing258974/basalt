@@ -25,8 +25,12 @@ const COLUMNS_SQL: &str = "
            pg_get_expr(d.adbin, d.adrelid) AS expression,
            a.attgenerated::text AS generated,
            a.attidentity <> '' AS is_identity,
-           col_description(a.attrelid, a.attnum) AS comment
+           col_description(a.attrelid, a.attnum) AS comment,
+           (SELECT quote_ident(cn.nspname) || '.' || quote_ident(co.collname)
+            FROM pg_collation co JOIN pg_namespace cn ON cn.oid = co.collnamespace
+            WHERE co.oid = a.attcollation AND a.attcollation <> t.typcollation) AS collation
     FROM pg_attribute a
+    JOIN pg_type t ON t.oid = a.atttypid
     LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
     WHERE a.attrelid = $1::bigint::oid AND a.attnum > 0 AND NOT a.attisdropped
     ORDER BY a.attnum";
@@ -91,6 +95,7 @@ impl PgSession {
             .map(column)
             .collect::<Result<Vec<_>, sqlx::Error>>()?;
         let mut design = TableDesign {
+            version: String::new(),
             table: table.clone(),
             columns,
             primary_key: Vec::new(),
@@ -152,7 +157,8 @@ fn column(row: &PgRow) -> Result<ColumnDef, sqlx::Error> {
         default,
         auto_increment: row.try_get("is_identity")?,
         comment: super::non_empty(row.try_get("comment")?),
-        collation: None,
+        // 只在和类型默认的不同时才有;改类型时要带上,否则会被重置成默认的。
+        collation: row.try_get("collation")?,
         on_update: None,
         generated,
     })

@@ -74,3 +74,51 @@ fn doubled_quotes_inside_identifiers_and_strings() {
     let names: Vec<_> = table.columns.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(names, ["a\"b", "c`d"]);
 }
+
+#[test]
+fn defaults_keep_their_parentheses_and_signs() {
+    let table = parse_create_table(
+        "CREATE TABLE t (a TEXT DEFAULT (datetime('now')) NOT NULL, b REAL DEFAULT -1.5, \
+         c DEFAULT 'x' COLLATE NOCASE, d DEFAULT NULL, e INT DEFAULT CURRENT_TIMESTAMP CHECK (e > 0), f INT)",
+    )
+    .unwrap();
+    let defaults: Vec<_> = table.columns.iter().map(|c| c.default.as_deref()).collect();
+    assert_eq!(
+        defaults,
+        [
+            Some("(datetime('now'))"),
+            Some("-1.5"),
+            Some("'x'"),
+            Some("NULL"),
+            Some("CURRENT_TIMESTAMP"),
+            None
+        ]
+    );
+    assert_eq!(table.columns[2].collation.as_deref(), Some("NOCASE"));
+    assert_eq!(table.checks.len(), 1);
+}
+
+#[test]
+fn notes_clauses_a_rebuild_would_lose() {
+    let lossy = parse_create_table(
+        "CREATE TABLE c (id INTEGER PRIMARY KEY DESC, n INT NOT NULL ON CONFLICT REPLACE, \
+         pid INT REFERENCES p(id) MATCH FULL DEFERRABLE INITIALLY DEFERRED, code TEXT, \
+         UNIQUE (code COLLATE NOCASE), CHECK (n <> 'ON CONFLICT'))",
+    )
+    .unwrap();
+    assert_eq!(
+        lossy.unsupported,
+        [
+            "主键的 ASC / DESC",
+            "ON CONFLICT",
+            "外键的 MATCH",
+            "DEFERRABLE",
+            "主键或唯一约束里的 COLLATE / ASC / DESC"
+        ]
+    );
+    let fine = parse_create_table(
+        "CREATE TABLE t (a INT PRIMARY KEY, b TEXT UNIQUE COLLATE NOCASE, CHECK (a > 0))",
+    )
+    .unwrap();
+    assert!(fine.unsupported.is_empty(), "{:?}", fine.unsupported);
+}

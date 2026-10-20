@@ -28,6 +28,10 @@ fn mysql_defaults_become_expressions() {
         d("rand()", "double", "default_generated").as_deref(),
         Some("(rand())")
     );
+    assert_eq!(
+        d(r"_utf8mb4\'[]\'", "json", "default_generated").as_deref(),
+        Some("(_utf8mb4'[]')")
+    );
     assert_eq!(d("b'101'", "bit(3)", "").as_deref(), Some("b'101'"));
     assert_eq!(d("2026-01-01", "date", "").as_deref(), Some("'2026-01-01'"));
     assert_eq!(column_default(None, "int", "", MYSQL), None);
@@ -66,11 +70,29 @@ fn partial_failure_names_what_took_effect() {
     let text = second.to_string();
     assert!(text.contains("第 2 条语句执行失败：boom"), "{text}");
     assert!(text.contains("已经生效：第 1 条"), "{text}");
-    assert!(text.contains("没有生效：第 2 条。"), "{text}");
+    assert!(text.contains("没有生效：第 2 条。请重新读取"), "{text}");
     let middle = partial_failure(2, 5, error()).to_string();
     assert!(middle.contains("已经生效：第 1–2 条"), "{middle}");
     assert!(
-        middle.contains("没有生效：第 3 条；第 4–5 条没有执行"),
+        middle.contains("没有生效：第 3 条。第 4–5 条没有执行。"),
         "{middle}"
+    );
+}
+
+#[test]
+fn lost_connections_leave_the_failed_statement_uncertain() {
+    let lost = || CoreError::Network("连接被重置".into());
+    let first = partial_failure(0, 2, lost());
+    assert_eq!(first.code(), "partially_applied");
+    let text = first.to_string();
+    assert!(
+        text.contains("已经生效：没有。第 1 条无法确定是否生效。第 2 条没有执行。"),
+        "{text}"
+    );
+    let later = partial_failure(1, 2, CoreError::Timeout).to_string();
+    assert!(
+        later.contains("已经生效：第 1 条")
+            && later.contains("第 2 条无法确定是否生效。请重新读取"),
+        "{later}"
     );
 }

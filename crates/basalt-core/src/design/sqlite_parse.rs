@@ -134,6 +134,8 @@ pub(crate) fn identifiers(sql: &str) -> Vec<String> {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ParsedColumn {
     pub name: String,
+    /// DEFAULT 后面的原文(PRAGMA 给的会去掉表达式外层的括号,拼回去是语法错误)。
+    pub default: Option<String>,
     pub collation: Option<String>,
     pub generated: Option<Generated>,
     pub autoincrement: bool,
@@ -148,6 +150,9 @@ pub(crate) struct ParsedTable {
     pub foreign_key_names: Vec<(Vec<String>, String)>,
     pub without_rowid: bool,
     pub strict: bool,
+    /// 模型带不过去的写法(ON CONFLICT、DEFERRABLE、约束列上的 COLLATE / ASC / DESC……):
+    /// 重建表会把它们丢掉,所以有它们就不能重建。
+    pub unsupported: Vec<String>,
 }
 
 /// 解析不了(不是 CREATE TABLE … ( … ) 的形状)时返回 `None`。
@@ -219,6 +224,19 @@ fn parse_segment(sql: &str, segment: &[Token], table: &mut ParsedTable) {
         (None, segment)
     };
     let Some(head) = rest.first() else { return };
+    note_unsupported(rest, table);
+    if head.is("PRIMARY") || head.is("UNIQUE") {
+        let open = rest.iter().position(|t| t.is_punct('('));
+        let ordered = open.is_some_and(|open| {
+            rest[open..]
+                .iter()
+                .take_while(|t| !t.is_punct(')'))
+                .any(|t| t.is("COLLATE") || t.is("ASC") || t.is("DESC"))
+        });
+        if ordered {
+            note(table, "主键或唯一约束里的 COLLATE / ASC / DESC");
+        }
+    }
     if head.is("CHECK") {
         if let Some((expression, _)) = parenthesized(sql, rest, 1) {
             table.checks.push((name, expression));
@@ -232,6 +250,74 @@ fn parse_segment(sql: &str, segment: &[Token], table: &mut ParsedTable) {
         let column = parse_column(sql, segment, table);
         table.columns.push(column);
     }
+}
+
+fn note(table: &mut ParsedTable, what: &str) {
+    if !table.unsupported.iter().any(|w| w == what) {
+        table.unsupported.push(what.to_owned());
+    }
+}
+
+/// 只看括号外的词:CHECK 表达式、默认值表达式里的同名词不算。
+fn note_unsupported(tokens: &[Token], table: &mut ParsedTable) {
+    let mut depth = 0;
+    let mut previous: Option<&Token> = None;
+    for token in tokens {
+        if token.is_punct('(') {
+            depth += 1;
+        } else if token.is_punct(')') {
+            depth -= 1;
+        } else if depth == 0 {
+            if token.is("CONFLICT") {
+                note(table, "ON CONFLICT");
+            } else if token.is("DEFERRABLE") {
+                note(table, "DEFERRABLE");
+            } else if token.is("MATCH") {
+                note(table, "外键的 MATCH");
+            } else if (token.is("ASC") || token.is("DESC")) && previous.is_some_and(|p| p.is("KEY"))
+            {
+                note(table, "主键的 ASC / DESC");
+            }
+        }
+        previous = Some(token);
+    }
+}
+
+/// 字段级约束的关键字:默认值的原文到这里为止。
+const CONSTRAINT_WORDS: &[&str] = &[
+    "CONSTRAINT",
+    "PRIMARY",
+    "NOT",
+    "NULL",
+    "UNIQUE",
+    "CHECK",
+    "DEFAULT",
+    "COLLATE",
+    "REFERENCES",
+    "GENERATED",
+    "AS",
+];
+
+/// `tokens[at]` 是 DEFAULT 之后的第一个词:返回默认值原文和它之后的位置。
+fn default_text(sql: &str, tokens: &[Token], at: usize) -> Option<(String, usize)> {
+    let first = tokens.get(at)?;
+    let mut end = at;
+    let mut i = at;
+    while i < tokens.len() {
+        let token = &tokens[i];
+        if i > at && CONSTRAINT_WORDS.iter().any(|w| token.is(w)) {
+            break;
+        }
+        if token.is_punct('(') {
+            let (_, after) = parenthesized(sql, tokens, i)?;
+            end = after - 1;
+            i = after;
+            continue;
+        }
+        end = i;
+        i += 1;
+    }
+    Some((sql[first.start..tokens[end].end].to_owned(), end + 1))
 }
 
 fn column_names(tokens: &[Token], open: usize) -> Vec<String> {
@@ -260,6 +346,13 @@ fn parse_column(sql: &str, tokens: &[Token], table: &mut ParsedTable) -> ParsedC
         if token.is("CONSTRAINT") {
             constraint = tokens.get(i + 1).map(|t| t.text.clone());
             i += 2;
+            continue;
+        }
+        if token.is("DEFAULT")
+            && let Some((text, end)) = default_text(sql, tokens, i + 1)
+        {
+            column.default = Some(text);
+            i = end;
             continue;
         }
         if token.is("COLLATE") {

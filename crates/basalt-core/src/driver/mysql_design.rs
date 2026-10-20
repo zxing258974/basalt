@@ -80,15 +80,19 @@ impl MysqlSession {
             mariadb: self.server().product == "MariaDB",
             backslash_escapes: self.backslash_escapes().await?,
         };
-        let columns = fetch(COLUMNS_SQL)
+        let mut columns = fetch(COLUMNS_SQL)
             .await?
             .iter()
             .map(|row| column(row, flavor))
             .collect::<Result<Vec<_>, sqlx::Error>>()?;
+        if flavor.mariadb {
+            self.restore_json_type(table, &mut columns).await;
+        }
         let (primary_key, indexes) = indexes(&fetch(INDEXES_SQL).await?)?;
         let foreign_keys = foreign_keys(&table.database, &fetch(FOREIGN_KEYS_SQL).await?)?;
         let collation: Option<String> = table_row.try_get("collation")?;
         Ok(TableDesign {
+            version: String::new(),
             table: table.clone(),
             columns,
             primary_key,
@@ -105,6 +109,30 @@ impl MysqlSession {
                 ..TableOptions::default()
             },
         })
+    }
+
+    /// MariaDB 的 JSON 是 LONGTEXT 加一条字段级的 `json_valid` 检查。按 longtext 写回 MODIFY
+    /// 会把检查丢掉,所以认出来后类型写成 json。读不了(10.5.10 以前没有 LEVEL 列)就保持原样。
+    async fn restore_json_type(&self, table: &TableRef, columns: &mut [ColumnDef]) {
+        let checks: Result<Vec<(String, String)>, _> = sqlx::query_as(
+            "SELECT CAST(CONSTRAINT_NAME AS CHAR), CAST(CHECK_CLAUSE AS CHAR)
+             FROM information_schema.CHECK_CONSTRAINTS
+             WHERE CONSTRAINT_SCHEMA = ? AND TABLE_NAME = ? AND LEVEL = 'Column'",
+        )
+        .bind(&table.database)
+        .bind(&table.table)
+        .fetch_all(&self.pool)
+        .await;
+        let Ok(checks) = checks else { return };
+        for column in columns.iter_mut() {
+            let json = format!("json_valid(`{}`)", column.name.replace('`', "``"));
+            let is_json = checks
+                .iter()
+                .any(|(name, clause)| *name == column.name && *clause == json);
+            if is_json && column.data_type.eq_ignore_ascii_case("longtext") {
+                column.data_type = "json".into();
+            }
+        }
     }
 
     /// 当前会话里字符串的反斜杠是不是转义符。
@@ -191,7 +219,8 @@ fn column_default(
         return Some(raw);
     }
     if extra.contains("default_generated") {
-        return Some(format!("({raw})"));
+        // 和 GENERATION_EXPRESSION 一样,表达式里的引号被写成了 \'。
+        return Some(format!("({})", raw.replace("\\'", "'")));
     }
     if is_numeric_type(data_type) {
         return Some(raw);
@@ -324,9 +353,16 @@ fn foreign_keys(database: &str, rows: &[MySqlRow]) -> Result<Vec<ForeignKeyDef>,
 }
 
 /// 第 `index` 条(从 0 起)失败时的报告:前面的已经生效、无法回滚,后面的没有执行。
+/// 数据库明确报错的那条没有生效;连接断了、超时这类错误,那一条到底生没生效说不准。
 pub(crate) fn partial_failure(index: usize, total: usize, error: CoreError) -> CoreError {
     let n = index + 1;
-    if index == 0 {
+    let certain = matches!(error, CoreError::Database(_) | CoreError::Authentication(_));
+    let skipped = match total - n {
+        0 => String::new(),
+        1 => format!("第 {} 条没有执行。", n + 1),
+        _ => format!("第 {}–{total} 条没有执行。", n + 1),
+    };
+    if index == 0 && certain {
         let rest = if total > 1 {
             "，后面的语句也没有执行"
         } else {
@@ -336,19 +372,19 @@ pub(crate) fn partial_failure(index: usize, total: usize, error: CoreError) -> C
             "第 1 条语句执行失败，没有任何改动生效{rest}：{error}"
         ));
     }
-    let applied = if n == 2 {
-        "第 1 条".to_owned()
+    let applied = match n {
+        1 => "没有。".to_owned(),
+        2 => "第 1 条（MySQL 的 DDL 会立即提交，无法回滚）。".to_owned(),
+        _ => format!("第 1–{} 条（MySQL 的 DDL 会立即提交，无法回滚）。", n - 1),
+    };
+    let failed = if certain {
+        format!("第 {n} 条语句执行失败：{error}\n已经生效：{applied}没有生效：第 {n} 条。")
     } else {
-        format!("第 1–{} 条", n - 1)
+        format!(
+            "第 {n} 条语句执行时连接出了问题：{error}\n已经生效：{applied}第 {n} 条无法确定是否生效。"
+        )
     };
-    let skipped = match total - n {
-        0 => String::new(),
-        1 => format!("；第 {} 条没有执行", n + 1),
-        _ => format!("；第 {}–{total} 条没有执行", n + 1),
-    };
-    CoreError::PartiallyApplied(format!(
-        "第 {n} 条语句执行失败：{error}\n已经生效：{applied}（MySQL 的 DDL 会立即提交，无法回滚）。没有生效：第 {n} 条{skipped}。请重新读取表结构，核对后再修改。"
-    ))
+    CoreError::PartiallyApplied(format!("{failed}{skipped}请重新读取表结构，核对后再修改。"))
 }
 
 #[cfg(test)]

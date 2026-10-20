@@ -11,11 +11,13 @@ impl Session {
         if table.table.is_empty() {
             return Err(table_not_found(""));
         }
-        match self {
-            Self::Mysql(s) => s.read_design(table).await,
-            Self::Postgres(s) => s.read_design(table).await,
-            Self::Sqlite(s) => s.read_design(table).await,
-        }
+        let mut design = match self {
+            Self::Mysql(s) => s.read_design(table).await?,
+            Self::Postgres(s) => s.read_design(table).await?,
+            Self::Sqlite(s) => s.read_design(table).await?,
+        };
+        design.version = design.fingerprint();
+        Ok(design)
     }
 
     /// 将要执行的 DDL。与 [`Self::apply_design`] 用同一套生成逻辑,预览什么就执行什么。
@@ -80,7 +82,14 @@ impl Session {
                         "不能把表挪到别的库或 schema。".into(),
                     ));
                 }
-                Some(self.read_design(table).await?)
+                let fresh = self.read_design(table).await?;
+                if fresh.version != target.version {
+                    return Err(CoreError::InvalidEdit(
+                        "这张表在你打开设计器之后被改过，草稿是按旧结构做的。请再保存一次（会先按最新结构重新合并你的修改）。"
+                            .into(),
+                    ));
+                }
+                Some(fresh)
             }
             None => None,
         };
@@ -90,6 +99,7 @@ impl Session {
             (Self::Sqlite(s), Some(table)) => {
                 context.schema_objects = s.schema_objects(table).await?;
                 context.referencing_tables = s.referencing_tables(table).await?;
+                context.rebuild_blockers = s.rebuild_blockers(table).await?;
             }
             _ => {}
         }

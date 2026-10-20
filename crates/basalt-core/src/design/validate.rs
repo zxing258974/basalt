@@ -37,8 +37,14 @@ pub(super) fn validate(
     if dialect == Dialect::Sqlite {
         sqlite_autoincrement(target)?;
     }
-    if let Some(original) = original {
-        stale_ids(original, target)?;
+    match original {
+        Some(original) => stale_ids(original, target)?,
+        // 新建 SQLite 表时检查约束原样写进 CREATE TABLE。
+        None => {
+            for check in &target.checks {
+                fragment(dialect, &check.expression, "检查约束")?;
+            }
+        }
     }
     Ok(())
 }
@@ -111,7 +117,12 @@ fn column_attributes(dialect: Dialect, column: &ColumnDef) -> CoreResult<()> {
         fragment(dialect, on_update, &format!("字段「{name}」的 ON UPDATE"))?;
     }
     if let Some(collation) = &column.collation {
-        word(collation, &format!("字段「{name}」的排序规则"))?;
+        let what = format!("字段「{name}」的排序规则");
+        // PostgreSQL 的排序规则读出来就带 schema 和引号,如 pg_catalog."C"。
+        match dialect {
+            Dialect::Postgres => fragment(dialect, collation, &what)?,
+            Dialect::Mysql | Dialect::Sqlite => word(collation, &what)?,
+        }
     }
     if let Some(generated) = &column.generated {
         fragment(

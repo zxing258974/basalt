@@ -53,6 +53,7 @@ fn members() -> TableDesign {
     let mut created = new_column("created_at", "timestamp", true);
     created.default = Some("CURRENT_TIMESTAMP".into());
     TableDesign {
+        version: String::new(),
         table: table("members"),
         primary_key: vec!["new:id".into()],
         primary_key_name: None,
@@ -185,6 +186,7 @@ async fn scenario(target: Target) {
     assert!(people.foreign_keys.is_empty());
 
     partial_failure(&session, people).await;
+    move_foreign_key(&session).await;
     session.close().await;
     pool.close().await;
 }
@@ -217,11 +219,18 @@ async fn partial_failure(session: &Session, people: TableDesign) {
     assert!(after.foreign_keys.is_empty(), "第 1 条已经生效");
     assert!(!column_names(&after).contains(&"bad"));
 
+    // 草稿是按第 1 条生效之前的结构做的:指纹对不上,拒绝。
+    let error = session
+        .preview_design(Some(&table("people")), &broken)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("被改过"), "{error}");
+
     // 预览之后结构变了:拒绝执行。
     let error = session
         .apply_design(
             Some(&table("people")),
-            &broken,
+            &after,
             Some(&["ALTER TABLE x".into()]),
         )
         .await
@@ -233,6 +242,7 @@ async fn partial_failure(session: &Session, people: TableDesign) {
         session,
         None,
         &TableDesign {
+            version: String::new(),
             table: table("teams"),
             ..members()
         },
@@ -240,6 +250,25 @@ async fn partial_failure(session: &Session, people: TableDesign) {
     .await
     .unwrap_err();
     assert!(error.to_string().contains("没有任何改动生效"), "{error}");
+}
+
+/// 外键换到另一个字段、名字不变:MySQL 当初自动建的同名索引要先删掉,否则 Duplicate key name。
+async fn move_foreign_key(session: &Session) {
+    let mut next = session.read_design(&table("people")).await.unwrap();
+    next.columns.push(new_column("owner_team", "int", true));
+    next.foreign_keys
+        .push(new_foreign_key(&next, "fk_team", "team_id", "teams", "id"));
+    save(session, Some(&table("people")), &next).await.unwrap();
+
+    let mut moved = session.read_design(&table("people")).await.unwrap();
+    assert!(
+        index_names(&moved).contains(&"fk_team"),
+        "MySQL 自动建了同名索引"
+    );
+    moved.foreign_keys[0].columns = vec![id_of(&moved, "owner_team")];
+    save(session, Some(&table("people")), &moved).await.unwrap();
+    let after = session.read_design(&table("people")).await.unwrap();
+    assert_eq!(after.foreign_keys[0].columns, [id_of(&after, "owner_team")]);
 }
 
 #[tokio::test]

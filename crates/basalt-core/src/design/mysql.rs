@@ -111,6 +111,9 @@ fn alter_table(context: &DdlContext, diff: &Diff) -> Vec<String> {
     {
         clauses.push(format!("DROP INDEX {}", q(&index.name)));
     }
+    for name in stale_support_indexes(diff) {
+        clauses.push(format!("DROP INDEX {}", q(name)));
+    }
     for column in &diff.dropped_columns {
         clauses.push(format!("DROP COLUMN {}", q(&column.name)));
     }
@@ -143,6 +146,60 @@ fn alter_table(context: &DdlContext, diff: &Diff) -> Vec<String> {
         statements.push(alter(clauses));
     }
     statements
+}
+
+/// 外键改了字段、但名字没变:MySQL 当初自动建的支撑索引也叫这个名字、还在旧字段上,
+/// 重新加外键时要再建一个同名索引,会报 Duplicate key name。这种自动索引先删掉,
+/// MySQL 会按新字段重新建。用户自己建的同名索引不动。
+fn stale_support_indexes<'a>(diff: &Diff<'a>) -> Vec<&'a str> {
+    let (original, target) = (diff.original, diff.target);
+    let fk = &diff.foreign_keys;
+    let dropped = |name: &str| {
+        let indexes = &diff.indexes;
+        indexes
+            .dropped
+            .iter()
+            .any(|i| i.name.eq_ignore_ascii_case(name))
+            || indexes
+                .renamed
+                .iter()
+                .any(|(old, _)| old.name.eq_ignore_ascii_case(name))
+    };
+    let covers = |columns: &[String], keys: &[String]| {
+        keys.len() <= columns.len() && columns[..keys.len()] == *keys
+    };
+    let readded = fk
+        .added
+        .iter()
+        .copied()
+        .chain(fk.renamed.iter().map(|(_, new)| *new));
+    let mut names = Vec::new();
+    for added in readded.filter(|f| !f.name.trim().is_empty()) {
+        let Some(old) = original
+            .foreign_keys
+            .iter()
+            .find(|f| f.name.eq_ignore_ascii_case(&added.name))
+        else {
+            continue;
+        };
+        let Some(index) = original
+            .indexes
+            .iter()
+            .find(|i| i.name.eq_ignore_ascii_case(&added.name) && !dropped(&i.name))
+        else {
+            continue;
+        };
+        let index_columns: Vec<String> = index.columns.iter().map(|c| c.column.clone()).collect();
+        let covered = covers(&target.primary_key, &added.columns)
+            || target.indexes.iter().any(|i| {
+                let columns: Vec<String> = i.columns.iter().map(|c| c.column.clone()).collect();
+                covers(&columns, &added.columns)
+            });
+        if index_columns == old.columns && !covered {
+            names.push(index.name.as_str());
+        }
+    }
+    names
 }
 
 /// 字段的改动按新顺序写:新字段、挪了位置的字段带 FIRST / AFTER,

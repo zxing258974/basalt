@@ -28,7 +28,8 @@ fn design_from_the_frontend_deserializes_and_round_trips() {
         "options": {
             "engine": "InnoDB", "charset": null, "collation": null, "comment": null,
             "withoutRowid": true, "strict": false
-        }
+        },
+        "version": "0123456789abcdef"
     });
     let design: TableDesign = serde_json::from_value(sent.clone()).unwrap();
     assert!(design.columns[0].auto_increment);

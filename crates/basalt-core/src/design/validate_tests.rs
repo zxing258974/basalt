@@ -200,3 +200,27 @@ fn renaming_cannot_move_the_table_to_another_database() {
     let message = plan_error(Dialect::Mysql, Some(&original), &target);
     assert!(message.contains("库"), "{message}");
 }
+
+#[test]
+fn check_expressions_of_new_tables_are_checked() {
+    let mut target = basic(Dialect::Sqlite);
+    target.checks.push(CheckDef {
+        id: "ck:0".into(),
+        name: None,
+        expression: "a > 0); DROP TABLE x; --".into(),
+    });
+    assert!(plan_error(Dialect::Sqlite, None, &target).contains("检查约束"));
+}
+
+#[test]
+fn fingerprints_ignore_the_version_field_and_follow_the_content() {
+    let design = basic(Dialect::Mysql);
+    let stamped = TableDesign {
+        version: design.fingerprint(),
+        ..design.clone()
+    };
+    assert_eq!(stamped.fingerprint(), design.fingerprint());
+    let mut changed = design.clone();
+    changed.columns[1].comment = Some("x".into());
+    assert_ne!(changed.fingerprint(), design.fingerprint());
+}

@@ -1,16 +1,16 @@
-//! SQLite 的表结构读取与 DDL 执行。PRAGMA 给不了的(排序规则、生成列表达式、检查约束、
+//! SQLite 的表结构读取(执行见 sqlite_ddl)。PRAGMA 给不了的(排序规则、生成列表达式、检查约束、
 //! AUTOINCREMENT)从 CREATE TABLE 原文里解析。
 
-use sqlx::sqlite::{SqliteConnection, SqliteRow};
-use sqlx::{Connection, Row};
+use sqlx::Row;
+use sqlx::sqlite::SqliteRow;
 
 use super::sqlite::SqliteSession;
-use super::{finish_transaction, statement_failed, table_not_found};
+use super::table_not_found;
 use crate::design::sqlite_parse::{ParsedTable, parse_create_table};
 use crate::design::{
-    CHECK_ID_PREFIX, COLUMN_ID_PREFIX, CheckDef, ColumnDef, DdlStatement, FOREIGN_KEY_ID_PREFIX,
-    FkAction, ForeignKeyDef, Generated, INDEX_ID_PREFIX, IndexColumn, IndexDef, SchemaObject,
-    StatementKind, TableDesign, TableOptions, TriggerDef, existing_id,
+    CHECK_ID_PREFIX, COLUMN_ID_PREFIX, CheckDef, ColumnDef, FOREIGN_KEY_ID_PREFIX, FkAction,
+    ForeignKeyDef, Generated, INDEX_ID_PREFIX, IndexColumn, IndexDef, SchemaObject, TableDesign,
+    TableOptions, TriggerDef, existing_id,
 };
 use crate::error::{CoreError, CoreResult};
 use crate::sql::{Dialect, quote_ident};
@@ -62,12 +62,13 @@ impl SqliteSession {
             .fetch_all(&self.pool)
             .await?;
         let triggers = sqlx::query(&format!(
-            "SELECT name, sql FROM {master} WHERE type = 'trigger' AND tbl_name = ?1 ORDER BY name"
+            "SELECT name, sql FROM {master} WHERE type = 'trigger' AND tbl_name = ?1 COLLATE NOCASE ORDER BY name"
         ))
         .bind(&table.table)
         .fetch_all(&self.pool)
         .await?;
         Ok(TableDesign {
+            version: String::new(),
             table: table.clone(),
             indexes: self.indexes(table, &master, &columns).await?,
             columns,
@@ -179,6 +180,25 @@ impl SqliteSession {
         Ok(indexes)
     }
 
+    /// 重建表会丢掉的写法(见 [`ParsedTable::unsupported`]),有就不能重建。
+    pub async fn rebuild_blockers(&self, table: &TableRef) -> CoreResult<Vec<String>> {
+        let master = format!(
+            "{}.sqlite_master",
+            quote_ident(Dialect::Sqlite, &table.database)
+        );
+        let sql: Option<String> = sqlx::query_scalar(&format!(
+            "SELECT sql FROM {master} WHERE type = 'table' AND name = ?1"
+        ))
+        .bind(&table.table)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(sql
+            .as_deref()
+            .and_then(parse_create_table)
+            .map(|parsed| parsed.unsupported)
+            .unwrap_or_default())
+    }
+
     /// 库里这张表以外的对象(视图、别的表、别的表上的触发器和索引),重建前查引用用。
     pub async fn schema_objects(&self, table: &TableRef) -> CoreResult<Vec<SchemaObject>> {
         let master = format!(
@@ -222,86 +242,6 @@ impl SqliteSession {
         .await?;
         Ok(names)
     }
-
-    /// 在一个事务里执行。`rebuild` 时按官方流程:事务外关掉外键约束,结束后恢复。
-    pub async fn execute_ddl(
-        &self,
-        statements: &[DdlStatement],
-        rebuild: bool,
-    ) -> CoreResult<usize> {
-        let mut connection = self.pool.acquire().await?;
-        let foreign_keys = rebuild
-            && sqlx::query_scalar::<_, i64>("PRAGMA foreign_keys")
-                .fetch_one(&mut *connection)
-                .await?
-                == 1;
-        if foreign_keys {
-            sqlx::query("PRAGMA foreign_keys = OFF")
-                .execute(&mut *connection)
-                .await?;
-        }
-        let result = run(&mut connection, statements).await;
-        // 失败时 legacy_alter_table 可能还开着;这些是连接级设置,不随事务回滚。
-        let restore = async {
-            sqlx::query("PRAGMA legacy_alter_table = OFF")
-                .execute(&mut *connection)
-                .await?;
-            if foreign_keys {
-                sqlx::query("PRAGMA foreign_keys = ON")
-                    .execute(&mut *connection)
-                    .await?;
-            }
-            Ok::<_, sqlx::Error>(())
-        }
-        .await;
-        if let Err(error) = restore {
-            log::warn!("恢复 SQLite 连接设置失败，丢弃这条连接：{error}");
-            drop(connection.detach());
-        }
-        result
-    }
-}
-
-async fn run(connection: &mut SqliteConnection, statements: &[DdlStatement]) -> CoreResult<usize> {
-    let mut transaction = connection.begin().await?;
-    let result = async {
-        for (index, statement) in statements.iter().enumerate() {
-            let query = sqlx::query(&statement.sql).persistent(false);
-            match statement.kind {
-                StatementKind::Execute => {
-                    query
-                        .execute(&mut *transaction)
-                        .await
-                        .map_err(|error| statement_failed(index, error))?;
-                }
-                StatementKind::ForeignKeyCheck => {
-                    let rows = query
-                        .fetch_all(&mut *transaction)
-                        .await
-                        .map_err(|error| statement_failed(index, error))?;
-                    if let Some(first) = rows.first() {
-                        return Err(foreign_key_violation(first, rows.len()));
-                    }
-                }
-            }
-        }
-        Ok(statements.len() as u64)
-    }
-    .await;
-    Ok(finish_transaction(transaction, result).await? as usize)
-}
-
-fn foreign_key_violation(row: &SqliteRow, count: usize) -> CoreError {
-    let table: String = row.try_get("table").unwrap_or_default();
-    let parent: String = row.try_get("parent").unwrap_or_default();
-    let rowid = row
-        .try_get::<Option<i64>, _>("rowid")
-        .ok()
-        .flatten()
-        .map_or(String::new(), |id| format!("（如 rowid {id}）"));
-    CoreError::InvalidEdit(format!(
-        "外键检查没通过：表「{table}」有 {count} 行引用的记录在「{parent}」里找不到{rowid}。所有修改都已回滚。"
-    ))
 }
 
 fn column(row: &SqliteRow, parsed: &ParsedTable) -> Result<ColumnDef, sqlx::Error> {
@@ -322,7 +262,11 @@ fn column(row: &SqliteRow, parsed: &ParsedTable) -> Result<ColumnDef, sqlx::Erro
         id: existing_id(COLUMN_ID_PREFIX, &name),
         data_type: row.try_get("type")?,
         nullable: row.try_get::<i64, _>("notnull")? == 0,
-        default: row.try_get("dflt_value")?,
+        // PRAGMA 的 dflt_value 去掉了表达式外层的括号,优先用原文。
+        default: match details.and_then(|d| d.default.clone()) {
+            Some(text) => Some(text),
+            None => row.try_get("dflt_value")?,
+        },
         auto_increment: details.is_some_and(|d| d.autoincrement),
         comment: None,
         collation: details.and_then(|d| d.collation.clone()),

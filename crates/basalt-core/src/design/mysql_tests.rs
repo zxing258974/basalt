@@ -300,3 +300,35 @@ fn stale_column_id_is_rejected() {
     assert!(message.contains("ghost"), "{message}");
     assert!(message.contains("重新读取"), "{message}");
 }
+
+#[test]
+fn moving_a_foreign_key_drops_its_same_named_support_index() {
+    let mut original = users();
+    original.columns.push(col("team_id", "int"));
+    original.columns.push(col("group_id", "int"));
+    original.foreign_keys = vec![fk("fk_team", &["team_id"], "teams", &["id"])];
+    original.indexes.push(index("fk_team", &["team_id"]));
+    let mut target = original.clone();
+    target.foreign_keys[0].columns = vec![cid("group_id")];
+
+    let statements = plan_for(M, Some(&original), &target);
+    assert_eq!(
+        sqls(&statements),
+        [
+            "ALTER TABLE `shop`.`users`\n  DROP FOREIGN KEY `fk_team`",
+            "ALTER TABLE `shop`.`users`\n  \
+             DROP INDEX `fk_team`,\n  \
+             ADD CONSTRAINT `fk_team` FOREIGN KEY (`group_id`) REFERENCES `shop`.`teams` (`id`)",
+        ]
+    );
+
+    // 已经有索引能撑起新外键,或同名索引不是当初自动建的,就不动它。
+    let mut covered = target.clone();
+    covered.indexes.push(new_index("idx_group", &["group_id"]));
+    assert!(!sqls(&plan_for(M, Some(&original), &covered))[1].contains("DROP INDEX `fk_team`"));
+    let mut own = original.clone();
+    own.indexes[1] = index("fk_team", &["team_id", "id"]);
+    let mut own_target = own.clone();
+    own_target.foreign_keys[0].columns = vec![cid("group_id")];
+    assert!(!sqls(&plan_for(M, Some(&own), &own_target))[1].contains("DROP INDEX"));
+}

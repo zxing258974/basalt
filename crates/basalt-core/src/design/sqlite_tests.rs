@@ -333,3 +333,37 @@ fn autoincrement_needs_a_lone_integer_primary_key() {
     composite.primary_key.push(cid("title"));
     assert!(plan_error(S, None, &composite).contains("INTEGER"));
 }
+
+#[test]
+fn rebuild_refuses_clauses_it_would_lose() {
+    let original = notes();
+    let mut target = notes();
+    target.columns[1].data_type = "VARCHAR(100)".into();
+    let context = DdlContext {
+        rebuild_blockers: vec!["ON CONFLICT".into(), "DEFERRABLE".into()],
+        ..DdlContext::new(S)
+    };
+    let message = plan(&context, Some(&original), &target)
+        .unwrap_err()
+        .to_string();
+    assert!(message.contains("ON CONFLICT、DEFERRABLE"), "{message}");
+
+    // 不重建的改动照常放行。
+    let mut renamed = notes();
+    renamed.columns[2].name = "content".into();
+    assert!(plan(&context, Some(&original), &renamed).is_ok());
+}
+
+#[test]
+fn rebuild_points_self_references_at_the_new_name() {
+    let mut original = notes();
+    original.columns.push(col("parent_id", "INTEGER"));
+    original
+        .foreign_keys
+        .push(fk("fk_parent", &["parent_id"], "notes", &["id"]));
+    let mut target = original.clone();
+    target.table.table = "memos".into();
+    target.columns[1].data_type = "VARCHAR(100)".into();
+    let plan = plan_for(S, Some(&original), &target);
+    assert!(sqls(&plan)[1].contains("REFERENCES \"memos\" (\"id\")"));
+}

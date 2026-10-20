@@ -63,6 +63,7 @@ fn members() -> TableDesign {
     name.default = Some("''".into());
     name.comment = Some("姓名".into());
     let design = TableDesign {
+        version: String::new(),
         table: table("members"),
         primary_key: vec!["new:id".into()],
         primary_key_name: None,

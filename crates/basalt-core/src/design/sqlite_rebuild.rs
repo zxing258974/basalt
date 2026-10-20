@@ -133,11 +133,18 @@ pub(super) fn rebuild(context: &DdlContext, diff: &Diff) -> DdlPlan {
             .iter()
             .any(|b| b.id == index.id && b.is_constraint)
     };
+    // 表改了名:引用自己的外键也要指向新名字,否则重建后引用的是一张不存在的表。
+    let mut renamed = target.clone();
+    for fk in &mut renamed.foreign_keys {
+        if fk.ref_table.eq_ignore_ascii_case(&original.table.table) {
+            fk.ref_table.clone_from(&target.table.table);
+        }
+    }
     let mut sql = vec![
         "PRAGMA legacy_alter_table = ON".to_owned(),
         table_definition(
             &new,
-            target,
+            &renamed,
             &constraint,
             &original.checks,
             &original.options,

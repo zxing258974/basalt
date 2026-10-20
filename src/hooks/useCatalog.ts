@@ -11,6 +11,29 @@ export const catalogKeys = {
   schemas: (id: string, database: string) => ["catalog", id, "schemas", database] as const,
   tables: (id: string, database: string, schema: string | null) =>
     ["catalog", id, "tables", database, schema ?? ""] as const,
+  /** 补全用的列名,只在用到时才取。 */
+  columns: (id: string, database: string, schema: string | null, table: string) =>
+    ["catalog", id, "columns", database, schema ?? "", table] as const,
+};
+
+/** 对象树和 SQL 补全共用的查询定义:同一个 key,同一份缓存。 */
+export const catalogQueries = {
+  databases: (id: string) => ({
+    queryKey: catalogKeys.databases(id),
+    queryFn: async () => (await getBackend()).listDatabases(id),
+  }),
+  schemas: (id: string, database: string) => ({
+    queryKey: catalogKeys.schemas(id, database),
+    queryFn: async () => (await getBackend()).listSchemas(id, database),
+  }),
+  tables: (id: string, database: string, schema: string | null) => ({
+    queryKey: catalogKeys.tables(id, database, schema),
+    queryFn: async () => (await getBackend()).listTables(id, database, schema),
+  }),
+  columns: (id: string, database: string, schema: string | null, table: string) => ({
+    queryKey: catalogKeys.columns(id, database, schema, table),
+    queryFn: async () => (await getBackend()).listColumns(id, { database, schema, table }),
+  }),
 };
 
 export const connectionsQuery = {
@@ -28,25 +51,13 @@ export function useServerInfo(id: string | null) {
 }
 
 export function useDatabases(id: string, enabled: boolean) {
-  return useQuery({
-    queryKey: catalogKeys.databases(id),
-    queryFn: async () => (await getBackend()).listDatabases(id),
-    enabled,
-  });
+  return useQuery({ ...catalogQueries.databases(id), enabled });
 }
 
 export function useSchemas(id: string, database: string, enabled: boolean) {
-  return useQuery({
-    queryKey: catalogKeys.schemas(id, database),
-    queryFn: async () => (await getBackend()).listSchemas(id, database),
-    enabled,
-  });
+  return useQuery({ ...catalogQueries.schemas(id, database), enabled });
 }
 
 export function useTables(id: string, database: string, schema: string | null, enabled: boolean) {
-  return useQuery({
-    queryKey: catalogKeys.tables(id, database, schema),
-    queryFn: async () => (await getBackend()).listTables(id, database, schema),
-    enabled,
-  });
+  return useQuery({ ...catalogQueries.tables(id, database, schema), enabled });
 }

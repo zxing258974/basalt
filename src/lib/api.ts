@@ -1,6 +1,16 @@
 import type { ImportCandidate, ImportReport, ImportSource } from "./importTypes";
 import type {
+  HistoryEntry,
+  QueryImportCandidate,
+  QueryImportReport,
+  QueryScope,
+  SavedQueryInfo,
+  SavedQueryRef,
+  StatementOutcome,
+} from "./queryTypes";
+import type {
   ApplyOutcome,
+  ColumnInfo,
   ConnectionConfig,
   ConnectionDraft,
   ConnectionView,
@@ -37,6 +47,24 @@ export interface Backend {
   /** 导入勾选的连接:密码由后端直接写进钥匙串。 */
   importConnections(source: ImportSource, ids: string[]): Promise<ImportReport>;
   pickNcxFile(): Promise<string | null>;
+  /** 在查询标签页 `editorId` 的专用连接上执行一条语句;数据库报错也是一个结果,不会 reject。 */
+  runStatement(editorId: string, connectionId: string, scope: QueryScope, sql: string): Promise<StatementOutcome>;
+  /** 取消标签页正在执行的语句;没有在执行时返回 false。 */
+  cancelStatement(editorId: string): Promise<boolean>;
+  /** 标签页关了,断开它的专用连接。 */
+  closeEditor(editorId: string): Promise<void>;
+  /** 补全用的列名。 */
+  listColumns(id: string, table: TableRef): Promise<ColumnInfo[]>;
+  searchHistory(query: string, connectionId: string | null, limit: number): Promise<HistoryEntry[]>;
+  clearHistory(): Promise<void>;
+  listSavedQueries(connectionId: string, database: string, schema: string | null): Promise<SavedQueryInfo[]>;
+  readSavedQuery(query: SavedQueryRef): Promise<string>;
+  /** 同名的已经有了且没让覆盖时报 already_exists。 */
+  saveQuery(query: SavedQueryRef, sql: string, overwrite: boolean): Promise<SavedQueryInfo>;
+  deleteSavedQuery(query: SavedQueryRef): Promise<void>;
+  /** 扫描本机 Navicat 保存的查询,给出预览;不写任何东西。 */
+  scanNavicatQueries(): Promise<QueryImportCandidate[]>;
+  importNavicatQueries(ids: string[]): Promise<QueryImportReport>;
 }
 
 function createTauriBackend(): Backend {
@@ -80,6 +108,19 @@ function createTauriBackend(): Backend {
       });
       return typeof picked === "string" ? picked : null;
     },
+    runStatement: (editorId, connectionId, scope, sql) => call("run_statement", { editorId, connectionId, scope, sql }),
+    cancelStatement: (editorId) => call("cancel_statement", { editorId }),
+    closeEditor: (editorId) => call("close_editor", { editorId }),
+    listColumns: (id, table) => call("list_columns", { id, table }),
+    searchHistory: (query, connectionId, limit) => call("search_history", { query, connectionId, limit }),
+    clearHistory: () => call("clear_history"),
+    listSavedQueries: (connectionId, database, schema) =>
+      call("list_saved_queries", { connectionId, database, schema }),
+    readSavedQuery: (query) => call("read_saved_query", { query }),
+    saveQuery: (query, sql, overwrite) => call("save_query", { query, sql, overwrite }),
+    deleteSavedQuery: (query) => call("delete_saved_query", { query }),
+    scanNavicatQueries: () => call("scan_navicat_queries"),
+    importNavicatQueries: (ids) => call("import_navicat_queries", { ids }),
   };
 }
 

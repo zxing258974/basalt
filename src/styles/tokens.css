@@ -46,6 +46,16 @@
   --change-removed: oklch(96% 0.025 27);
   --change-removed-mark: var(--danger);
 
+  /* SQL 语法高亮:关键字用炭灰加粗而不是彩色,把颜色留给字面量和注释 */
+  --syntax-keyword: oklch(36% 0.09 265);
+  --syntax-string: oklch(48% 0.11 150);
+  --syntax-number: oklch(52% 0.14 40);
+  --syntax-comment: oklch(60% 0.01 75);
+  --syntax-type: oklch(48% 0.1 205);
+  --syntax-function: oklch(45% 0.12 300);
+  --syntax-operator: oklch(45% 0.01 60);
+  --syntax-variable: oklch(50% 0.13 20);
+
   /* 数据库识别色 */
   --db-mysql: oklch(58% 0.11 205);
   --db-mariadb: oklch(52% 0.09 55);
@@ -128,6 +138,14 @@
     --change-edited: oklch(30% 0.055 60);
     --change-added: oklch(28% 0.045 150);
     --change-removed: oklch(28% 0.045 27);
+    --syntax-keyword: oklch(78% 0.08 265);
+    --syntax-string: oklch(78% 0.11 150);
+    --syntax-number: oklch(78% 0.12 55);
+    --syntax-comment: oklch(58% 0.01 75);
+    --syntax-type: oklch(78% 0.09 205);
+    --syntax-function: oklch(78% 0.1 300);
+    --syntax-operator: oklch(74% 0.01 75);
+    --syntax-variable: oklch(76% 0.12 25);
     --shadow-popover: 0 0 0 0.5px oklch(100% 0 0 / 0.1), 0 8px 24px oklch(0% 0 0 / 0.5);
     --shadow-dialog: 0 0 0 0.5px oklch(100% 0 0 / 0.12), 0 24px 70px oklch(0% 0 0 / 0.6);
   }

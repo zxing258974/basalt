@@ -1,7 +1,8 @@
-import { Import, Pencil, Plug, PlugZap, Plus, RefreshCw } from "lucide-react";
+import { FilePlus2, Import, Pencil, Plug, PlugZap, Plus, RefreshCw } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useConnections } from "../../hooks/useCatalog";
 import { useConnectionActions } from "../../hooks/useConnectionActions";
+import { useNewQueryFromSelection } from "../../hooks/useNewQueryFromSelection";
 import { useUi } from "../../stores/ui";
 import { ImportDialog } from "../import/ImportDialog";
 import { connectionIdFromKey } from "../sidebar/treeKeys";
@@ -38,6 +39,7 @@ export function Toolbar() {
   const actions = useConnectionActions();
   const { openConnectionDialog } = useUi.getState();
   const [importing, setImporting] = useState(false);
+  const newQuery = useNewQueryFromSelection();
 
   return (
     <header className="toolbar" data-tauri-drag-region>
@@ -67,6 +69,13 @@ export function Toolbar() {
           label="编辑"
           disabled={!connection}
           onClick={() => connection && openConnectionDialog({ mode: "edit", connection })}
+        />
+        <ToolbarButton
+          icon={<FilePlus2 />}
+          label="新建查询"
+          shortcut="⌘T"
+          disabled={!connection}
+          onClick={() => void newQuery()}
         />
         <ToolbarButton icon={<Import />} label="导入" onClick={() => setImporting(true)} />
         <span className="toolbar-divider" aria-hidden />

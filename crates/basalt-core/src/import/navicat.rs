@@ -7,6 +7,7 @@
 mod cipher;
 mod conn_plist;
 mod ncx;
+pub mod queries;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -28,6 +29,9 @@ const MAX_SOURCE_BYTES: u64 = 16 * 1024 * 1024;
 const CONN_PLIST: &str =
     "Library/Application Support/PremiumSoft CyberTech/Navicat CC/Common/conn.plist";
 const VGROUP_JSON: &str = "Library/Application Support/PremiumSoft CyberTech/Navicat CC/Navicat Premium/Profiles/vgroup.json";
+/// 保存的查询所在的目录,见 [`queries`]。
+const SETTINGS_DIR: &str =
+    "Library/Application Support/PremiumSoft CyberTech/Navicat CC/Common/Settings";
 
 /// 两种来源共用的中间形态:字段都是来源里的原始文本。
 #[derive(Debug, Default)]
@@ -189,6 +193,7 @@ fn read_source(path: &Path) -> CoreResult<Vec<u8>> {
 pub struct NavicatLocation {
     pub conn_plist: PathBuf,
     pub vgroup_json: PathBuf,
+    pub settings: PathBuf,
 }
 
 impl NavicatLocation {
@@ -196,6 +201,7 @@ impl NavicatLocation {
         Self {
             conn_plist: home.join(CONN_PLIST),
             vgroup_json: home.join(VGROUP_JSON),
+            settings: home.join(SETTINGS_DIR),
         }
     }
 

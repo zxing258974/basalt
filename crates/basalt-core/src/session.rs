@@ -12,6 +12,7 @@ use crate::driver::postgres::PgSession;
 use crate::driver::sqlite::SqliteSession;
 use crate::driver::{ConnectParams, ServerInfo, TableInfo};
 use crate::error::{CoreError, CoreResult};
+use crate::query::{EditorRegistry, QueryScope, StatementOutcome};
 
 pub enum Session {
     Mysql(MysqlSession),
@@ -118,6 +119,8 @@ pub(crate) enum OpenStart {
 #[derive(Default)]
 pub struct SessionManager {
     registry: RwLock<Registry>,
+    /// 查询标签页的专用连接,随所属连接一起关闭。
+    editors: EditorRegistry,
 }
 
 impl SessionManager {
@@ -187,12 +190,14 @@ impl SessionManager {
     }
 
     /// 关掉会话并作废正在进行中的打开。返回是否真的关掉了一个会话。
+    /// 查询标签页的专用连接先断开:取消它们正在执行的语句还要用会话的连接池。
     pub async fn close(&self, id: &str) -> bool {
         let removed = {
             let mut registry = self.registry.write().await;
             *registry.generations.entry(id.to_owned()).or_default() += 1;
             registry.sessions.remove(id)
         };
+        self.editors.close_connection(id).await;
         match removed {
             Some(session) => {
                 session.close().await;
@@ -200,6 +205,37 @@ impl SessionManager {
             }
             None => false,
         }
+    }
+}
+
+impl SessionManager {
+    /// 在查询标签页 `editor_id` 的专用连接上执行一条语句,连接没打开时报错。
+    pub async fn run_query(
+        &self,
+        editor_id: &str,
+        connection_id: &str,
+        scope: &QueryScope,
+        sql: &str,
+    ) -> CoreResult<StatementOutcome> {
+        let session = self.get(connection_id).await?;
+        self.editors
+            .run(editor_id, connection_id, &session, scope, sql)
+            .await
+    }
+
+    /// 取消查询标签页正在执行的语句。没有在执行时返回 false。
+    pub async fn cancel_query(&self, editor_id: &str) -> CoreResult<bool> {
+        self.editors.cancel(editor_id).await
+    }
+
+    /// 查询标签页关了,断开它的专用连接。
+    pub async fn close_editor(&self, editor_id: &str) {
+        self.editors.close(editor_id).await;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn editor_count(&self) -> usize {
+        self.editors.len()
     }
 }
 
@@ -247,6 +283,29 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code(), "superseded");
         assert!(!manager.is_open("c1").await);
+    }
+
+    #[tokio::test]
+    async fn query_tabs_close_with_their_tab_or_connection() {
+        let dir = tempfile::tempdir().unwrap();
+        let params = sqlite_params(dir.path()).await;
+        let manager = SessionManager::default();
+        manager.open("c1", &params).await.unwrap();
+        let scope = QueryScope::default();
+        manager
+            .run_query("tab", "c1", &scope, "SELECT 1")
+            .await
+            .unwrap();
+        assert_eq!(manager.editor_count(), 1);
+        manager.close_editor("tab").await;
+        assert_eq!(manager.editor_count(), 0);
+
+        manager
+            .run_query("tab", "c1", &scope, "SELECT 1")
+            .await
+            .unwrap();
+        manager.close("c1").await;
+        assert_eq!(manager.editor_count(), 0);
     }
 
     #[tokio::test]

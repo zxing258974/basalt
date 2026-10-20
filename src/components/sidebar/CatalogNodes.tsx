@@ -1,11 +1,13 @@
 // 对象树里连接以下的各层节点。每层只在展开时才去取数据。
-import { Database, Eye, Layers, RefreshCw, Rows3, Table2, TableProperties } from "lucide-react";
+import { Database, Eye, FilePlus2, Layers, RefreshCw, Rows3, Table2, TableProperties } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { catalogKeys, useDatabases, useSchemas, useTables } from "../../hooks/useCatalog";
+import { useQueryTabs } from "../../hooks/useQueryTabs";
 import { errorMessage, type ConnectionView, type TableInfo } from "../../lib/types";
 import { objectsTab, tableDataTab, useTabs } from "../../stores/tabs";
 import { useUi } from "../../stores/ui";
 import { databaseKey, groupKey, schemaKey, tableKey, type GroupKind } from "./treeKeys";
+import { SavedQueryGroup } from "./QueryNodes";
 import { useTreeMenu } from "./treeMenu";
 import { TreeRow, TreeStatusRow } from "./TreeRow";
 
@@ -74,6 +76,7 @@ function DatabaseNode({
   const openMenu = useTreeMenu();
   const queryClient = useQueryClient();
   const openObjects = useOpenObjects(connection);
+  const { openNewQuery } = useQueryTabs();
   const isPostgres = connection.driver === "postgres";
   const key = databaseKey(connection.id, database);
 
@@ -94,6 +97,12 @@ function DatabaseNode({
       }
       onContextMenu={(event) =>
         openMenu(event, [
+          {
+            label: "新建查询",
+            icon: <FilePlus2 />,
+            shortcut: "⌘T",
+            onSelect: () => void openNewQuery(connection, { database }),
+          },
           ...(isPostgres
             ? []
             : [{ label: "打开对象列表", icon: <TableProperties />, onSelect: () => openObjects(database, null) }]),
@@ -118,6 +127,7 @@ function DatabaseNode({
 function SchemaList({ connection, database, depth }: { connection: ConnectionView; database: string; depth: number }) {
   const query = useSchemas(connection.id, database, true);
   const openObjects = useOpenObjects(connection);
+  const { openNewQuery } = useQueryTabs();
   const openMenu = useTreeMenu();
   return (
     <Children query={query} depth={depth} empty="没有 schema">
@@ -138,6 +148,12 @@ function SchemaList({ connection, database, depth }: { connection: ConnectionVie
               }}
               onContextMenu={(event) =>
                 openMenu(event, [
+                  {
+                    label: "新建查询",
+                    icon: <FilePlus2 />,
+                    shortcut: "⌘T",
+                    onSelect: () => void openNewQuery(connection, { database, schema }),
+                  },
                   { label: "打开对象列表", icon: <TableProperties />, onSelect: () => openObjects(database, schema) },
                 ])
               }
@@ -215,6 +231,7 @@ function ObjectGroups({
           </TreeRow>
         );
       })}
+      <SavedQueryGroup connection={connection} database={database} schema={schema} depth={depth} />
     </>
   );
 }

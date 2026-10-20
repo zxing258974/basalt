@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
-import type { EditInput, SortSpec, TablePage } from "../../lib/types";
+import type { ColumnInfo, EditInput, SortSpec, TablePage } from "../../lib/types";
 import { ContextMenu, type MenuEntry } from "../ui/ContextMenu";
 import type { EditMove } from "./CellEditor";
 import type { EditState, RowTarget } from "./editState";
@@ -45,7 +45,11 @@ interface DataGridProps {
   onSelectionChange(selection: GridSelection): void;
   sort: SortSpec | null;
   sortDisabled: boolean;
+  /** 见 GridHeader:查询结果按「序号:列名」认排序列。 */
+  sortKeyOf?: (column: ColumnInfo, index: number) => string;
   onSort(column: string): void;
+  /** 只读的查询结果:右键菜单只留「复制」。 */
+  copyOnlyMenu?: boolean;
   actions: GridActions;
   /** 每次加一就让表格获得焦点(如点了「新增行」之后可以直接打字)。 */
   focusRequest: number;
@@ -192,6 +196,8 @@ export function DataGrid(props: DataGridProps) {
   };
 
   const menuItems = (row: number, col: number): MenuEntry[] => {
+    const copyItem: MenuEntry = { label: "复制", icon: <Copy />, shortcut: "⌘C", onSelect: () => copy(row, col) };
+    if (props.copyOnlyMenu) return [copyItem];
     const view = viewOf(row, col);
     const target = rows[row]!;
     const column = page.columns[col]!;
@@ -217,7 +223,7 @@ export function DataGrid(props: DataGridProps) {
         onSelect: () => actions.revertCell(target.target, column.name),
       },
       "separator",
-      { label: "复制", icon: <Copy />, shortcut: "⌘C", onSelect: () => copy(row, col) },
+      copyItem,
       "separator",
       target.status === "deleted"
         ? { label: "恢复这一行", icon: <RotateCcw />, onSelect: () => actions.restoreRow(target) }
@@ -300,6 +306,7 @@ export function DataGrid(props: DataGridProps) {
             widths={widths}
             sort={props.sort}
             sortDisabled={props.sortDisabled}
+            sortKeyOf={props.sortKeyOf}
             onSort={props.onSort}
             onResize={(index, width) =>
               setSized((current) => ({ ...current, widths: current.widths.map((w, i) => (i === index ? width : w)) }))

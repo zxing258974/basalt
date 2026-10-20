@@ -1,13 +1,17 @@
-import { useCallback, useRef, useState, type PointerEvent } from "react";
+import { lazy, Suspense, useCallback, useRef, useState, type PointerEvent } from "react";
 import { useConnections } from "../../hooks/useCatalog";
 import { useTabs, type Tab } from "../../stores/tabs";
 import { TableDataView } from "../data/TableDataView";
 import { ObjectListView } from "../objects/ObjectListView";
+import { EmptyState } from "../ui/EmptyState";
 import { ObjectTree } from "../sidebar/ObjectTree";
 import { TabBar } from "../tabs/TabBar";
 import { WelcomeView } from "../tabs/WelcomeView";
 import { StatusBar } from "./StatusBar";
 import { Toolbar } from "./Toolbar";
+
+// SQL 编辑器(CodeMirror)只在打开查询标签页时才加载,不拖慢启动。
+const QueryView = lazy(() => import("../query/QueryView").then((m) => ({ default: m.QueryView })));
 
 const SIDEBAR_WIDTH_KEY = "basalt.sidebarWidth";
 const SIDEBAR_DEFAULT = 260;
@@ -122,5 +126,11 @@ function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
       return <ObjectListView tab={tab} />;
     case "tableData":
       return <TableDataView tab={tab} active={active} />;
+    case "query":
+      return (
+        <Suspense fallback={<EmptyState title="正在加载 SQL 编辑器…" />}>
+          <QueryView tab={tab} active={active} />
+        </Suspense>
+      );
   }
 }

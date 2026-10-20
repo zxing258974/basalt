@@ -156,6 +156,7 @@ dependencies = [
  "aes",
  "cbc",
  "chrono",
+ "futures-util",
  "hex",
  "keyring",
  "log",

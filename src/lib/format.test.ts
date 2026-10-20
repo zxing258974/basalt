@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatCount } from "./format";
+import { formatBytes, formatCount, formatWhen } from "./format";
 
 describe("formatBytes", () => {
   it("uses binary units with one decimal above KB", () => {
@@ -21,5 +21,15 @@ describe("formatCount", () => {
     expect(formatCount(412_880)).toBe("412,880");
     expect(formatCount(0)).toBe("0");
     expect(formatCount(null)).toBe("—");
+  });
+});
+
+describe("formatWhen", () => {
+  const now = new Date(2026, 9, 20, 15, 0, 0);
+  it("shortens recent timestamps", () => {
+    expect(formatWhen(new Date(2026, 9, 20, 9, 5, 7).toISOString(), now)).toBe("09:05:07");
+    expect(formatWhen(new Date(2026, 8, 3, 22, 41, 0).toISOString(), now)).toBe("09-03 22:41");
+    expect(formatWhen(new Date(2025, 11, 31, 8, 0, 0).toISOString(), now)).toBe("2025-12-31");
+    expect(formatWhen("不是时间", now)).toBe("不是时间");
   });
 });

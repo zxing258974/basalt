@@ -4,10 +4,10 @@
   gap: var(--space-5);
 }
 
-/* 来源二选一:两张并排的卡片,选中的那张用余烬描边 */
+/* 来源三选一:并排的卡片,选中的那张用余烬描边 */
 .import-sources {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-4);
 }
 .import-source {
@@ -159,8 +159,10 @@
 .import-status-col {
   width: 76px;
 }
+/* WebKit 里 grid 的 auto 轨道会被长串(如 RDS 主机名)撑宽,要写 minmax(0, 1fr) 并允许在任意处断行 */
 .import-name-stack {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-1);
   min-width: 0;
   white-space: normal;
@@ -188,6 +190,7 @@
   font-size: var(--text-xs);
   line-height: 1.4;
   color: var(--text-faint);
+  overflow-wrap: anywhere;
 }
 .import-note.is-warning {
   color: var(--accent);
@@ -231,6 +234,23 @@
   background: var(--surface-sunken);
   color: var(--text-muted);
 }
+.import-status.is-exists,
+.import-status.is-conflict {
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+}
+.import-table .import-source-path {
+  white-space: normal;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.import-target {
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+.import-status.is-unmatched,
 .import-status.is-unsupported {
   box-shadow: inset 0 0 0 1px var(--line);
   color: var(--text-faint);

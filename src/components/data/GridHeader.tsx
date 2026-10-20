@@ -9,13 +9,25 @@ interface GridHeaderProps {
   sort: SortSpec | null;
   /** 有未提交的修改时不能重新排序(会重读数据)。 */
   sortDisabled: boolean;
+  /** 排序认哪一列;默认是列名。查询结果里可能有同名列,用序号区分。 */
+  sortKeyOf?: (column: ColumnInfo, index: number) => string;
   onSort(column: string): void;
   onResize(index: number, width: number): void;
 }
 
+const byName = (column: ColumnInfo) => column.name;
+
 const clamp = (width: number) => Math.min(MAX_COLUMN_WIDTH * 2, Math.max(MIN_COLUMN_WIDTH, width));
 
-export function GridHeader({ columns, widths, sort, sortDisabled, onSort, onResize }: GridHeaderProps) {
+export function GridHeader({
+  columns,
+  widths,
+  sort,
+  sortDisabled,
+  sortKeyOf = byName,
+  onSort,
+  onResize,
+}: GridHeaderProps) {
   const drag = useRef<{ index: number; startX: number; startWidth: number } | null>(null);
 
   const onPointerDown = (event: PointerEvent<HTMLSpanElement>, index: number) => {
@@ -33,11 +45,12 @@ export function GridHeader({ columns, widths, sort, sortDisabled, onSort, onResi
     <div className="grid-header" role="row" aria-rowindex={1}>
       <div className="grid-gutter grid-gutter-head" role="columnheader" aria-label="行号" />
       {columns.map((column, index) => {
-        const active = sort?.column === column.name;
+        const key = sortKeyOf(column, index);
+        const active = sort?.column === key;
         const ariaSort = active ? (sort.descending ? "descending" : "ascending") : "none";
         return (
           <div
-            key={column.name}
+            key={`${index}:${column.name}`}
             role="columnheader"
             aria-colindex={index + 2}
             aria-sort={ariaSort}
@@ -49,7 +62,7 @@ export function GridHeader({ columns, widths, sort, sortDisabled, onSort, onResi
               title={sortDisabled ? "先提交或撤销修改再排序" : `按「${column.name}」排序`}
               // 鼠标点击不抢焦点:按钮获得焦点时浏览器会把它滚进视野,表格就横向跳走了。
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => onSort(column.name)}
+              onClick={() => onSort(key)}
             >
               <span className="grid-header-name">
                 {column.isPrimaryKey && <KeyRound className="grid-key-icon" aria-label="主键" />}

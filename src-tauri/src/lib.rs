@@ -50,6 +50,18 @@ pub fn run() {
             commands::apply_table_changes,
             commands::scan_import_source,
             commands::import_connections,
+            commands::run_statement,
+            commands::cancel_statement,
+            commands::close_editor,
+            commands::list_columns,
+            commands::search_history,
+            commands::clear_history,
+            commands::list_saved_queries,
+            commands::read_saved_query,
+            commands::save_query,
+            commands::delete_saved_query,
+            commands::scan_navicat_queries,
+            commands::import_navicat_queries,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Basalt");

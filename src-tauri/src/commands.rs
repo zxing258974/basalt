@@ -4,7 +4,11 @@ use basalt_core::config::{ConnectionConfig, ConnectionDraft};
 use basalt_core::driver::{ServerInfo, TableInfo};
 use basalt_core::import::ImportCandidate;
 use basalt_core::import::navicat::NavicatLocation;
-use basalt_core::table::{ApplyOutcome, PageRequest, RowChange, TablePage, TableRef};
+use basalt_core::import::navicat::queries::{QueryImportCandidate, QueryImportReport};
+use basalt_core::query::history::HistoryEntry;
+use basalt_core::query::saved::{SavedQueryInfo, SavedQueryRef};
+use basalt_core::query::{QueryScope, StatementOutcome};
+use basalt_core::table::{ApplyOutcome, ColumnInfo, PageRequest, RowChange, TablePage, TableRef};
 use tauri::{AppHandle, Manager, State};
 
 use crate::service::{self, CommandResult, ConnectionView, ImportReport, ImportSource};
@@ -146,4 +150,106 @@ pub async fn import_connections(
     ids: Vec<String>,
 ) -> CommandResult<ImportReport> {
     service::import_connections(&state, &source, &ids, local_navicat(&app).as_ref()).await
+}
+
+#[tauri::command]
+pub async fn run_statement(
+    state: State<'_, AppState>,
+    editor_id: String,
+    connection_id: String,
+    scope: QueryScope,
+    sql: String,
+) -> CommandResult<StatementOutcome> {
+    service::query::run_statement(&state, &editor_id, &connection_id, &scope, &sql).await
+}
+
+#[tauri::command]
+pub async fn cancel_statement(
+    state: State<'_, AppState>,
+    editor_id: String,
+) -> CommandResult<bool> {
+    service::query::cancel_statement(&state, &editor_id).await
+}
+
+#[tauri::command]
+pub async fn close_editor(state: State<'_, AppState>, editor_id: String) -> CommandResult<()> {
+    service::query::close_editor(&state, &editor_id).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn list_columns(
+    state: State<'_, AppState>,
+    id: String,
+    table: TableRef,
+) -> CommandResult<Vec<ColumnInfo>> {
+    service::query::list_columns(&state, &id, &table).await
+}
+
+#[tauri::command]
+pub async fn search_history(
+    state: State<'_, AppState>,
+    query: String,
+    connection_id: Option<String>,
+    limit: usize,
+) -> CommandResult<Vec<HistoryEntry>> {
+    service::query::search_history(&state, &query, connection_id.as_deref(), limit)
+}
+
+#[tauri::command]
+pub async fn clear_history(state: State<'_, AppState>) -> CommandResult<()> {
+    service::query::clear_history(&state)
+}
+
+#[tauri::command]
+pub async fn list_saved_queries(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: String,
+    schema: Option<String>,
+) -> CommandResult<Vec<SavedQueryInfo>> {
+    service::query::list_saved_queries(&state, &connection_id, &database, schema.as_deref())
+}
+
+#[tauri::command]
+pub async fn read_saved_query(
+    state: State<'_, AppState>,
+    query: SavedQueryRef,
+) -> CommandResult<String> {
+    service::query::read_saved_query(&state, &query)
+}
+
+#[tauri::command]
+pub async fn save_query(
+    state: State<'_, AppState>,
+    query: SavedQueryRef,
+    sql: String,
+    overwrite: bool,
+) -> CommandResult<SavedQueryInfo> {
+    service::query::save_query(&state, &query, &sql, overwrite)
+}
+
+#[tauri::command]
+pub async fn delete_saved_query(
+    state: State<'_, AppState>,
+    query: SavedQueryRef,
+) -> CommandResult<()> {
+    service::query::delete_saved_query(&state, &query)
+}
+
+#[tauri::command]
+pub async fn scan_navicat_queries(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<QueryImportCandidate>> {
+    service::scan_navicat_queries(&state, local_navicat(&app).as_ref()).await
+}
+
+#[tauri::command]
+pub async fn import_navicat_queries(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> CommandResult<QueryImportReport> {
+    service::import_navicat_queries(&state, &ids, local_navicat(&app).as_ref()).await
 }

@@ -50,6 +50,14 @@ pub enum CoreError {
     /// 某条 UPDATE / DELETE 没有恰好命中一行,整个事务已回滚。
     #[error("{0}")]
     RowMismatch(String),
+    /// 名字不能用作文件名(保存的查询)。
+    #[error("{0}")]
+    InvalidName(String),
+    /// 同名的东西已经有了,要覆盖得明说。
+    #[error("{0}")]
+    AlreadyExists(String),
+    #[error("{0}")]
+    NotFound(String),
 }
 
 impl CoreError {
@@ -71,6 +79,9 @@ impl CoreError {
             Self::InvalidEdit(_) => "invalid_edit",
             Self::ReadOnly(_) => "read_only",
             Self::RowMismatch(_) => "row_mismatch",
+            Self::InvalidName(_) => "invalid_name",
+            Self::AlreadyExists(_) => "already_exists",
+            Self::NotFound(_) => "not_found",
         }
     }
 

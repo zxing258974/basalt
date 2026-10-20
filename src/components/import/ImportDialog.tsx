@@ -7,6 +7,7 @@ import { errorMessage } from "../../lib/types";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { ImportPreview } from "./ImportPreview";
+import { QueryImportDialog } from "./QueryImportDialog";
 import { ImportReportView } from "./ImportReportView";
 import { ImportSourcePicker } from "./ImportSourcePicker";
 import { defaultSelection, selectionSummary } from "./importModel";
@@ -24,6 +25,14 @@ function scanQuery(source: ImportSource | null) {
   };
 }
 
+/** 本机 Navicat 保存的查询:打开对话框就扫一遍,来源卡片上显示条数。 */
+const navicatQueriesScan = {
+  queryKey: ["import", "navicatQueries"] as const,
+  queryFn: async () => (await getBackend()).scanNavicatQueries(),
+  staleTime: 0,
+  gcTime: 0,
+};
+
 interface ImportDialogProps {
   onClose(): void;
 }
@@ -31,6 +40,8 @@ interface ImportDialogProps {
 export function ImportDialog({ onClose }: ImportDialogProps) {
   const queryClient = useQueryClient();
   const local = useQuery(scanQuery(LOCAL));
+  const queries = useQuery(navicatQueriesScan);
+  const [queriesChosen, setQueriesChosen] = useState(false);
   const [chosen, setChosen] = useState<ImportSource | null>(null);
   // 没选过来源时,检测到本机 Navicat 就默认用它。
   const source = chosen ?? (local.data?.length ? LOCAL : null);
@@ -43,6 +54,7 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
   const [result, setResult] = useState<{ report: ImportReport; source: ImportSource } | null>(null);
 
   const choose = (next: ImportSource) => {
+    setQueriesChosen(false);
     setChosen(next);
     setPicked(null);
     setError(undefined);
@@ -74,6 +86,19 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
 
   // 导入进行中不让关:后端照样会写完,关掉就看不到汇报了。
   const close = busy ? () => {} : onClose;
+  const picker = (
+    <ImportSourcePicker
+      source={source}
+      local={{ pending: local.isPending, count: local.data?.length, error: local.error }}
+      queries={{ pending: queries.isPending, count: queries.data?.length, error: queries.error }}
+      queriesChosen={queriesChosen}
+      onChooseLocal={() => choose(LOCAL)}
+      onPickNcx={() => void pickNcx()}
+      onChooseQueries={() => setQueriesChosen(true)}
+    />
+  );
+
+  if (queriesChosen && !result) return <QueryImportDialog scan={queries} picker={picker} onClose={onClose} />;
 
   if (result) {
     return (
@@ -128,12 +153,7 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
       }
     >
       <div className="import-body">
-        <ImportSourcePicker
-          source={source}
-          local={{ pending: local.isPending, count: local.data?.length, error: local.error }}
-          onChooseLocal={() => choose(LOCAL)}
-          onPickNcx={() => void pickNcx()}
-        />
+        {picker}
         {source?.kind === "localNavicat" && (
           <p className="import-hint">
             本机 Navicat 的密码存在它自己的钥匙串里，Basalt 读不到，导入后第一次打开时再输入。 想连密码一起迁移，请在

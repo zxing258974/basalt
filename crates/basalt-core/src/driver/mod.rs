@@ -1,13 +1,17 @@
 //! 三种数据库的连接与元数据查询。各驱动只负责「怎么连、怎么查」,
 //! 会话生命周期见 [`crate::session`]。
 
+pub(crate) mod editor;
 pub(crate) mod mysql;
 mod mysql_data;
+mod mysql_query;
 mod pg_binary;
 pub(crate) mod postgres;
 mod postgres_data;
+mod postgres_query;
 pub(crate) mod sqlite;
 mod sqlite_data;
+mod sqlite_query;
 
 use std::fmt;
 use std::time::Duration;

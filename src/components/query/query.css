@@ -1,0 +1,229 @@
+/* ---------- SQL 查询标签页:顶栏、编辑器、分隔条、结果区、历史 ---------- */
+.query-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* 窄窗口里放不下一行时,按钮换到第二行,不去挤库选择和标题 */
+.query-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-6);
+  padding: var(--space-5) var(--space-6);
+  min-width: 0;
+}
+.query-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  flex: 1 1 380px;
+}
+.query-heading .data-title {
+  min-width: 0;
+  font-size: var(--text-lg);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.query-dirty,
+.tab-dirty {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+.query-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+}
+.query-actions .toolbar-divider {
+  height: 18px;
+}
+.query-actions .btn[aria-pressed="true"] {
+  background: var(--surface-selected);
+  color: var(--text-strong);
+}
+
+/* 库 / schema:看起来像面包屑里的一段,点开是原生下拉框 */
+.query-scope {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.query-scope-field {
+  display: flex;
+  min-width: 0;
+}
+.query-scope-field select {
+  min-width: 96px;
+  max-width: 220px;
+  height: 22px;
+  padding: 0 var(--space-6) 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  transition: border-color var(--duration-fast) ease;
+}
+.query-scope-field select:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+.query-scope-field select:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.query-scope-sep {
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+
+.query-hint {
+  margin: 0 var(--space-6) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.query-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.query-body.has-history {
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+.query-main {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: var(--editor-height) 6px minmax(0, 1fr);
+  border-top: 1px solid var(--line);
+}
+
+.sql-editor {
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface-canvas);
+}
+.sql-editor .cm-editor {
+  height: 100%;
+}
+
+/* 分隔条:平时只是一根细线,悬停时变成余烬色的把手 */
+.query-splitter {
+  position: relative;
+  cursor: row-resize;
+  background: var(--surface-chrome);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  touch-action: none;
+}
+.query-splitter::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 1px;
+  width: 36px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--line-strong);
+  transform: translateX(-50%);
+  transition: background-color var(--duration-fast) ease;
+}
+.query-splitter:hover::after {
+  background: var(--accent);
+}
+
+/* ---------- 结果区 ---------- */
+.query-results {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-canvas);
+}
+.query-results.is-empty {
+  display: grid;
+  place-items: center;
+}
+.query-results-placeholder {
+  margin: 0;
+  max-width: 360px;
+  text-align: center;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+.query-result-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-1);
+  height: 30px;
+  padding: 0 var(--space-4);
+  background: var(--surface-chrome);
+  overflow-x: auto;
+  flex: none;
+}
+.query-result-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-5);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  cursor: default;
+}
+.query-result-tab svg {
+  width: 12px;
+  height: 12px;
+}
+.query-result-tab:hover {
+  color: var(--text-strong);
+}
+.query-result-tab[aria-selected="true"] {
+  color: var(--text-strong);
+  font-weight: var(--weight-medium);
+}
+.query-result-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: var(--space-4);
+  right: var(--space-4);
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px 1px 0 0;
+  background: var(--accent);
+}
+.query-result-tab.has-problem {
+  color: var(--danger);
+}
+.query-result-tab:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+  border-radius: var(--radius-xs);
+}
+.query-result-count {
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+}
+.query-result-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}

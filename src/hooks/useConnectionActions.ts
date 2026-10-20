@@ -29,10 +29,13 @@ export function useConnectionActions() {
     [setExpanded],
   );
 
-  /** 会话没了之后的界面清理:关掉它的标签页、收起子树、丢掉元数据缓存。 */
+  /**
+   * 会话没了之后的界面清理:关掉它的标签页、收起子树、丢掉元数据缓存。
+   * 不是用户主动关连接(改了连接配置、删了连接)时留下查询标签页,里面没保存的 SQL 不会悄悄没了。
+   */
   const forget = useCallback(
-    (id: string) => {
-      closeConnectionTabs(id);
+    (id: string, keepQueries = false) => {
+      closeConnectionTabs(id, keepQueries);
       collapseUnder(connectionKey(id));
       setConnectionError(id, null);
       queryClient.removeQueries({ queryKey: catalogKeys.connection(id) });
@@ -85,7 +88,7 @@ export function useConnectionActions() {
     async (id: string) => {
       // 直接取最新列表:连接列表的查询未必挂载着,失效后读缓存可能读到旧值或空值。
       const connections = await queryClient.fetchQuery({ ...connectionsQuery, staleTime: 0 });
-      if (!connections.find((c) => c.id === id)?.isOpen) forget(id);
+      if (!connections.find((c) => c.id === id)?.isOpen) forget(id, true);
     },
     [forget, queryClient],
   );
@@ -130,7 +133,7 @@ export function useConnectionActions() {
   const remove = useCallback(
     async (id: string) => {
       await (await getBackend()).deleteConnection(id);
-      forget(id);
+      forget(id, true);
       await refreshConnections();
     },
     [forget, refreshConnections],

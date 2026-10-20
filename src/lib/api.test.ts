@@ -9,6 +9,9 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: openDialog }));
 
 const tauriWindow = window as unknown as Record<string, unknown>;
+const scope = { database: "shop", schema: null };
+const table = { database: "shop", schema: null, table: "orders" };
+const saved = { connectionId: "c1", database: "shop", schema: null, name: "日报" };
 
 const draft: ConnectionDraft = {
   id: null,
@@ -75,6 +78,38 @@ describe("Tauri backend", () => {
       "list_tables",
       { id: "c1", database: "folio", schema: "public" },
     ],
+    [
+      "runStatement",
+      (b) => b.runStatement("tab", "c1", scope, "SELECT 1"),
+      "run_statement",
+      { editorId: "tab", connectionId: "c1", scope, sql: "SELECT 1" },
+    ],
+    ["cancelStatement", (b) => b.cancelStatement("tab"), "cancel_statement", { editorId: "tab" }],
+    ["closeEditor", (b) => b.closeEditor("tab"), "close_editor", { editorId: "tab" }],
+    ["listColumns", (b) => b.listColumns("c1", table), "list_columns", { id: "c1", table }],
+    [
+      "searchHistory",
+      (b) => b.searchHistory("orders", null, 200),
+      "search_history",
+      { query: "orders", connectionId: null, limit: 200 },
+    ],
+    ["clearHistory", (b) => b.clearHistory(), "clear_history"],
+    [
+      "listSavedQueries",
+      (b) => b.listSavedQueries("c1", "folio", "public"),
+      "list_saved_queries",
+      { connectionId: "c1", database: "folio", schema: "public" },
+    ],
+    ["readSavedQuery", (b) => b.readSavedQuery(saved), "read_saved_query", { query: saved }],
+    [
+      "saveQuery",
+      (b) => b.saveQuery(saved, "SELECT 1", true),
+      "save_query",
+      { query: saved, sql: "SELECT 1", overwrite: true },
+    ],
+    ["deleteSavedQuery", (b) => b.deleteSavedQuery(saved), "delete_saved_query", { query: saved }],
+    ["scanNavicatQueries", (b) => b.scanNavicatQueries(), "scan_navicat_queries"],
+    ["importNavicatQueries", (b) => b.importNavicatQueries(["a"]), "import_navicat_queries", { ids: ["a"] }],
   ];
 
   it.each(calls)("%s invokes the matching command", async (_name, run, command, args) => {

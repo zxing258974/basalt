@@ -65,7 +65,7 @@ export function GridRowView(props: GridRowViewProps) {
         ];
         return (
           <div
-            key={columns[col]!.name}
+            key={col}
             id={cellId(gridId, rowIndex, col)}
             role="gridcell"
             aria-colindex={col + 2}

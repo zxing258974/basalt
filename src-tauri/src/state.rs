@@ -2,6 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use basalt_core::config::{ConnectionConfig, ConnectionList, ConnectionRepository};
+use basalt_core::query::history::HistoryStore;
+use basalt_core::query::saved::SavedQueryStore;
 use basalt_core::secret::{SecretStore, password_key};
 use basalt_core::session::SessionManager;
 use basalt_core::{CoreError, CoreResult};
@@ -13,6 +15,10 @@ pub struct AppState {
     write_lock: Mutex<()>,
     pub secrets: Arc<dyn SecretStore>,
     pub sessions: SessionManager,
+    /// 执行历史,和连接配置放在同一个目录。
+    pub history: HistoryStore,
+    /// 保存的查询,在配置目录的 queries/ 下。
+    pub saved_queries: SavedQueryStore,
 }
 
 /// 持有写锁期间对配置文件的读写。锁随它一起释放。
@@ -33,11 +39,17 @@ impl Store<'_> {
 
 impl AppState {
     pub fn new(config_path: PathBuf, secrets: Arc<dyn SecretStore>) -> Self {
+        let dir = config_path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_default();
         Self {
             repo: ConnectionRepository::new(config_path),
             write_lock: Mutex::new(()),
             secrets,
             sessions: SessionManager::default(),
+            history: HistoryStore::new(dir.join("history.jsonl")),
+            saved_queries: SavedQueryStore::new(dir.join("queries")),
         }
     }
 

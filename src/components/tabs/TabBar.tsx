@@ -1,11 +1,11 @@
-import { Table2, TableProperties, X } from "lucide-react";
+import { FileCode2, Table2, TableProperties, X } from "lucide-react";
 import { useConnections } from "../../hooks/useCatalog";
 import { closeTabGuarded } from "../../stores/discard";
 import { useTabs, type Tab } from "../../stores/tabs";
 import { driverMeta } from "../connection/driverMeta";
 
 export function TabBar() {
-  const { tabs, activeId, activate } = useTabs();
+  const { tabs, activeId, activate, unsaved } = useTabs();
   const connections = useConnections().data ?? [];
   if (tabs.length === 0) return null;
 
@@ -30,12 +30,13 @@ export function TabBar() {
               if (event.key === "Enter" || event.key === " ") activate(tab.id);
             }}
           >
-            {tab.kind === "tableData" ? (
-              <Table2 className="tab-icon" aria-hidden />
-            ) : (
-              <TableProperties className="tab-icon" aria-hidden />
-            )}
+            <TabIcon tab={tab} />
             <span className="tab-title">{tab.title}</span>
+            {unsaved[tab.id] && (
+              <span className="tab-dirty" title="有没保存的改动">
+                <span className="visually-hidden">（未保存）</span>
+              </span>
+            )}
             <button
               className="tab-close"
               aria-label={`关闭 ${tab.title}`}
@@ -54,10 +55,31 @@ export function TabBar() {
   );
 }
 
+function TabIcon({ tab }: { tab: Tab }) {
+  switch (tab.kind) {
+    case "tableData":
+      return <Table2 className="tab-icon" aria-hidden />;
+    case "query":
+      return <FileCode2 className="tab-icon" aria-hidden />;
+    case "objects":
+      return <TableProperties className="tab-icon" aria-hidden />;
+  }
+}
+
+function tabPath(tab: Tab): string {
+  switch (tab.kind) {
+    case "tableData":
+      return [tab.table.database, tab.table.schema, tab.table.table].filter(Boolean).join(".");
+    case "query": {
+      const where = [tab.scope.database, tab.scope.schema].filter(Boolean).join(".");
+      return where ? `${where} / ${tab.title}` : tab.title;
+    }
+    case "objects":
+      return tab.title;
+  }
+}
+
 function tabTooltip(tab: Tab, connectionName: string | undefined): string {
-  const path =
-    tab.kind === "tableData"
-      ? [tab.table.database, tab.table.schema, tab.table.table].filter(Boolean).join(".")
-      : tab.title;
+  const path = tabPath(tab);
   return connectionName ? `${connectionName} / ${path}` : path;
 }

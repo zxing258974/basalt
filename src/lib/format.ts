@@ -20,3 +20,16 @@ export function formatBytes(bytes: number | null): string {
 export function formatCount(count: number | null): string {
   return count === null ? UNKNOWN : countFormatter.format(count);
 }
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/** 历史里的执行时间:今天只写时分秒,今年写月日,更早的带年份。按本机时区显示。 */
+export function formatWhen(iso: string, now: Date = new Date()): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  const time = `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`;
+  const sameYear = at.getFullYear() === now.getFullYear();
+  if (sameYear && at.getMonth() === now.getMonth() && at.getDate() === now.getDate()) return time;
+  const day = `${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+  return sameYear ? `${day} ${time.slice(0, 5)}` : `${at.getFullYear()}-${day}`;
+}

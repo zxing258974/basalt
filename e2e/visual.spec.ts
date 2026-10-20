@@ -67,3 +67,40 @@ test("new connection: MySQL form", async ({ page }) => {
   await expect(page.getByLabel("主机")).toHaveValue("127.0.0.1");
   await snapshot(page, "new-connection-form");
 });
+
+/** 在 shop 上右键「新建查询」,写三条语句后全部执行。 */
+async function runShopQuery(page: Page) {
+  await openWelcome(page);
+  await row(page, "开发").dblclick();
+  await row(page, "本地 MySQL").dblclick();
+  await row(page, "shop").click({ button: "right" });
+  await page.getByRole("menuitem", { name: /新建查询/ }).click();
+  const editor = page.getByRole("textbox", { name: "查询 1 的 SQL" });
+  await editor.click();
+  await page.keyboard.type("SELECT * FROM customers LIMIT 30;\nUPDATE orders SET status = 'paid' WHERE id = 7;\n");
+  await page.keyboard.type("SELECT * FROM missing;");
+  // 点按钮执行,编辑器同时失去焦点,截图里不会有闪烁的光标。
+  await page.getByRole("button", { name: "全部执行" }).click();
+  await expect(page.getByText("第 3 条出错。")).toBeVisible();
+}
+
+test("query: messages after a failed statement", async ({ page }) => {
+  await runShopQuery(page);
+  await expect(page.getByRole("tab", { name: "消息" })).toHaveAttribute("aria-selected", "true");
+  await snapshot(page, "query-messages");
+});
+
+test("query: result grid", async ({ page }) => {
+  await runShopQuery(page);
+  await page.getByRole("tab", { name: /结果 1/ }).click();
+  await expect(page.getByRole("grid", { name: "查询 1 的结果 1" })).toBeVisible();
+  await snapshot(page, "query-results");
+});
+
+test("import: Navicat saved queries", async ({ page }) => {
+  await openWelcome(page);
+  await page.getByRole("banner").getByRole("button", { name: "导入" }).click();
+  await page.getByRole("radio", { name: /Navicat 保存的查询.*检测到 3 条查询/ }).click();
+  await expect(page.getByRole("row", { name: /核心期刊/ })).toBeVisible();
+  await snapshot(page, "import-queries");
+});

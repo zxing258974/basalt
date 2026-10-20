@@ -1,7 +1,7 @@
 // 对象树节点的 key:按层级拼路径,子节点总以「父 key + /」开头,
 // 这样收起或清理某个连接下的全部节点只需前缀匹配。
 
-export type GroupKind = "tables" | "views";
+export type GroupKind = "tables" | "views" | "queries";
 
 const segment = (tag: string, name: string) => `${tag}:${encodeURIComponent(name)}`;
 
@@ -25,6 +25,20 @@ export const groupKey = (id: string, database: string, schema: string | null, gr
 
 export const tableKey = (id: string, database: string, schema: string | null, table: string): string =>
   `${containerKey(id, database, schema)}/${segment("t", table)}`;
+
+/** 保存的查询挂在「查询」分组下,和表一样按所在的库(PG 是 schema)区分。 */
+export const savedQueryKey = (id: string, database: string, schema: string | null, name: string): string =>
+  `${containerKey(id, database, schema)}/${segment("q", name)}`;
+
+/** 从节点 key 里读出它在哪个库、哪个 schema 下;连接节点本身两者都是 null。 */
+export function locationFromKey(key: string | null): { database: string | null; schema: string | null } {
+  const segments = key?.split("/") ?? [];
+  const value = (tag: string) => {
+    const found = segments.find((s) => s.startsWith(`${tag}:`));
+    return found === undefined ? null : decodeURIComponent(found.slice(tag.length + 1));
+  };
+  return { database: value("d"), schema: value("s") };
+}
 
 /** 从任意节点 key 取回所属连接的 id;分组文件夹等非连接节点返回 null。 */
 export function connectionIdFromKey(key: string | null): string | null {

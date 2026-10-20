@@ -1,0 +1,208 @@
+//! 查询标签页在 SQLite 上执行用户的 SQL:会话状态、结果集、影响行数、取消。不需要容器。
+
+mod common;
+
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use basalt_core::query::{MAX_RESULT_ROWS, OutcomeStatus, QueryScope, StatementOutcome};
+use basalt_core::session::SessionManager;
+use basalt_core::value::CellValue;
+use common::*;
+
+const SCHEMA: &str = "
+    CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL, price REAL, raw BLOB);
+    INSERT INTO items VALUES (1, 'pen', 1.5, x'00ff'), (2, '本子', NULL, NULL);
+";
+
+/// 打开一个带 items 表的 SQLite 连接,id 是 c1。
+async fn manager(dir: &tempfile::TempDir) -> SessionManager {
+    let path = sqlite_file(dir.path(), "q.db", SCHEMA).await;
+    let manager = SessionManager::default();
+    manager.open("c1", &sqlite_params(&path)).await.unwrap();
+    manager
+}
+
+fn scope() -> QueryScope {
+    QueryScope {
+        database: Some("main".into()),
+        schema: None,
+    }
+}
+
+async fn run(manager: &SessionManager, editor: &str, sql: &str) -> StatementOutcome {
+    manager
+        .run_query(editor, "c1", &scope(), sql)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn statements_in_one_tab_share_the_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = manager(&dir).await;
+    let created = run(&manager, "tab1", "CREATE TEMP TABLE scratch (x INTEGER)").await;
+    assert_eq!(created.status, OutcomeStatus::Ok);
+    assert_eq!(created.affected_rows, None, "DDL 没有影响行数");
+    let inserted = run(&manager, "tab1", "INSERT INTO scratch VALUES (1), (2), (3)").await;
+    assert_eq!(inserted.affected_rows, Some(3));
+    let selected = run(&manager, "tab1", "SELECT x FROM scratch ORDER BY x").await;
+    assert_eq!(selected.result_sets.len(), 1);
+    assert_eq!(selected.result_sets[0].rows.len(), 3);
+    assert_eq!(
+        selected.affected_rows, None,
+        "SQLite 对 SELECT 报的是上一次的变更数，不能信"
+    );
+
+    // 临时表只在这个标签页自己的连接上。
+    let other = run(&manager, "tab2", "SELECT x FROM scratch").await;
+    assert_eq!(other.status, OutcomeStatus::Error);
+    assert!(other.message.unwrap().contains("no such table"));
+}
+
+#[tokio::test]
+async fn values_decode_by_storage_class() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = manager(&dir).await;
+    let outcome = run(
+        &manager,
+        "t",
+        "SELECT id, name, price, raw FROM items ORDER BY id",
+    )
+    .await;
+    let set = &outcome.result_sets[0];
+    let names: Vec<_> = set.columns.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["id", "name", "price", "raw"]);
+    assert_eq!(
+        set.rows[0],
+        [
+            CellValue::Int(1),
+            CellValue::Text("pen".into()),
+            CellValue::Float(1.5),
+            CellValue::Bytes(vec![0x00, 0xff]),
+        ]
+    );
+    assert_eq!(set.rows[1][2], CellValue::Null);
+    assert!(!set.truncated);
+}
+
+#[tokio::test]
+async fn empty_results_still_have_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = manager(&dir).await;
+    let outcome = run(
+        &manager,
+        "t",
+        "SELECT id, name AS label FROM items WHERE id > 99",
+    )
+    .await;
+    assert_eq!(outcome.status, OutcomeStatus::Ok);
+    let set = &outcome.result_sets[0];
+    assert!(set.rows.is_empty());
+    let names: Vec<_> = set.columns.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["id", "label"]);
+}
+
+#[tokio::test]
+async fn big_results_are_cut_and_marked() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = manager(&dir).await;
+    let total = MAX_RESULT_ROWS + 10;
+    let sql = format!(
+        "WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < {total}) SELECT n FROM c"
+    );
+    let outcome = run(&manager, "t", &sql).await;
+    let set = &outcome.result_sets[0];
+    assert_eq!(set.rows.len(), MAX_RESULT_ROWS);
+    assert!(set.truncated);
+    // 连接照常能用。
+    assert_eq!(
+        run(&manager, "t", "SELECT 1").await.status,
+        OutcomeStatus::Ok
+    );
+}
+
+#[tokio::test]
+async fn errors_keep_the_database_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = manager(&dir).await;
+    let outcome = run(&manager, "t", "INSERT INTO items (id) VALUES (3)").await;
+    assert_eq!(outcome.status, OutcomeStatus::Error);
+    assert!(outcome.message.unwrap().contains("NOT NULL"));
+    assert_eq!(
+        run(&manager, "t", "SELECT 1").await.status,
+        OutcomeStatus::Ok
+    );
+}
+
+#[tokio::test]
+async fn a_long_query_can_be_cancelled() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = Arc::new(manager(&dir).await);
+    let runner = manager.clone();
+    let started = Instant::now();
+    let long = tokio::spawn(async move {
+        run(
+            &runner,
+            "t",
+            "WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c) SELECT count(*) FROM c",
+        )
+        .await
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        manager.cancel_query("t").await.unwrap(),
+        "正在执行，应该能取消"
+    );
+    let outcome = long.await.unwrap();
+    assert_eq!(outcome.status, OutcomeStatus::Cancelled);
+    assert!(started.elapsed() < Duration::from_secs(10));
+    assert!(
+        !manager.cancel_query("t").await.unwrap(),
+        "执行完了没东西可取消"
+    );
+    // 取消之后连接照常能用,标志不会留到下一条。
+    assert_eq!(
+        run(&manager, "t", "SELECT 1").await.status,
+        OutcomeStatus::Ok
+    );
+}
+
+#[tokio::test]
+async fn closing_tabs_and_connections_drops_their_connections() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = manager(&dir).await;
+    run(&manager, "a", "SELECT 1").await;
+    run(&manager, "b", "SELECT 1").await;
+    assert!(!manager.cancel_query("unknown").await.unwrap());
+    manager.close_editor("a").await;
+    manager.close("c1").await;
+    let error = manager
+        .run_query("b", "c1", &scope(), "SELECT 1")
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "not_connected");
+}
+
+#[tokio::test]
+async fn cancelling_before_the_statement_starts_skips_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = Arc::new(manager(&dir).await);
+    // 先建好这个标签页的连接,再在下一次执行刚开始准备时取消。
+    run(&manager, "t", "SELECT 1").await;
+    let runner = manager.clone();
+    let pending = tokio::spawn(async move {
+        run(&runner, "t", "INSERT INTO items (id, name) VALUES (9, 'x')").await
+    });
+    // 准备阶段很短,不一定赶得上;赶上了就必须没执行,没赶上就是照常执行完。
+    let cancelled = manager.cancel_query("t").await.unwrap();
+    let outcome = pending.await.unwrap();
+    let inserted = run(&manager, "t", "SELECT count(*) FROM items WHERE id = 9").await;
+    let count = inserted.result_sets[0].rows[0][0].clone();
+    if outcome.status == OutcomeStatus::Cancelled {
+        assert!(cancelled);
+        assert_eq!(count, CellValue::Int(0), "准备阶段取消的语句不能执行");
+    } else {
+        assert_eq!(count, CellValue::Int(1));
+    }
+}

@@ -3,13 +3,21 @@
 对标 Navicat Premium 使用体验的桌面数据库客户端,自用。Tauri 2 + Rust + React。
 设计与里程碑见 [DESIGN.md](DESIGN.md)。
 
-**当前进度:M2**——连接管理(新建 / 编辑 / 复制 / 删除 / 分组 / 测试连接,密码进 macOS 钥匙串)、
-MySQL / MariaDB / PostgreSQL / SQLite 四种驱动、对象树(连接 → 库 → schema → 表 / 视图)、对象列表页;
+**当前进度:M3**——连接管理(新建 / 编辑 / 复制 / 删除 / 分组 / 测试连接,密码进 macOS 钥匙串)、
+MySQL / MariaDB / PostgreSQL / SQLite 四种驱动、对象树(连接 → 库 → schema → 表 / 视图 / 查询)、对象列表页;
 数据浏览与编辑:在对象树里双击表、或在对象列表里双击一行打开「表数据」标签页,
-分页、点列头排序、WHERE 筛选、行内编辑、新增 / 删除行,未提交的修改高亮,⌘S 先看 SQL 预览再在一个事务里提交。
+分页、点列头排序、WHERE 筛选、行内编辑、新增 / 删除行,未提交的修改高亮,⌘S 先看 SQL 预览再在一个事务里提交;
+SQL 编辑器:工具栏「新建查询」(⌘T)或在库 / schema 上右键「新建查询」,按库结构补全表名和列名,
+多条语句一条一条执行、每个结果集一个标签、「消息」页写明耗时和影响行数,能取消正在执行的长查询,
+有执行历史,查询能保存成文件、挂在对象树对应库下的「查询」分组里;
+导入:Navicat 的连接(本机或 .ncx 导出文件)和 Navicat 里保存的查询。
 
 表格快捷键:方向键移动、回车或双击编辑、Tab 提交并右移、Esc 取消、⌘C 复制、⌘⌫ 删除 / 恢复行、⌘S 提交、
 右键「设为 NULL」「撤销这一格」。没有主键的表(含视图)只读。
+
+SQL 编辑器快捷键:⌘↩ 执行光标所在的语句(有选中文字时执行选中的部分)、⇧⌘↩ 全部执行、⌘. 取消、
+⌘S 保存、⇧⌘S 另存为、Ctrl-Space 手动唤出补全。每个查询标签页有自己的一条连接:
+`SET @x`、临时表、`BEGIN` 开的事务都留在这个标签页里;MySQL 的存储过程不写 DELIMITER 也能整体执行。
 
 ## 运行
 
@@ -20,7 +28,13 @@ pnpm dev                # 只起前端;浏览器里自动使用 mock 后端,方�
 ```
 
 连接配置存放在 `~/Library/Application Support/dev.basalt.app/connections.json`(不含密码),
-密码存在钥匙串的 `dev.basalt.app` 服务下。
+密码存在钥匙串的 `dev.basalt.app` 服务下。同一目录下还有执行历史 `history.jsonl`(最近 2000 条)
+和保存的查询 `queries/<连接 id>/<库>/[<schema>/]<名字>.sql`(删除连接不会删它的查询)。
+
+从 Navicat 迁移保存的查询:工具栏「导入」→「Navicat 保存的查询」。只读 Navicat 的
+`~/Library/Application Support/PremiumSoft CyberTech/Navicat CC/Common/Settings` 下的 .sql 文件,不改它;
+每条先按连接名找 Basalt 里的连接,对不上再按 Navicat 里同名连接的地址找,
+预览里写明每条放到哪个连接、哪个库下,对不上的说明原因、不导入;同名的已有查询不会被覆盖。
 
 ## 测试
 
@@ -43,7 +57,8 @@ pnpm test:visual                            # 截图回归(Playwright + WebKit,�
 pnpm test:visual:update                     # 界面有意改动后重新生成基准图
 ```
 
-截图测试覆盖欢迎页、展开的对象树、对象列表、新建连接对话框(选类型 / MySQL 表单),
+截图测试覆盖欢迎页、展开的对象树、对象列表、新建连接对话框(选类型 / MySQL 表单)、
+SQL 编辑器的结果表格与消息页、导入 Navicat 查询的预览,
 每个画面按 960、1280、1440 三种宽度和深浅两套主题各截一张,基准图在 `e2e/__screenshots__/`。
 只用 WebKit,因为 Tauri 在 macOS 上用的就是它,Chromium 的排版和它有出入。
 基准图依赖本机字体,换机器或升级系统后先 `pnpm test:visual:update`,再逐张看差异。
@@ -58,7 +73,7 @@ cargo test --workspace                      # Rust 单测 + SQLite 集成测试
 docker compose -f docker-compose.test.yml up -d                   # MySQL 5.7 + PostgreSQL 17
 docker compose -f docker-compose.test.yml --profile full up -d    # 再加 MySQL 8.4 + MariaDB 11.4
 BASALT_IT=1 cargo test --workspace          # 连 MySQL 5.7 与 PostgreSQL
-BASALT_IT=all cargo test --workspace        # 连全部四个容器(会在测试库里建 basalt_it / basalt_m2 / basalt_svc)
+BASALT_IT=all cargo test --workspace        # 连全部四个容器(会在测试库里建 basalt_it / basalt_m2 / basalt_m3 / basalt_svc)
 BASALT_IT=all cargo llvm-cov --workspace --fail-under-lines 80    # 覆盖率;不连容器时 MySQL / PG 驱动跑不到
 ```
 
@@ -71,7 +86,7 @@ ESLint 通过 `tools/typescript-eslint-ts6` 给 typescript-eslint 配了一份 T
 ## 目录
 
 ```
-crates/basalt-core/   连接配置、密码存储、驱动、会话、表数据读写、SQL 生成(不依赖 Tauri)
+crates/basalt-core/   连接配置、密码存储、驱动、会话、表数据读写、SQL 生成、SQL 编辑器的执行 / 历史 / 保存的查询(不依赖 Tauri)
 src-tauri/            Tauri 外壳:commands.rs 只做转发,逻辑在 service.rs
 src/                  前端:components 按界面区域组织,lib/api.ts 是后端接口
 e2e/                  Playwright 截图测试与基准图

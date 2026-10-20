@@ -131,6 +131,11 @@ impl PgSession {
         &self.server
     }
 
+    /// 连接配置里的库,没填时是 postgres。
+    pub(super) fn default_database(&self) -> &str {
+        &self.default_database
+    }
+
     /// 取某个库的池,第一次用时才建。建失败不留缓存,下次会重试。
     pub(super) async fn pool(&self, database: &str) -> CoreResult<PgPool> {
         let cell = self

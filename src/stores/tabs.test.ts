@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { closeConnectionTabs, closeTab, objectsTab, openTab, tableDataTab, type TabsState } from "./tabs";
+import {
+  closeConnectionTabs,
+  closeTab,
+  nextQueryTitle,
+  objectsTab,
+  openTab,
+  queryTab,
+  sameSavedQuery,
+  tableDataTab,
+  type TabsState,
+  updateQueryTab,
+  useTabs,
+} from "./tabs";
 
 const empty: TabsState = { tabs: [], activeId: null };
 const shop = objectsTab("c1", "shop", null);
@@ -87,5 +99,58 @@ describe("closeConnectionTabs", () => {
   it("returns the same state when nothing belongs to the connection", () => {
     const state = openTab(empty, pg);
     expect(closeConnectionTabs(state, "c1")).toBe(state);
+  });
+});
+
+describe("query tabs", () => {
+  const scope = { database: "shop", schema: null };
+  const saved = { connectionId: "c1", database: "shop", schema: null, name: "日报" };
+
+  it("numbers untitled queries after the highest one still open", () => {
+    expect(nextQueryTitle([])).toBe("查询 1");
+    const tabs = [
+      queryTab("c1", scope, "查询 1"),
+      queryTab("c1", scope, "查询 4"),
+      queryTab("c1", scope, "查询 9", saved),
+    ];
+    expect(nextQueryTitle(tabs)).toBe("查询 5");
+  });
+
+  it("gives every query tab its own id", () => {
+    expect(queryTab("c1", scope, "a").id).not.toBe(queryTab("c1", scope, "a").id);
+  });
+
+  it("updates only the query tab it is asked to", () => {
+    const query = queryTab("c1", scope, "查询 1");
+    const objects = objectsTab("c1", "shop", null);
+    const state = { tabs: [objects, query], activeId: query.id };
+    const next = updateQueryTab(state, query.id, { title: "日报", saved });
+    expect(next.tabs[1]).toMatchObject({ id: query.id, title: "日报", saved });
+    expect(next.tabs[0]).toBe(objects);
+    expect(updateQueryTab(state, objects.id, { title: "x" }).tabs[0]).toBe(objects);
+  });
+
+  it("compares saved query locations field by field", () => {
+    expect(sameSavedQuery(saved, { ...saved })).toBe(true);
+    expect(sameSavedQuery(saved, { ...saved, schema: "public" })).toBe(false);
+    expect(sameSavedQuery(null, saved)).toBe(false);
+  });
+
+  it("tracks unsaved query tabs", () => {
+    const { setUnsaved } = useTabs.getState();
+    setUnsaved("q1", true);
+    setUnsaved("q1", true);
+    expect(useTabs.getState().unsaved).toEqual({ q1: true });
+    setUnsaved("q1", false);
+    expect(useTabs.getState().unsaved).toEqual({});
+  });
+});
+
+describe("closing a connection's tabs", () => {
+  it("can keep query tabs so unsaved SQL survives a reconnect", () => {
+    const query = queryTab("c1", { database: "shop", schema: null }, "查询 1");
+    const state = { tabs: [shop, query, pg], activeId: query.id };
+    expect(closeConnectionTabs(state, "c1", true).tabs).toEqual([query, pg]);
+    expect(closeConnectionTabs(state, "c1").tabs).toEqual([pg]);
   });
 });

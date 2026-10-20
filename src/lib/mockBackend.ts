@@ -1,5 +1,7 @@
 // 浏览器里开发界面用的假后端:内存数据 + 少量延迟,行为尽量贴近 Rust 端。
 import type { Backend } from "./api";
+import { createMockQueries } from "./mock/queryMock";
+import { seedTable } from "./mock/seedTables";
 import { createMockTables } from "./mock/tableData";
 import { classifyMockImport, mockImportSources, planMockImport } from "./mockImport";
 import type {
@@ -169,6 +171,7 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
   const passwords = new Map<string, string>([["mock-mysql", "root"]]);
   const open = new Set<string>();
   const tableData = createMockTables();
+  const queries = createMockQueries(() => connections, wait);
 
   const find = (id: string) =>
     connections.find((c) => c.id === id) ?? fail("connection_not_found", `找不到连接：${id}`);
@@ -311,5 +314,24 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       await wait(60);
       return "/Users/me/Downloads/connections.ncx";
     },
+    async runStatement(editorId, connectionId, scope, sql) {
+      requireOpen(connectionId);
+      return queries.runStatement(editorId, connectionId, scope, sql);
+    },
+    cancelStatement: (editorId) => queries.cancelStatement(editorId),
+    closeEditor: (editorId) => queries.closeEditor(editorId),
+    async listColumns(id, table) {
+      await wait(40);
+      requireOpen(id);
+      return seedTable(table.table).columns;
+    },
+    searchHistory: (query, connectionId, limit) => queries.searchHistory(query, connectionId, limit),
+    clearHistory: () => queries.clearHistory(),
+    listSavedQueries: (connectionId, database, schema) => queries.listSavedQueries(connectionId, database, schema),
+    readSavedQuery: (query) => queries.readSavedQuery(query),
+    saveQuery: (query, sql, overwrite) => queries.saveQuery(query, sql, overwrite),
+    deleteSavedQuery: (query) => queries.deleteSavedQuery(query),
+    scanNavicatQueries: () => queries.scanNavicatQueries(),
+    importNavicatQueries: (ids) => queries.importNavicatQueries(ids),
   };
 }

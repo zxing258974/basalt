@@ -5,6 +5,7 @@ import { DeleteConnectionDialog } from "./components/connection/DeleteConnection
 import { PasswordPrompt } from "./components/connection/PasswordPrompt";
 import { AppShell } from "./components/layout/AppShell";
 import { DiscardChangesDialog } from "./components/data/DiscardChangesDialog";
+import { useNewQueryFromSelection } from "./hooks/useNewQueryFromSelection";
 import { closeTabGuarded } from "./stores/discard";
 import { useTabs } from "./stores/tabs";
 import { useUi } from "./stores/ui";
@@ -19,6 +20,7 @@ export function createQueryClient() {
 }
 
 function useGlobalShortcuts() {
+  const newQuery = useNewQueryFromSelection();
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!event.metaKey || event.altKey || event.ctrlKey) return;
@@ -26,6 +28,10 @@ function useGlobalShortcuts() {
       if (key === "n" && !event.shiftKey) {
         event.preventDefault();
         useUi.getState().openConnectionDialog({ mode: "create", driver: null });
+      }
+      if (key === "t" && !event.shiftKey) {
+        event.preventDefault();
+        void newQuery();
       }
       if (key === "w" && !event.shiftKey) {
         event.preventDefault();
@@ -35,13 +41,19 @@ function useGlobalShortcuts() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [newQuery]);
+}
+
+/** 快捷键要用到 QueryClient,得挂在 Provider 里面。 */
+function GlobalShortcuts() {
+  useGlobalShortcuts();
+  return null;
 }
 
 export function App({ queryClient }: { queryClient: QueryClient }) {
-  useGlobalShortcuts();
   return (
     <QueryClientProvider client={queryClient}>
+      <GlobalShortcuts />
       <AppShell />
       <ConnectionDialog />
       <PasswordPrompt />

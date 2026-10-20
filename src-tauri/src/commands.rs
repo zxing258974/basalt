@@ -10,7 +10,13 @@ use basalt_core::query::history::HistoryEntry;
 use basalt_core::query::saved::{SavedQueryInfo, SavedQueryRef};
 use basalt_core::query::{QueryScope, StatementOutcome};
 use basalt_core::table::{ApplyOutcome, ColumnInfo, PageRequest, RowChange, TablePage, TableRef};
-use tauri::{AppHandle, Manager, State};
+use basalt_core::transfer::export::{ExportOutcome, ExportRequest};
+use basalt_core::transfer::import::{self as transfer_import, ImportPreview, ImportRequest};
+use basalt_core::transfer::progress::Progress;
+use basalt_core::transfer::report::ImportFailure;
+use basalt_core::transfer::source::SourceSpec;
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::service::{self, CommandResult, ConnectionView, ImportReport, ImportSource};
 use crate::state::AppState;
@@ -283,4 +289,78 @@ pub async fn import_navicat_queries(
     ids: Vec<String>,
 ) -> CommandResult<QueryImportReport> {
     service::import_navicat_queries(&state, &ids, local_navicat(&app).as_ref()).await
+}
+
+/// 导入导出的进度事件名,和前端 api.ts 一致。
+const TRANSFER_PROGRESS_EVENT: &str = "transfer-progress";
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TransferProgress<'a> {
+    job_id: &'a str,
+    #[serde(flatten)]
+    progress: &'a Progress,
+}
+
+/// 进度经 Tauri 事件推给前端,前端按任务 id 认领。
+fn progress_events(app: AppHandle, job_id: String) -> impl Fn(&Progress) + Send + Sync {
+    move |progress| {
+        let payload = TransferProgress {
+            job_id: &job_id,
+            progress,
+        };
+        if let Err(error) = app.emit(TRANSFER_PROGRESS_EVENT, payload) {
+            log::warn!("发送导入导出进度失败：{error}");
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn export_data(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    job_id: String,
+    request: ExportRequest,
+) -> CommandResult<ExportOutcome> {
+    let progress = progress_events(app, job_id.clone());
+    service::transfer::export_data(&state, &job_id, &request, &progress).await
+}
+
+#[tauri::command]
+pub async fn preview_import(
+    state: State<'_, AppState>,
+    connection_id: String,
+    table: TableRef,
+    source: SourceSpec,
+) -> CommandResult<ImportPreview> {
+    service::transfer::preview_import_file(&state, &connection_id, &table, source).await
+}
+
+#[tauri::command]
+pub async fn import_data(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    job_id: String,
+    request: ImportRequest,
+) -> CommandResult<transfer_import::ImportReport> {
+    let progress = progress_events(app, job_id.clone());
+    service::transfer::import_data(&state, &job_id, &request, &progress).await
+}
+
+#[tauri::command]
+pub async fn cancel_transfer(state: State<'_, AppState>, job_id: String) -> CommandResult<bool> {
+    service::transfer::cancel_transfer(&state, &job_id).await
+}
+
+#[tauri::command]
+pub async fn save_import_failures(
+    path: String,
+    failures: Vec<ImportFailure>,
+) -> CommandResult<u64> {
+    service::transfer::save_import_failures(&path, &failures)
+}
+
+#[tauri::command]
+pub async fn reveal_in_finder(path: String) -> CommandResult<()> {
+    service::transfer::reveal_in_finder(&path)
 }

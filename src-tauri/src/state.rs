@@ -9,6 +9,8 @@ use basalt_core::session::SessionManager;
 use basalt_core::{CoreError, CoreResult};
 use tokio::sync::{Mutex, MutexGuard};
 
+use crate::service::transfer::TransferJobs;
+
 pub struct AppState {
     repo: ConnectionRepository,
     /// 串行化「读 → 改钥匙串 → 写配置」,避免并发操作互相覆盖。
@@ -19,6 +21,8 @@ pub struct AppState {
     pub history: HistoryStore,
     /// 保存的查询,在配置目录的 queries/ 下。
     pub saved_queries: SavedQueryStore,
+    /// 正在进行的导入导出,取消时按任务 id 找。
+    pub transfers: TransferJobs,
 }
 
 /// 持有写锁期间对配置文件的读写。锁随它一起释放。
@@ -50,6 +54,7 @@ impl AppState {
             sessions: SessionManager::default(),
             history: HistoryStore::new(dir.join("history.jsonl")),
             saved_queries: SavedQueryStore::new(dir.join("queries")),
+            transfers: TransferJobs::default(),
         }
     }
 

@@ -70,6 +70,12 @@ pub fn run() {
             commands::delete_saved_query,
             commands::scan_navicat_queries,
             commands::import_navicat_queries,
+            commands::export_data,
+            commands::preview_import,
+            commands::import_data,
+            commands::cancel_transfer,
+            commands::save_import_failures,
+            commands::reveal_in_finder,
             quit::set_unsaved_work,
             quit::quit_app,
         ])

@@ -5,7 +5,11 @@ import type { DriverKind, Endpoint } from "./types";
 export type ImportSource = { kind: "localNavicat" } | { kind: "ncxFile"; path: string };
 
 export type CandidateStatus =
-  { kind: "new" } | { kind: "existing"; existingName: string } | { kind: "unsupported"; reason: string };
+  | { kind: "new" }
+  | { kind: "existing"; existingName: string }
+  /** 同一个库已经在 Basalt 里、但还没存密码:导入时只把来源里的密码补过去,不新建连接。 */
+  | { kind: "fillPassword"; existingId: string; existingName: string }
+  | { kind: "unsupported"; reason: string };
 
 export type PasswordStatus = "included" | "absent" | "undecryptable";
 
@@ -36,7 +40,14 @@ export interface SkippedConnection {
   reason: string;
 }
 
+/** 没有新建、只给已有连接补上了密码。 */
+export interface FilledConnection {
+  id: string;
+  name: string;
+}
+
 export interface ImportReport {
   imported: ImportedConnection[];
+  passwordFilled: FilledConnection[];
   skipped: SkippedConnection[];
 }

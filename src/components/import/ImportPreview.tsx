@@ -108,6 +108,9 @@ function CandidateRow({
             {candidate.group && <span className="import-group">{candidate.group}</span>}
           </span>
           {status.kind === "existing" && <span className="import-note">与「{status.existingName}」重复</span>}
+          {status.kind === "fillPassword" && (
+            <span className="import-note">给「{status.existingName}」补上密码，不新建连接</span>
+          )}
           {status.kind === "unsupported" && <span className="import-note">{status.reason}</span>}
           {candidate.warnings.map((warning) => (
             <span key={warning} className="import-note is-warning">

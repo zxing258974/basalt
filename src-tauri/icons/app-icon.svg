@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3b3735"/>
+      <stop offset="1" stop-color="#191716"/>
+    </linearGradient>
+    <radialGradient id="vignette" cx="0.5" cy="0.42" r="0.62">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.07"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.25"/>
+    </radialGradient>
+    <linearGradient id="stone" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#6b6460"/>
+      <stop offset="1" stop-color="#46403d"/>
+    </linearGradient>
+    <linearGradient id="stoneSide" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b2725"/>
+      <stop offset="1" stop-color="#1e1b1a"/>
+    </linearGradient>
+    <linearGradient id="ember" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#ffa45c"/>
+      <stop offset="1" stop-color="#d4561f"/>
+    </linearGradient>
+    <linearGradient id="emberSide" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9c3a14"/>
+      <stop offset="1" stop-color="#6e270d"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ff8a3d" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ff8a3d" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+    <clipPath id="tile"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)" filter="url(#shadow)"/>
+  <g clip-path="url(#tile)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#vignette)"/>
+    <circle cx="512" cy="478" r="260" fill="url(#glow)"/>
+    <g><polygon points="411.2,233.4 503.0,286.4 503.0,392.4 411.2,445.4 319.4,392.4 319.4,286.4" fill="url(#stoneSide)"/><polygon points="411.2,203.4 503.0,256.4 503.0,362.4 411.2,415.4 319.4,362.4 319.4,256.4" fill="url(#stone)" stroke="#7a726c" stroke-opacity="0.35" stroke-width="3"/></g>
+    <g><polygon points="612.8,243.4 704.6,296.4 704.6,402.4 612.8,455.4 521.0,402.4 521.0,296.4" fill="url(#stoneSide)"/><polygon points="612.8,213.4 704.6,266.4 704.6,372.4 612.8,425.4 521.0,372.4 521.0,266.4" fill="url(#stone)" stroke="#7a726c" stroke-opacity="0.35" stroke-width="3"/></g>
+    <g><polygon points="310.4,414.0 402.2,467.0 402.2,573.0 310.4,626.0 218.6,573.0 218.6,467.0" fill="url(#stoneSide)"/><polygon points="310.4,384.0 402.2,437.0 402.2,543.0 310.4,596.0 218.6,543.0 218.6,437.0" fill="url(#stone)" stroke="#7a726c" stroke-opacity="0.35" stroke-width="3"/></g>
+    <g><polygon points="512.0,402.0 603.8,455.0 603.8,561.0 512.0,614.0 420.2,561.0 420.2,455.0" fill="url(#emberSide)"/><polygon points="512.0,372.0 603.8,425.0 603.8,531.0 512.0,584.0 420.2,531.0 420.2,425.0" fill="url(#ember)" stroke="#ffb37a" stroke-opacity="0.55" stroke-width="3"/></g>
+    <g><polygon points="713.6,416.0 805.4,469.0 805.4,575.0 713.6,628.0 621.8,575.0 621.8,469.0" fill="url(#stoneSide)"/><polygon points="713.6,386.0 805.4,439.0 805.4,545.0 713.6,598.0 621.8,545.0 621.8,439.0" fill="url(#stone)" stroke="#7a726c" stroke-opacity="0.35" stroke-width="3"/></g>
+    <g><polygon points="411.2,594.6 503.0,647.6 503.0,753.6 411.2,806.6 319.4,753.6 319.4,647.6" fill="url(#stoneSide)"/><polygon points="411.2,564.6 503.0,617.6 503.0,723.6 411.2,776.6 319.4,723.6 319.4,617.6" fill="url(#stone)" stroke="#7a726c" stroke-opacity="0.35" stroke-width="3"/></g>
+    <g><polygon points="612.8,584.6 704.6,637.6 704.6,743.6 612.8,796.6 521.0,743.6 521.0,637.6" fill="url(#stoneSide)"/><polygon points="612.8,554.6 704.6,607.6 704.6,713.6 612.8,766.6 521.0,713.6 521.0,607.6" fill="url(#stone)" stroke="#7a726c" stroke-opacity="0.35" stroke-width="3"/></g>
+  </g>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="183.5" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="3"/>
+</svg>

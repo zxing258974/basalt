@@ -100,14 +100,16 @@ function sameAddress(a: Endpoint, b: Endpoint): boolean {
   return a.host.toLowerCase() === b.host.toLowerCase() && a.port === b.port && a.username === b.username;
 }
 
-type Known = Pick<ConnectionConfig, "name" | "driver" | "endpoint">;
+/** 判重用的连接要素;本次来源里的重复项没有 id,只能跳过、不能补密码。 */
+type Known = Pick<ConnectionConfig, "name" | "driver" | "endpoint" | "savePassword"> & { id: string | null };
 
-/** 与 Rust 端一致:同一来源里后出现的重复项也算已存在。 */
+/** 与 Rust 端一致:同一来源里后出现的重复项也算已存在;只有地址对得上、来源带密码、
+ *  已有连接还没存密码时才「补密码」,只靠名字对上的绝不补。 */
 export function classifyMockImport(
   sources: readonly MockSource[],
   existing: readonly ConnectionConfig[],
 ): ImportCandidate[] {
-  let known: Known[] = [...existing];
+  let known: Known[] = existing.map((c) => ({ ...c, id: c.id }));
   return sources.map(({ unsupportedReason, ...rest }) => {
     if (unsupportedReason || !rest.driver || !rest.endpoint) {
       return {
@@ -118,20 +120,40 @@ export function classifyMockImport(
       };
     }
     const { driver, endpoint } = rest;
-    const match = known.find((c) => c.name === rest.name || (c.driver === driver && sameAddress(c.endpoint, endpoint)));
-    known = [...known, { name: rest.name, driver, endpoint }];
-    return { ...rest, status: match ? { kind: "existing", existingName: match.name } : { kind: "new" } };
+    const same = (c: Known) => c.driver === driver && sameAddress(c.endpoint, endpoint);
+    const match = known.find((c) => same(c) || c.name === rest.name);
+    known = [...known, { id: null, name: rest.name, driver, endpoint, savePassword: false }];
+    if (!match) return { ...rest, status: { kind: "new" } };
+    const fillable =
+      match.id !== null &&
+      same(match) &&
+      endpoint.kind === "network" &&
+      rest.password === "included" &&
+      !match.savePassword;
+    return {
+      ...rest,
+      status: fillable
+        ? { kind: "fillPassword", existingId: match.id!, existingName: match.name }
+        : { kind: "existing", existingName: match.name },
+    };
   });
 }
 
-/** 模拟导入:返回要追加的连接和汇报。 */
+/** 模拟导入:返回要追加的连接、要补密码的已有连接 id 和汇报。 */
 export function planMockImport(
   sources: readonly MockSource[],
   ids: readonly string[],
-): { configs: ConnectionConfig[]; report: ImportReport } {
+  existing: readonly ConnectionConfig[],
+): { configs: ConnectionConfig[]; filledIds: string[]; report: ImportReport } {
   const wanted = new Set(ids);
+  const statuses = new Map(classifyMockImport(sources, existing).map((c) => [c.id, c.status]));
   const picked = sources.filter((s) => wanted.has(s.id));
-  const importable = picked.filter((s) => !s.unsupportedReason && s.driver && s.endpoint);
+  const fills = picked.flatMap((s) => {
+    const status = statuses.get(s.id);
+    return status?.kind === "fillPassword" ? [{ id: status.existingId, name: status.existingName, source: s.id }] : [];
+  });
+  const filledSources = new Set(fills.map((f) => f.source));
+  const importable = picked.filter((s) => !filledSources.has(s.id) && !s.unsupportedReason && s.driver && s.endpoint);
   const configs: ConnectionConfig[] = importable.map((s) => ({
     id: crypto.randomUUID(),
     name: s.name,
@@ -148,14 +170,15 @@ export function planMockImport(
       driver: c.driver,
       passwordSaved: importable[i]!.password === "included",
     })),
+    passwordFilled: fills.map(({ id, name }) => ({ id, name })),
     skipped: [
       ...picked
-        .filter((s) => !importable.includes(s))
+        .filter((s) => !importable.includes(s) && !filledSources.has(s.id))
         .map((s) => ({ name: s.name, reason: s.unsupportedReason ?? "无法导入" })),
       ...ids
         .filter((id) => !known.has(id))
         .map((id) => ({ name: id, reason: "扫描之后来源有变化，找不到这个连接，请重新扫描" })),
     ],
   };
-  return { configs, report };
+  return { configs, filledIds: fills.map((f) => f.id), report };
 }

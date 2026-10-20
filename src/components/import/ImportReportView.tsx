@@ -32,6 +32,22 @@ export function ImportReportView({ report, source }: ImportReportViewProps) {
           ))}
         </ul>
       )}
+      {report.passwordFilled.length > 0 && (
+        <>
+          <h3 className="import-report-subtitle">补上密码</h3>
+          <ul className="import-report-list">
+            {report.passwordFilled.map((item) => (
+              <li key={item.id}>
+                <span className="import-report-name">{item.name}</span>
+                <span className="import-report-meta is-saved">
+                  <KeyRound aria-hidden />
+                  密码已存入钥匙串
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {report.skipped.length > 0 && (
         <>
           <h3 className="import-report-subtitle">跳过</h3>

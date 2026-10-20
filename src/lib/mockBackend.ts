@@ -300,9 +300,11 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
     },
     async importConnections(source, ids) {
       await wait(300);
-      const { configs, report } = planMockImport(mockImportSources(source), ids);
-      connections = [...connections, ...configs];
+      const { configs, filledIds, report } = planMockImport(mockImportSources(source), ids, connections);
+      const filled = new Set(filledIds);
+      connections = [...connections.map((c) => (filled.has(c.id) ? { ...c, savePassword: true } : c)), ...configs];
       for (const item of report.imported) if (item.passwordSaved) passwords.set(item.id, "mock");
+      for (const id of filledIds) passwords.set(id, "mock");
       return report;
     },
     async pickNcxFile() {

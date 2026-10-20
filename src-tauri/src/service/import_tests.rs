@@ -379,3 +379,80 @@ async fn keychain_failure_midway_removes_passwords_already_written() {
     assert_eq!(written.len(), 1, "第一个密码已经写进去了");
     assert_eq!(keychain.get(&written[0]).unwrap(), None, "应该已回滚");
 }
+
+#[tokio::test]
+async fn ncx_fills_the_password_of_a_connection_imported_without_one() {
+    let h = harness();
+    // 先前从本机 Navicat 导入、没带密码的连接:地址和 .ncx 里的「订单库」一致,名字不同。
+    let existing = service::save_connection(
+        &h.state,
+        mysql_draft("订单库-本机", "mysql.example.test", "app_user"),
+    )
+    .await
+    .unwrap();
+
+    let candidates = scan_import_source(&h.state, &h.ncx(), Some(&h.local))
+        .await
+        .unwrap();
+    let order = candidates.iter().find(|c| c.id == "MYSQL:订单库").unwrap();
+    assert_eq!(
+        order.status,
+        CandidateStatus::FillPassword {
+            existing_id: existing.id.clone(),
+            existing_name: "订单库-本机".into(),
+        }
+    );
+
+    let report = import_connections(&h.state, &h.ncx(), &ids(&["MYSQL:订单库"]), Some(&h.local))
+        .await
+        .unwrap();
+    assert!(report.imported.is_empty(), "补密码不应新建连接");
+    let filled: Vec<_> = report
+        .password_filled
+        .iter()
+        .map(|c| (c.id.as_str(), c.name.as_str()))
+        .collect();
+    assert_eq!(filled, [(existing.id.as_str(), "订单库-本机")]);
+
+    let saved = service::list_connections(&h.state).await.unwrap();
+    assert_eq!(saved.len(), 1);
+    assert!(saved[0].config.save_password);
+    assert_eq!(
+        h.secrets
+            .get(&password_key(&existing.id))
+            .unwrap()
+            .as_deref(),
+        Some(ORDER_PASSWORD)
+    );
+    let report_json = serde_json::to_string(&report).unwrap();
+    for text in [&report_json, &h.config_text()] {
+        assert!(!text.contains(ORDER_PASSWORD), "{text}");
+    }
+}
+
+#[tokio::test]
+async fn config_write_failure_while_filling_restores_the_keychain() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let h = harness();
+    let existing = service::save_connection(
+        &h.state,
+        mysql_draft("订单库-本机", "mysql.example.test", "app_user"),
+    )
+    .await
+    .unwrap();
+    let config_dir = h.dir.path().join("config");
+    std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+
+    let result =
+        import_connections(&h.state, &h.ncx(), &ids(&["MYSQL:订单库"]), Some(&h.local)).await;
+    std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert_eq!(result.unwrap_err().code, "storage");
+    assert_eq!(h.secrets.get(&password_key(&existing.id)).unwrap(), None);
+    assert!(
+        !service::list_connections(&h.state).await.unwrap()[0]
+            .config
+            .save_password
+    );
+}

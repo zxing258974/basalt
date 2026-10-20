@@ -34,6 +34,21 @@ fn saved(name: &str, driver: DriverKind, endpoint: Endpoint) -> ConnectionConfig
     }
 }
 
+/// 已经在钥匙串里存了密码的已有连接。
+fn with_saved_password(config: ConnectionConfig) -> ConnectionConfig {
+    ConnectionConfig {
+        save_password: true,
+        ..config
+    }
+}
+
+fn without_password(source: SourceConnection) -> SourceConnection {
+    SourceConnection {
+        password: SourcePassword::Absent,
+        ..source
+    }
+}
+
 fn list(configs: Vec<ConnectionConfig>) -> ConnectionList {
     configs
         .into_iter()
@@ -56,11 +71,11 @@ fn unmatched_supported_connection_is_new() {
 
 #[test]
 fn same_driver_host_port_and_user_counts_as_existing() {
-    let existing = list(vec![saved(
+    let existing = list(vec![with_saved_password(saved(
         "别名",
         DriverKind::Mysql,
         network("DB.Test", 3306, "app"),
-    )]);
+    ))]);
     let sources = [source(
         "a",
         "订单库",
@@ -264,5 +279,77 @@ fn existing_status_serializes_with_camel_case_fields() {
     assert_eq!(
         serde_json::to_string(&status).unwrap(),
         r#"{"kind":"existing","existingName":"旧"}"#
+    );
+}
+
+#[test]
+fn source_password_fills_a_matching_connection_that_has_none() {
+    let existing = list(vec![saved(
+        "别名",
+        DriverKind::Mysql,
+        network("DB.Test", 3306, "app"),
+    )]);
+    let sources = [source(
+        "a",
+        "订单库",
+        DriverKind::Mysql,
+        network("db.test", 3306, "app"),
+    )];
+    assert_eq!(
+        classify(&sources, &existing)[0].status,
+        CandidateStatus::FillPassword {
+            existing_id: "saved-别名".into(),
+            existing_name: "别名".into(),
+        }
+    );
+}
+
+#[test]
+fn password_is_never_filled_into_a_connection_matched_only_by_name() {
+    let existing = list(vec![saved(
+        "订单库",
+        DriverKind::Mysql,
+        network("other.test", 3306, "app"),
+    )]);
+    let sources = [source(
+        "a",
+        "订单库",
+        DriverKind::Mysql,
+        network("db.test", 3306, "app"),
+    )];
+    assert!(matches!(
+        classify(&sources, &existing)[0].status,
+        CandidateStatus::Existing { .. }
+    ));
+}
+
+#[test]
+fn source_without_password_cannot_fill_anything() {
+    let existing = list(vec![saved(
+        "别名",
+        DriverKind::Mysql,
+        network("db.test", 3306, "app"),
+    )]);
+    let sources = [without_password(source(
+        "a",
+        "订单库",
+        DriverKind::Mysql,
+        network("db.test", 3306, "app"),
+    ))];
+    assert!(matches!(
+        classify(&sources, &existing)[0].status,
+        CandidateStatus::Existing { .. }
+    ));
+}
+
+#[test]
+fn fill_password_status_serializes_with_camel_case_fields() {
+    let status = CandidateStatus::FillPassword {
+        existing_id: "c1".into(),
+        existing_name: "旧".into(),
+    };
+    assert_eq!(
+        serde_json::to_string(&status).unwrap(),
+        r#"{"kind":"fillPassword","existingId":"c1","existingName":"旧"}"#
     );
 }

@@ -7,13 +7,13 @@ import { createQueryClient } from "../../App";
 import { setBackendForTesting, type Backend } from "../../lib/api";
 import { createMockBackend } from "../../lib/mockBackend";
 import type { ImportReport } from "../../lib/importTypes";
-import type { CommandError } from "../../lib/types";
+import type { CommandError, ConnectionConfig } from "../../lib/types";
 import { ImportDialog } from "./ImportDialog";
 
 const NCX_PATH = "/Users/me/Downloads/connections.ncx";
 
-function setup(overrides: Partial<Backend> = {}) {
-  const base = createMockBackend();
+function setup(overrides: Partial<Backend> = {}, seed?: ConnectionConfig[]) {
+  const base = createMockBackend(seed);
   const backend: Backend = {
     ...base,
     scanImportSource: vi.fn(base.scanImportSource),
@@ -98,6 +98,29 @@ describe("import dialog", () => {
     expect(reminder).toHaveTextContent(NCX_PATH);
   });
 
+  it("fills the password of a connection imported earlier without one", async () => {
+    const earlier: ConnectionConfig = {
+      id: "earlier",
+      name: "订单库-本机",
+      driver: "mysql",
+      endpoint: { kind: "network", host: "mysql.example.test", port: 3306, username: "app" },
+      savePassword: false,
+    };
+    const { backend, user } = setup({}, [earlier]);
+    await screen.findByRole("radio", { name: /本机 Navicat/ });
+    await user.click(screen.getByRole("radio", { name: /Navicat 导出文件/ }));
+
+    expect(await screen.findByText("给「订单库-本机」补上密码，不新建连接")).toBeInTheDocument();
+    expect(within(row("订单库")).getByText("补密码")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "选择「订单库」" })).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: /^导入 \d+ 个连接$/ }));
+    expect(await screen.findByText(/为 1 个已有连接补上了密码/)).toBeInTheDocument();
+    const after = await backend.listConnections();
+    expect(after.filter((c) => c.name === "订单库")).toHaveLength(0);
+    expect(after.find((c) => c.id === "earlier")?.savePassword).toBe(true);
+  });
+
   it("keeps the .ncx option usable when Navicat is not installed", async () => {
     const missing: CommandError = { code: "storage", message: "没有找到本机 Navicat 的连接配置", fields: [] };
     const base = createMockBackend();
@@ -142,7 +165,11 @@ describe("import dialog", () => {
     await user.keyboard("{Escape}");
     expect(onClose).not.toHaveBeenCalled();
 
-    finish({ imported: [{ id: "x", name: "订单库", driver: "mysql", passwordSaved: false }], skipped: [] });
+    finish({
+      imported: [{ id: "x", name: "订单库", driver: "mysql", passwordSaved: false }],
+      passwordFilled: [],
+      skipped: [],
+    });
     expect(await screen.findByText("已导入 1 个连接")).toBeInTheDocument();
   });
 

@@ -90,10 +90,35 @@ describe("labels", () => {
         { id: "a", name: "A", driver: "mysql", passwordSaved: true },
         { id: "b", name: "B", driver: "postgres", passwordSaved: false },
       ],
+      passwordFilled: [],
       skipped: [{ name: "C", reason: "暂不支持" }],
     };
     expect(reportHeadline(report)).toBe("已导入 2 个连接，跳过 1 个");
-    expect(reportHeadline({ imported: report.imported, skipped: [] })).toBe("已导入 2 个连接");
-    expect(reportHeadline({ imported: [], skipped: report.skipped })).toBe("没有导入任何连接，跳过 1 个");
+    expect(reportHeadline({ ...report, skipped: [] })).toBe("已导入 2 个连接");
+    expect(reportHeadline({ ...report, imported: [] })).toBe("没有导入任何连接，跳过 1 个");
+  });
+
+  it("mentions passwords filled into existing connections", () => {
+    const filled = [
+      { id: "x", name: "aliyun" },
+      { id: "y", name: "doris" },
+    ];
+    expect(reportHeadline({ imported: [], passwordFilled: filled, skipped: [] })).toBe("为 2 个已有连接补上了密码");
+    expect(
+      reportHeadline({
+        imported: [{ id: "a", name: "A", driver: "mysql", passwordSaved: true }],
+        passwordFilled: filled,
+        skipped: [{ name: "C", reason: "暂不支持" }],
+      }),
+    ).toBe("已导入 1 个连接，为 2 个已有连接补上了密码，跳过 1 个");
+  });
+});
+
+describe("filling passwords into existing connections", () => {
+  const fill = candidate("fill", { status: { kind: "fillPassword", existingId: "c9", existingName: "aliyun" } });
+
+  it("is checked by default and labelled as such", () => {
+    expect(defaultSelection([...candidates, fill]).has("fill")).toBe(true);
+    expect(statusLabel(fill.status)).toBe("补密码");
   });
 });

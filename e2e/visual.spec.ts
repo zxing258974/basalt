@@ -20,7 +20,7 @@ async function snapshot(page: Page, name: string) {
 
 async function openWelcome(page: Page) {
   await page.goto("/");
-  await expect(page.getByRole("region", { name: "连接" }).getByText("本地 MySQL")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /看清每一张表/ })).toBeVisible();
   await expect(page.getByRole("treeitem", { name: "笔记" })).toBeVisible();
 }
 

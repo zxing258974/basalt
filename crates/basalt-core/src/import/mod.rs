@@ -104,6 +104,13 @@ pub enum CandidateStatus {
     Existing {
         existing_name: String,
     },
+    /// 和已有连接是同一个库(类型、地址、用户都相同),来源带着密码而已有连接没存密码:
+    /// 导入时不新建连接,只把密码补到已有连接上。默认勾选。
+    #[serde(rename_all = "camelCase")]
+    FillPassword {
+        existing_id: String,
+        existing_name: String,
+    },
     Unsupported {
         reason: String,
     },
@@ -133,15 +140,17 @@ pub fn classify(sources: &[SourceConnection], existing: &ConnectionList) -> Vec<
         let (driver, endpoint, status) = match &source.target {
             SourceTarget::Supported { driver, endpoint } => {
                 let status = match find_duplicate(&source.name, *driver, endpoint, &known) {
-                    Some(found) => CandidateStatus::Existing {
-                        existing_name: found.name.to_owned(),
-                    },
+                    Some((found, same_address)) => {
+                        duplicate_status(source, endpoint, found, same_address)
+                    }
                     None => CandidateStatus::New,
                 };
                 known.push(Known {
+                    id: None,
                     name: source.name.trim(),
                     driver: *driver,
                     endpoint,
+                    has_saved_password: false,
                 });
                 (Some(*driver), Some(endpoint.clone()), status)
             }
@@ -170,32 +179,62 @@ pub fn classify(sources: &[SourceConnection], existing: &ConnectionList) -> Vec<
 
 /// 判重时用到的连接要素:已保存的连接和本次来源里排在前面的连接都算。
 struct Known<'a> {
+    /// 已保存的连接才有 id;本次来源里的重复项没有,只能跳过、不能补密码。
+    id: Option<&'a str>,
     name: &'a str,
     driver: DriverKind,
     endpoint: &'a Endpoint,
+    has_saved_password: bool,
 }
 
 impl<'a> From<&'a ConnectionConfig> for Known<'a> {
     fn from(config: &'a ConnectionConfig) -> Self {
         Self {
+            id: Some(&config.id),
             name: &config.name,
             driver: config.driver,
             endpoint: &config.endpoint,
+            has_saved_password: config.save_password,
         }
     }
 }
 
 /// 连接名相同,或者数据库类型和「连到哪、以谁的身份」都相同,就算重复。
+/// 同时返回是否是后一种情况:只有地址也对得上,才允许把密码补过去。
 fn find_duplicate<'a, 'k>(
     name: &str,
     driver: DriverKind,
     endpoint: &Endpoint,
     known: &'k [Known<'a>],
-) -> Option<&'k Known<'a>> {
+) -> Option<(&'k Known<'a>, bool)> {
     let name = name.trim();
-    known
-        .iter()
-        .find(|k| k.name == name || (k.driver == driver && same_address(k.endpoint, endpoint)))
+    known.iter().find_map(|k| {
+        let same = k.driver == driver && same_address(k.endpoint, endpoint);
+        (same || k.name == name).then_some((k, same))
+    })
+}
+
+/// 重复项是「补密码」还是单纯「已存在」。补密码要求地址一致、是网络连接、
+/// 来源带明文密码、已有连接还没存密码;只靠名字对上的绝不补,免得把别的库的密码填进来。
+fn duplicate_status(
+    source: &SourceConnection,
+    endpoint: &Endpoint,
+    found: &Known<'_>,
+    same_address: bool,
+) -> CandidateStatus {
+    let fillable = same_address
+        && matches!(endpoint, Endpoint::Network { .. })
+        && matches!(source.password, SourcePassword::Plain(_))
+        && !found.has_saved_password;
+    match (fillable, found.id) {
+        (true, Some(id)) => CandidateStatus::FillPassword {
+            existing_id: id.to_owned(),
+            existing_name: found.name.to_owned(),
+        },
+        _ => CandidateStatus::Existing {
+            existing_name: found.name.to_owned(),
+        },
+    }
 }
 
 fn same_address(a: &Endpoint, b: &Endpoint) -> bool {

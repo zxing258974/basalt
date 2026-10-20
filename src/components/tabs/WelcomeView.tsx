@@ -1,10 +1,6 @@
-import { ArrowRight, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useConnections } from "../../hooks/useCatalog";
-import { useConnectionActions } from "../../hooks/useConnectionActions";
 import { useUi } from "../../stores/ui";
-import { DriverBadge } from "../connection/DriverBadge";
-import { endpointSummary } from "../connection/driverMeta";
-import { connectionKey } from "../sidebar/treeKeys";
 import { Button } from "../ui/Button";
 
 const SHORTCUTS = [
@@ -14,10 +10,11 @@ const SHORTCUTS = [
   ["↩", "打开选中的库或 schema"],
 ] as const;
 
+/** 没有打开任何标签页时的首页。连接清单只在左侧侧栏里,这里不重复。 */
 export function WelcomeView() {
-  const connections = useConnections().data ?? [];
-  const actions = useConnectionActions();
-  const { openConnectionDialog, select } = useUi.getState();
+  const query = useConnections();
+  const { openConnectionDialog } = useUi.getState();
+  const isEmpty = query.isSuccess && query.data.length === 0;
 
   return (
     <div className="welcome">
@@ -29,7 +26,9 @@ export function WelcomeView() {
           看清每一张表。
         </h1>
         <p className="welcome-lede">
-          MySQL、MariaDB、PostgreSQL、SQLite。在左侧展开连接，双击库或 schema 打开它的对象列表。
+          {isEmpty
+            ? "还没有连接。先新建一个，或者点工具栏的「导入」把 Navicat 里的连接搬过来；配置只保存在本机，密码进钥匙串。"
+            : "MySQL、MariaDB、PostgreSQL、SQLite。在左侧展开连接，双击库或 schema 打开它的对象列表。"}
         </p>
         <Button
           variant="primary"
@@ -48,34 +47,6 @@ export function WelcomeView() {
             </div>
           ))}
         </dl>
-      </section>
-
-      <section className="welcome-connections" aria-label="连接">
-        <h2 className="welcome-section-title">连接</h2>
-        {connections.length === 0 ? (
-          <p className="welcome-empty">还没有连接。先新建一个，配置只保存在本机，密码进钥匙串。</p>
-        ) : (
-          <ul className="welcome-list">
-            {connections.map((connection) => (
-              <li key={connection.id}>
-                <button
-                  className="welcome-connection"
-                  onClick={() => {
-                    select(connectionKey(connection.id));
-                    void actions.openWithFeedback(connection);
-                  }}
-                >
-                  <DriverBadge driver={connection.driver} size="lg" live={connection.isOpen} />
-                  <span className="welcome-connection-text">
-                    <span className="welcome-connection-name">{connection.name}</span>
-                    <span className="welcome-connection-endpoint mono">{endpointSummary(connection)}</span>
-                  </span>
-                  <ArrowRight className="welcome-connection-arrow" aria-hidden />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
       </section>
     </div>
   );

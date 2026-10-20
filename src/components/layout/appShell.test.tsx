@@ -13,14 +13,13 @@ const statusBar = () => within(screen.getByRole("contentinfo"));
 const selectConnection = (id: string) => act(() => useUi.getState().select(connectionKey(id)));
 
 describe("welcome page", () => {
-  it("lists the connections and opens one with a click", async () => {
-    const { user } = renderApp();
-    const list = within(await screen.findByRole("region", { name: "连接" }));
-    await user.click(await list.findByText("本地 MySQL"));
-
-    expect(await statusBar().findByText("MySQL 8.4.3")).toBeInTheDocument();
-    expect(statusBar().getByText("3 个连接 · 1 个已打开")).toBeInTheDocument();
-    expect(await screen.findByRole("treeitem", { name: "shop" })).toBeInTheDocument();
+  it("leaves the connection list to the sidebar instead of repeating it", async () => {
+    renderApp();
+    expect(await screen.findByRole("treeitem", { name: "笔记" })).toBeInTheDocument();
+    const main = within(screen.getByRole("main"));
+    expect(main.queryByRole("region", { name: "连接" })).not.toBeInTheDocument();
+    expect(main.queryByText("笔记")).not.toBeInTheDocument();
+    expect(main.queryByText(/还没有连接/)).not.toBeInTheDocument();
   });
 
   it("invites creating the first connection when there is none", async () => {

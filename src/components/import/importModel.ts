@@ -7,7 +7,8 @@ export function selectableIds(candidates: readonly ImportCandidate[]): string[] 
 }
 
 export function defaultSelection(candidates: readonly ImportCandidate[]): Set<string> {
-  return new Set(candidates.filter((c) => c.status.kind === "new").map((c) => c.id));
+  const checked = (c: ImportCandidate) => c.status.kind === "new" || c.status.kind === "fillPassword";
+  return new Set(candidates.filter(checked).map((c) => c.id));
 }
 
 export function toggleSelection(
@@ -37,6 +38,8 @@ export function statusLabel(status: CandidateStatus): string {
       return "新增";
     case "existing":
       return "已存在";
+    case "fillPassword":
+      return "补密码";
     case "unsupported":
       return "暂不支持";
   }
@@ -59,6 +62,10 @@ export function candidateAddress(candidate: ImportCandidate): string {
 }
 
 export function reportHeadline(report: ImportReport): string {
-  const head = report.imported.length > 0 ? `已导入 ${report.imported.length} 个连接` : "没有导入任何连接";
+  const parts = [
+    report.imported.length > 0 ? `已导入 ${report.imported.length} 个连接` : null,
+    report.passwordFilled.length > 0 ? `为 ${report.passwordFilled.length} 个已有连接补上了密码` : null,
+  ].filter((part) => part !== null);
+  const head = parts.length > 0 ? parts.join("，") : "没有导入任何连接";
   return report.skipped.length > 0 ? `${head}，跳过 ${report.skipped.length} 个` : head;
 }

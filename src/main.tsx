@@ -8,6 +8,8 @@ import "./components/sidebar/sidebar.css";
 import "./components/connection/connection.css";
 import "./components/objects/objects.css";
 import "./components/tabs/tabs.css";
+import "./components/data/data.css";
+import "./components/data/grid.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("找不到 #root 挂载点");

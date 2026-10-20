@@ -13,7 +13,7 @@ use crate::sql::{Dialect, quote_ident};
 const MAX_SQLITE_CONNECTIONS: u32 = 2;
 
 pub struct SqliteSession {
-    pool: SqlitePool,
+    pub(super) pool: SqlitePool,
     server: ServerInfo,
 }
 

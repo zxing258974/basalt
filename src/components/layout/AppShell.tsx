@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState, type PointerEvent } from "react";
 import { useConnections } from "../../hooks/useCatalog";
-import { useTabs } from "../../stores/tabs";
+import { useTabs, type Tab } from "../../stores/tabs";
+import { TableDataView } from "../data/TableDataView";
 import { ObjectListView } from "../objects/ObjectListView";
 import { ObjectTree } from "../sidebar/ObjectTree";
 import { TabBar } from "../tabs/TabBar";
@@ -88,7 +89,7 @@ export function AppShell() {
       <main className="workspace">
         <TabBar />
         <div className="workspace-body">
-          <ActiveTab />
+          <TabPanels />
         </div>
       </main>
       <StatusBar />
@@ -96,8 +97,30 @@ export function AppShell() {
   );
 }
 
-function ActiveTab() {
-  const tab = useTabs((s) => s.tabs.find((t) => t.id === s.activeId));
-  if (!tab) return <WelcomeView />;
-  return <ObjectListView key={tab.id} tab={tab} />;
+/**
+ * 所有标签页都保持挂载,只显示活动的那个:切走再切回来,未提交的修改、
+ * 滚动位置和筛选条件都还在。
+ */
+function TabPanels() {
+  const tabs = useTabs((s) => s.tabs);
+  const activeId = useTabs((s) => s.activeId);
+  if (tabs.length === 0) return <WelcomeView />;
+  return (
+    <>
+      {tabs.map((tab) => (
+        <div key={tab.id} className="tab-panel" hidden={tab.id !== activeId}>
+          <TabContent tab={tab} active={tab.id === activeId} />
+        </div>
+      ))}
+    </>
+  );
+}
+
+function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
+  switch (tab.kind) {
+    case "objects":
+      return <ObjectListView tab={tab} />;
+    case "tableData":
+      return <TableDataView tab={tab} active={active} />;
+  }
 }

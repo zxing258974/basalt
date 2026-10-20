@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { configDefaults } from "vitest/config";
 
 const host = process.env.TAURI_DEV_HOST;
 
@@ -19,6 +20,8 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // .claude/worktrees 下是其他会话的检出,各有各的 node_modules,不能混进这里跑。
+    exclude: [...configDefaults.exclude, ".claude/**"],
     setupFiles: ["./src/test/setup.ts"],
     css: false,
   },

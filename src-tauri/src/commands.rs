@@ -2,6 +2,7 @@
 
 use basalt_core::config::{ConnectionConfig, ConnectionDraft};
 use basalt_core::driver::{ServerInfo, TableInfo};
+use basalt_core::table::{ApplyOutcome, PageRequest, RowChange, TablePage, TableRef};
 use tauri::State;
 
 use crate::service::{self, CommandResult, ConnectionView};
@@ -87,4 +88,35 @@ pub async fn list_tables(
     schema: Option<String>,
 ) -> CommandResult<Vec<TableInfo>> {
     service::list_tables(&state, &id, &database, schema.as_deref()).await
+}
+
+#[tauri::command]
+pub async fn read_table_page(
+    state: State<'_, AppState>,
+    id: String,
+    table: TableRef,
+    request: PageRequest,
+) -> CommandResult<TablePage> {
+    service::read_table_page(&state, &id, &table, &request).await
+}
+
+#[tauri::command]
+pub async fn preview_table_changes(
+    state: State<'_, AppState>,
+    id: String,
+    table: TableRef,
+    changes: Vec<RowChange>,
+) -> CommandResult<Vec<String>> {
+    service::preview_table_changes(&state, &id, &table, &changes).await
+}
+
+#[tauri::command]
+pub async fn apply_table_changes(
+    state: State<'_, AppState>,
+    id: String,
+    table: TableRef,
+    changes: Vec<RowChange>,
+    expected: Vec<String>,
+) -> CommandResult<ApplyOutcome> {
+    service::apply_table_changes(&state, &id, &table, &changes, &expected).await
 }

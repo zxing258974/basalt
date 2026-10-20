@@ -271,3 +271,28 @@
   margin: var(--space-2) var(--space-3);
   background: var(--line);
 }
+
+/* ---------- 内容区占位 ---------- */
+.empty-state {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  padding: var(--space-9);
+  text-align: center;
+}
+.empty-state-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  color: var(--text-muted);
+}
+.empty-state-detail {
+  margin: 0;
+  max-width: 520px;
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+.empty-state.is-error .empty-state-title {
+  color: var(--danger);
+}

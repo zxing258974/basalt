@@ -3,6 +3,7 @@
 use basalt_core::config::{ConnectionConfig, ConnectionDraft};
 use basalt_core::driver::{ConnectParams, ServerInfo, TableInfo};
 use basalt_core::secret::password_key;
+use basalt_core::table::{ApplyOutcome, PageRequest, RowChange, TablePage, TableRef};
 use basalt_core::{CoreError, FieldError, session};
 use serde::Serialize;
 
@@ -265,6 +266,42 @@ pub async fn list_tables(
 ) -> CommandResult<Vec<TableInfo>> {
     let session = state.sessions.get(id).await?;
     Ok(session.list_tables(database, schema).await?)
+}
+
+pub async fn read_table_page(
+    state: &AppState,
+    id: &str,
+    table: &TableRef,
+    request: &PageRequest,
+) -> CommandResult<TablePage> {
+    let session = state.sessions.get(id).await?;
+    Ok(session.read_table(table, request).await?)
+}
+
+/// 返回将要执行的语句(参数内联成字面量),前端在提交前给用户确认。
+pub async fn preview_table_changes(
+    state: &AppState,
+    id: &str,
+    table: &TableRef,
+    changes: &[RowChange],
+) -> CommandResult<Vec<String>> {
+    let session = state.sessions.get(id).await?;
+    Ok(session.preview_changes(table, changes).await?)
+}
+
+/// 在一个事务里提交;任何一条失败都整体回滚,前端保留未提交的修改。
+/// `expected` 是用户确认过的预览,重新生成的语句不一样就拒绝执行。
+pub async fn apply_table_changes(
+    state: &AppState,
+    id: &str,
+    table: &TableRef,
+    changes: &[RowChange],
+    expected: &[String],
+) -> CommandResult<ApplyOutcome> {
+    let session = state.sessions.get(id).await?;
+    Ok(session
+        .apply_changes(table, changes, Some(expected))
+        .await?)
 }
 
 #[cfg(test)]

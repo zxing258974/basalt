@@ -4,9 +4,10 @@ import { useConnections, useTables } from "../../hooks/useCatalog";
 import { useConnectionActions } from "../../hooks/useConnectionActions";
 import { formatBytes, formatCount } from "../../lib/format";
 import { errorMessage, type TableInfo, type TableKind } from "../../lib/types";
-import type { ObjectsTab } from "../../stores/tabs";
+import { tableDataTab, useTabs, type ObjectsTab } from "../../stores/tabs";
 import { DriverBadge } from "../connection/DriverBadge";
 import { Button } from "../ui/Button";
+import { EmptyState } from "../ui/EmptyState";
 import {
   filterTables,
   sortTables,
@@ -58,6 +59,9 @@ export function ObjectListView({ tab }: { tab: ObjectsTab }) {
   const columns = useMemo(() => visibleColumns(all), [all]);
   const rows = useMemo(() => sortTables(filterTables(all, { kind, search }), sort), [all, kind, search, sort]);
   const tableCount = all.filter((t) => t.kind === "table").length;
+  const openTab = useTabs((s) => s.open);
+  const openData = (table: TableInfo) =>
+    openTab(tableDataTab(tab.connectionId, tab.database, tab.schema, table.name));
 
   const toggleSort = (key: SortKey) =>
     setSort((current) =>
@@ -156,7 +160,15 @@ export function ObjectListView({ tab }: { tab: ObjectsTab }) {
             </thead>
             <tbody>
               {rows.map((table) => (
-                <tr key={table.name}>
+                <tr
+                  key={table.name}
+                  tabIndex={0}
+                  title="双击打开数据"
+                  onDoubleClick={() => openData(table)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") openData(table);
+                  }}
+                >
                   <td className="col-name">
                     <span className="col-name-inner">
                       {table.kind === "table" ? <Table2 aria-hidden /> : <Eye aria-hidden />}
@@ -197,20 +209,5 @@ function SortableHeader({ label, sortKey, sort, numeric, onSort }: {
         {active && (sort.direction === "asc" ? <ArrowUp aria-hidden /> : <ArrowDown aria-hidden />)}
       </button>
     </th>
-  );
-}
-
-function EmptyState({ title, detail, tone, action }: {
-  title: string;
-  detail?: string;
-  tone?: "error";
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className={tone === "error" ? "empty-state is-error" : "empty-state"}>
-      <p className="empty-state-title">{title}</p>
-      {detail && <p className="empty-state-detail selectable">{detail}</p>}
-      {action}
-    </div>
   );
 }

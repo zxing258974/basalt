@@ -1,8 +1,16 @@
-//! 与具体连接无关的 SQL 工具:方言、标识符转义。后续的 DML / DDL 生成也放这里。
+//! 与具体连接无关的 SQL 工具:方言、标识符转义、筛选条件检查、分页 SELECT 与 DML 生成。
+
+pub mod bind;
+pub mod dml;
+pub mod filter;
+pub mod select;
+#[cfg(test)]
+mod test_support;
 
 use serde::{Deserialize, Serialize};
 
 use crate::config::DriverKind;
+use crate::table::TableRef;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -40,6 +48,17 @@ pub fn qualified(dialect: Dialect, parts: &[&str]) -> String {
         .map(|p| quote_ident(dialect, p))
         .collect::<Vec<_>>()
         .join(".")
+}
+
+/// 表的限定名:MySQL、SQLite 是 库.表,PostgreSQL 是 schema.表(库由连接决定)。
+pub fn table_name(dialect: Dialect, table: &TableRef) -> String {
+    match dialect {
+        Dialect::Postgres => qualified(
+            dialect,
+            &[table.schema.as_deref().unwrap_or_default(), &table.table],
+        ),
+        Dialect::Mysql | Dialect::Sqlite => qualified(dialect, &[&table.database, &table.table]),
+    }
 }
 
 #[cfg(test)]

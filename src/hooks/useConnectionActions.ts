@@ -5,6 +5,7 @@ import { needsPasswordPrompt } from "../components/connection/driverMeta";
 import { connectionKey, folderKey } from "../components/sidebar/treeKeys";
 import { getBackend } from "../lib/api";
 import { errorMessage, isCommandError, type ConnectionConfig } from "../lib/types";
+import { guardDiscard } from "../stores/discard";
 import { useTabs } from "../stores/tabs";
 import { useUi } from "../stores/ui";
 import { catalogKeys, connectionsQuery } from "./useCatalog";
@@ -97,12 +98,17 @@ export function useConnectionActions() {
     [refreshConnections],
   );
 
+  /** 关闭连接会关掉它的标签页:有未提交的表格修改先确认,取消就什么都不做。 */
   const close = useCallback(
-    async (id: string) => {
-      await (await getBackend()).closeConnection(id);
-      forget(id);
-      await refreshConnections();
-    },
+    (id: string) =>
+      new Promise<void>((resolve, reject) => {
+        const run = async () => {
+          await (await getBackend()).closeConnection(id);
+          forget(id);
+          await refreshConnections();
+        };
+        guardDiscard((tab) => tab.connectionId === id, () => run().then(resolve, reject), resolve);
+      }),
     [forget, refreshConnections],
   );
 

@@ -1,9 +1,9 @@
 // 对象树里连接以下的各层节点。每层只在展开时才去取数据。
-import { Database, Eye, Layers, RefreshCw, Table2, TableProperties } from "lucide-react";
+import { Database, Eye, Layers, RefreshCw, Rows3, Table2, TableProperties } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { catalogKeys, useDatabases, useSchemas, useTables } from "../../hooks/useCatalog";
 import { errorMessage, type ConnectionView, type TableInfo } from "../../lib/types";
-import { objectsTab, useTabs } from "../../stores/tabs";
+import { objectsTab, tableDataTab, useTabs } from "../../stores/tabs";
 import { useUi } from "../../stores/ui";
 import { databaseKey, groupKey, schemaKey, tableKey, type GroupKind } from "./treeKeys";
 import { useTreeMenu } from "./treeMenu";
@@ -151,6 +151,9 @@ function ObjectGroups({ connection, database, schema, depth }: {
 }) {
   const query = useTables(connection.id, database, schema, true);
   const openObjects = useOpenObjects(connection);
+  const openTab = useTabs((s) => s.open);
+  const openMenu = useTreeMenu();
+  const openData = (table: string) => openTab(tableDataTab(connection.id, database, schema, table));
   if (query.isPending || query.error) {
     return <Children query={query} depth={depth} empty="">{() => null}</Children>;
   }
@@ -178,6 +181,13 @@ function ObjectGroups({ connection, database, schema, depth }: {
                 label={table.name}
                 title={table.comment ?? undefined}
                 icon={table.kind === "table" ? <Table2 /> : <Eye />}
+                onActivate={() => openData(table.name)}
+                onContextMenu={(event) =>
+                  openMenu(event, [
+                    { label: "打开数据", icon: <Rows3 />, shortcut: "↩", onSelect: () => openData(table.name) },
+                    { label: "打开对象列表", icon: <TableProperties />, onSelect: () => openObjects(database, schema) },
+                  ])
+                }
               />
             ))}
           </TreeRow>

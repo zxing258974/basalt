@@ -1,10 +1,11 @@
-import { TableProperties, X } from "lucide-react";
+import { Table2, TableProperties, X } from "lucide-react";
 import { useConnections } from "../../hooks/useCatalog";
-import { useTabs } from "../../stores/tabs";
+import { closeTabGuarded } from "../../stores/discard";
+import { useTabs, type Tab } from "../../stores/tabs";
 import { driverMeta } from "../connection/driverMeta";
 
 export function TabBar() {
-  const { tabs, activeId, activate, close } = useTabs();
+  const { tabs, activeId, activate } = useTabs();
   const connections = useConnections().data ?? [];
   if (tabs.length === 0) return null;
 
@@ -22,14 +23,18 @@ export function TabBar() {
             tabIndex={active ? 0 : -1}
             className={active ? "tab is-active" : "tab"}
             style={{ "--tab-color": color } as React.CSSProperties}
-            title={connection ? `${connection.name} / ${tab.title}` : tab.title}
+            title={tabTooltip(tab, connection?.name)}
             onClick={() => activate(tab.id)}
-            onAuxClick={(event) => event.button === 1 && close(tab.id)}
+            onAuxClick={(event) => event.button === 1 && closeTabGuarded(tab.id)}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") activate(tab.id);
             }}
           >
-            <TableProperties className="tab-icon" aria-hidden />
+            {tab.kind === "tableData" ? (
+              <Table2 className="tab-icon" aria-hidden />
+            ) : (
+              <TableProperties className="tab-icon" aria-hidden />
+            )}
             <span className="tab-title">{tab.title}</span>
             <button
               className="tab-close"
@@ -37,7 +42,7 @@ export function TabBar() {
               tabIndex={-1}
               onClick={(event) => {
                 event.stopPropagation();
-                close(tab.id);
+                closeTabGuarded(tab.id);
               }}
             >
               <X />
@@ -47,4 +52,12 @@ export function TabBar() {
       })}
     </div>
   );
+}
+
+function tabTooltip(tab: Tab, connectionName: string | undefined): string {
+  const path =
+    tab.kind === "tableData"
+      ? [tab.table.database, tab.table.schema, tab.table.table].filter(Boolean).join(".")
+      : tab.title;
+  return connectionName ? `${connectionName} / ${path}` : path;
 }

@@ -49,6 +49,75 @@ export interface TableInfo {
   comment: string | null;
 }
 
+/** 单元格值,对应 core 的 CellValue。整数、浮点都是字符串,不丢精度。 */
+export type CellValue =
+  | { kind: "null" }
+  | { kind: "bool"; value: boolean }
+  | {
+      kind: "int" | "uint" | "float" | "decimal" | "text" | "bytes" | "json" | "date" | "time" | "dateTime";
+      value: string;
+    }
+  | { kind: "unsupported"; value: { typeName: string } };
+
+/** 写回时怎么解释输入;二进制列才把 0x 开头的输入当十六进制。 */
+export type ValueType =
+  | { kind: "integer"; unsigned: boolean }
+  | { kind: "float" | "decimal" | "bit" | "binary" | "text" };
+
+export interface ColumnInfo {
+  name: string;
+  /** 给人看的完整类型,如 varchar(50)。 */
+  dataType: string;
+  isPrimaryKey: boolean;
+  nullable: boolean;
+  /** 有默认值或自增,新增行时可以不填。 */
+  hasDefault: boolean;
+  isGenerated: boolean;
+  valueType: ValueType;
+}
+
+export interface TableRef {
+  database: string;
+  schema: string | null;
+  table: string;
+}
+
+export interface SortSpec {
+  column: string;
+  descending: boolean;
+}
+
+export interface PageRequest {
+  offset: number;
+  limit: number;
+  sort: SortSpec | null;
+  /** WHERE 后面的条件原文。 */
+  filter: string | null;
+}
+
+export interface TablePage {
+  columns: ColumnInfo[];
+  rows: CellValue[][];
+  hasMore: boolean;
+  /** 不能编辑时的原因。 */
+  readOnlyReason: string | null;
+  /** 实际执行的 SELECT。 */
+  sql: string;
+}
+
+/** 编辑框里的新值:null 是 SQL NULL。 */
+export type EditInput = string | null;
+
+export type RowChange =
+  | { kind: "update"; key: Record<string, CellValue>; values: Record<string, EditInput> }
+  | { kind: "insert"; values: Record<string, EditInput> }
+  | { kind: "delete"; key: Record<string, CellValue> };
+
+export interface ApplyOutcome {
+  statements: number;
+  affectedRows: number;
+}
+
 export interface FieldError {
   field: string;
   message: string;

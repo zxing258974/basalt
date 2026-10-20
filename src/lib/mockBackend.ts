@@ -1,5 +1,6 @@
 // 浏览器里开发界面用的假后端:内存数据 + 少量延迟,行为尽量贴近 Rust 端。
 import type { Backend } from "./api";
+import { createMockTables } from "./mock/tableData";
 import type {
   CommandError,
   ConnectionConfig,
@@ -126,6 +127,7 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
   let connections = [...seed];
   const passwords = new Map<string, string>([["mock-mysql", "root"]]);
   const open = new Set<string>();
+  const tableData = createMockTables();
 
   const find = (id: string) =>
     connections.find((c) => c.id === id) ?? fail("connection_not_found", `找不到连接：${id}`);
@@ -233,6 +235,21 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       }
       if (config.driver === "postgres") return PG_TABLES[schema ?? ""] ?? [];
       return MYSQL_TABLES[database] ?? [];
+    },
+    async readTablePage(id, table, request) {
+      await wait();
+      const config = requireOpen(id);
+      return tableData.read(id, config.driver, table, request);
+    },
+    async previewTableChanges(id, table, changes) {
+      await wait(80);
+      const config = requireOpen(id);
+      return tableData.preview(id, config.driver, table, changes);
+    },
+    async applyTableChanges(id, table, changes, expected) {
+      await wait(200);
+      const config = requireOpen(id);
+      return tableData.apply(id, config.driver, table, changes, expected);
     },
     async pickSqliteFile() {
       await wait(60);

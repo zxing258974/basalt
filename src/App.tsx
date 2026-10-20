@@ -4,6 +4,8 @@ import { ConnectionDialog } from "./components/connection/ConnectionDialog";
 import { DeleteConnectionDialog } from "./components/connection/DeleteConnectionDialog";
 import { PasswordPrompt } from "./components/connection/PasswordPrompt";
 import { AppShell } from "./components/layout/AppShell";
+import { DiscardChangesDialog } from "./components/data/DiscardChangesDialog";
+import { closeTabGuarded } from "./stores/discard";
 import { useTabs } from "./stores/tabs";
 import { useUi } from "./stores/ui";
 
@@ -27,8 +29,8 @@ function useGlobalShortcuts() {
       }
       if (key === "w" && !event.shiftKey) {
         event.preventDefault();
-        const { activeId, close } = useTabs.getState();
-        if (activeId) close(activeId);
+        const { activeId } = useTabs.getState();
+        if (activeId) closeTabGuarded(activeId);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -44,6 +46,7 @@ export function App({ queryClient }: { queryClient: QueryClient }) {
       <ConnectionDialog />
       <PasswordPrompt />
       <DeleteConnectionDialog />
+      <DiscardChangesDialog />
     </QueryClientProvider>
   );
 }

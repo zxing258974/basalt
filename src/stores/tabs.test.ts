@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { closeConnectionTabs, closeTab, objectsTab, openTab, type TabsState } from "./tabs";
+import { closeConnectionTabs, closeTab, objectsTab, openTab, tableDataTab, type TabsState } from "./tabs";
 
 const empty: TabsState = { tabs: [], activeId: null };
 const shop = objectsTab("c1", "shop", null);
@@ -12,6 +12,22 @@ describe("objectsTab", () => {
     expect(shop.title).toBe("shop");
     expect(pg.id).toBe("objects:c2:folio:public");
     expect(pg.title).toBe("folio.public");
+  });
+});
+
+describe("tableDataTab", () => {
+  it("names the tab after the table and keeps names with separators apart", () => {
+    const orders = tableDataTab("c1", "shop", null, "orders");
+    expect(orders.kind).toBe("tableData");
+    expect(orders.title).toBe("orders");
+    expect(orders.table).toEqual({ database: "shop", schema: null, table: "orders" });
+    expect(tableDataTab("c1", "a:b", null, "c").id).not.toBe(tableDataTab("c1", "a", "b", "c").id);
+    expect(orders.id).not.toBe(objectsTab("c1", "shop", null).id);
+  });
+
+  it("closes together with its connection", () => {
+    const state = [shop, tableDataTab("c1", "shop", null, "orders"), pg].reduce(openTab, empty);
+    expect(closeConnectionTabs(state, "c1").tabs).toEqual([pg]);
   });
 });
 

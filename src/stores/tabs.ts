@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { TableRef } from "../lib/types";
 
 /** 某个库(PG 下是某个 schema)的对象列表。 */
 export interface ObjectsTab {
@@ -10,7 +11,16 @@ export interface ObjectsTab {
   schema: string | null;
 }
 
-export type Tab = ObjectsTab;
+/** 一张表或视图的数据。 */
+export interface TableDataTab {
+  kind: "tableData";
+  id: string;
+  title: string;
+  connectionId: string;
+  table: TableRef;
+}
+
+export type Tab = ObjectsTab | TableDataTab;
 
 export interface TabsState {
   tabs: Tab[];
@@ -25,6 +35,23 @@ export function objectsTab(connectionId: string, database: string, schema: strin
     connectionId,
     database,
     schema,
+  };
+}
+
+export function tableDataTab(
+  connectionId: string,
+  database: string,
+  schema: string | null,
+  table: string,
+): TableDataTab {
+  // 各段编码后再拼,名字里带冒号也不会和别的表撞 id。
+  const parts = [connectionId, database, schema ?? "", table].map(encodeURIComponent);
+  return {
+    kind: "tableData",
+    id: `data:${parts.join(":")}`,
+    title: table,
+    connectionId,
+    table: { database, schema, table },
   };
 }
 
@@ -63,6 +90,9 @@ export function closeConnectionTabs(state: TabsState, connectionId: string): Tab
 }
 
 interface TabsStore extends TabsState {
+  /** 表数据页未提交的修改行数,关闭前据此确认。 */
+  pending: Readonly<Record<string, number>>;
+  setPending(id: string, count: number): void;
   open(tab: Tab): void;
   close(id: string): void;
   closeConnection(connectionId: string): void;
@@ -72,6 +102,12 @@ interface TabsStore extends TabsState {
 export const useTabs = create<TabsStore>((set) => ({
   tabs: [],
   activeId: null,
+  pending: {},
+  setPending: (id, count) =>
+    set((s) => {
+      const { [id]: _previous, ...rest } = s.pending;
+      return { pending: count > 0 ? { ...rest, [id]: count } : rest };
+    }),
   open: (tab) => set((s) => openTab(s, tab)),
   close: (id) => set((s) => closeTab(s, id)),
   closeConnection: (connectionId) => set((s) => closeConnectionTabs(s, connectionId)),

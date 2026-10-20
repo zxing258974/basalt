@@ -41,6 +41,15 @@ pub enum CoreError {
     Unsupported(String),
     #[error("连接在打开过程中被关闭或改了配置，请重新打开")]
     Superseded,
+    #[error("{0}")]
+    InvalidFilter(String),
+    #[error("{0}")]
+    InvalidEdit(String),
+    #[error("{0}")]
+    ReadOnly(String),
+    /// 某条 UPDATE / DELETE 没有恰好命中一行,整个事务已回滚。
+    #[error("{0}")]
+    RowMismatch(String),
 }
 
 impl CoreError {
@@ -58,6 +67,10 @@ impl CoreError {
             Self::Storage(_) => "storage",
             Self::Unsupported(_) => "unsupported",
             Self::Superseded => "superseded",
+            Self::InvalidFilter(_) => "invalid_filter",
+            Self::InvalidEdit(_) => "invalid_edit",
+            Self::ReadOnly(_) => "read_only",
+            Self::RowMismatch(_) => "row_mismatch",
         }
     }
 

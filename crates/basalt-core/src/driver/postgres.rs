@@ -63,13 +63,49 @@ async fn probe(options: &PgConnectOptions) -> CoreResult<String> {
 }
 
 /// 探测成功后再懒建连接池。返回池和服务器版本。
+///
+/// sqlx 建连时把会话时区固定成 UTC;这里改成本机时区,带时区的时间按本机时区
+/// 显示,筛选条件里写的时间字面量也按本机时区理解,两边一致。
 async fn connect_pool(options: PgConnectOptions) -> CoreResult<(PgPool, String)> {
     let version = probe(&options).await?;
+    let time_zone = local_time_zone();
     let pool = PgPoolOptions::new()
         .max_connections(MAX_POOL_CONNECTIONS)
         .acquire_timeout(ACQUIRE_TIMEOUT)
+        .after_connect(move |connection, _| {
+            let time_zone = time_zone.clone();
+            Box::pin(async move {
+                if let Some(zone) = time_zone {
+                    // 服务器不认识这个时区名时保持 UTC,不让连接失败。
+                    if let Err(error) = sqlx::query("SELECT set_config('TimeZone', $1, false)")
+                        .bind(&zone)
+                        .execute(&mut *connection)
+                        .await
+                    {
+                        log::warn!("无法把会话时区设为 {zone}：{error}");
+                    }
+                }
+                Ok(())
+            })
+        })
         .connect_lazy_with(options);
     Ok((pool, version))
+}
+
+/// 本机的 IANA 时区名:优先 TZ 环境变量,其次 /etc/localtime 指向的 zoneinfo 文件。
+fn local_time_zone() -> Option<String> {
+    if let Ok(zone) = std::env::var("TZ") {
+        let zone = zone.trim_start_matches(':').trim();
+        if !zone.is_empty() {
+            return Some(zone.to_owned());
+        }
+    }
+    let target = std::fs::read_link("/etc/localtime").ok()?;
+    let target = target.to_string_lossy();
+    target
+        .split_once("zoneinfo/")
+        .map(|(_, zone)| zone.to_owned())
+        .filter(|zone| !zone.is_empty())
 }
 
 impl PgSession {
@@ -96,7 +132,7 @@ impl PgSession {
     }
 
     /// 取某个库的池,第一次用时才建。建失败不留缓存,下次会重试。
-    async fn pool(&self, database: &str) -> CoreResult<PgPool> {
+    pub(super) async fn pool(&self, database: &str) -> CoreResult<PgPool> {
         let cell = self
             .pools
             .lock()

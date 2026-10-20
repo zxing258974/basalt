@@ -10,16 +10,22 @@ use super::{
 use crate::error::{CoreError, CoreResult};
 
 pub struct MysqlSession {
-    pool: MySqlPool,
+    pub(super) pool: MySqlPool,
     server: ServerInfo,
 }
 
+/// sqlx 默认在建连后改会话:sql_mode 追加 PIPES_AS_CONCAT(`||` 变成字符串拼接)与
+/// NO_ENGINE_SUBSTITUTION,time_zone 设成 '+00:00'(DEFAULT CURRENT_TIMESTAMP 存成 UTC、
+/// TIMESTAMP 按 UTC 显示)。客户端要和服务器默认行为一致,这三项都关掉。
 pub(crate) fn connect_options(params: &ConnectParams) -> MySqlConnectOptions {
     let options = MySqlConnectOptions::new()
         .host(&params.host)
         .port(params.port)
         .username(&params.username)
-        .charset("utf8mb4");
+        .charset("utf8mb4")
+        .pipes_as_concat(false)
+        .no_engine_substitution(false)
+        .timezone(None);
     let options = match &params.password {
         Some(password) => options.password(password),
         None => options,

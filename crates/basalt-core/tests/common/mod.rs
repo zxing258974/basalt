@@ -1,0 +1,111 @@
+//! 集成测试共用的测试目标与连接参数。
+//!
+//! MySQL / MariaDB / PostgreSQL 需要先起 `docker-compose.test.yml` 里的容器,
+//! 并用 `BASALT_IT` 选择目标:`BASALT_IT=1` 等于 `mysql57,postgres`,
+//! `BASALT_IT=all` 是全部四个,也可以写逗号分隔的名单。没选中的目标直接跳过。
+#![allow(dead_code)]
+
+use std::path::Path;
+
+use basalt_core::config::DriverKind;
+use basalt_core::driver::ConnectParams;
+
+/// 本机一次性测试容器的密码,与 docker-compose.test.yml 一致。
+pub const TEST_PASSWORD: &str = "basalt-test";
+pub const FIXTURE_DB: &str = "basalt_it";
+
+#[derive(Clone, Copy)]
+pub struct Target {
+    pub name: &'static str,
+    pub driver: DriverKind,
+    pub port: u16,
+    pub user: &'static str,
+}
+
+pub const MYSQL57: Target = Target {
+    name: "mysql57",
+    driver: DriverKind::Mysql,
+    port: 23306,
+    user: "root",
+};
+pub const MYSQL84: Target = Target {
+    name: "mysql84",
+    driver: DriverKind::Mysql,
+    port: 23307,
+    user: "root",
+};
+pub const MARIADB: Target = Target {
+    name: "mariadb",
+    driver: DriverKind::Mariadb,
+    port: 23308,
+    user: "root",
+};
+pub const POSTGRES: Target = Target {
+    name: "postgres",
+    driver: DriverKind::Postgres,
+    port: 25432,
+    user: "postgres",
+};
+pub const MYSQL_FAMILY: [Target; 3] = [MYSQL57, MYSQL84, MARIADB];
+
+pub fn selected(target: Target) -> bool {
+    let Ok(raw) = std::env::var("BASALT_IT") else {
+        return false;
+    };
+    match raw.trim() {
+        "1" => matches!(target.name, "mysql57" | "postgres"),
+        "all" => true,
+        list => list.split(',').any(|n| n.trim() == target.name),
+    }
+}
+
+pub fn params(target: Target, password: &str, database: Option<&str>) -> ConnectParams {
+    ConnectParams {
+        driver: target.driver,
+        host: "127.0.0.1".into(),
+        port: target.port,
+        username: target.user.into(),
+        password: Some(password.into()),
+        database: database.map(str::to_owned),
+        file_path: None,
+    }
+}
+
+/// MySQL 系目标的连接串(不带库名)。
+pub fn mysql_url(target: Target) -> String {
+    format!(
+        "mysql://{}:{TEST_PASSWORD}@127.0.0.1:{}/",
+        target.user, target.port
+    )
+}
+
+pub fn postgres_url(database: &str) -> String {
+    format!(
+        "postgres://postgres:{TEST_PASSWORD}@127.0.0.1:{}/{database}",
+        POSTGRES.port
+    )
+}
+
+pub fn sqlite_params(path: &str) -> ConnectParams {
+    ConnectParams {
+        driver: DriverKind::Sqlite,
+        host: String::new(),
+        port: 0,
+        username: String::new(),
+        password: None,
+        database: None,
+        file_path: Some(path.into()),
+    }
+}
+
+/// 建一个 SQLite 文件并执行建表脚本,返回路径。
+pub async fn sqlite_file(dir: &Path, name: &str, script: &str) -> String {
+    let path = dir.join(name);
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&path)
+        .create_if_missing(true);
+    let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+    sqlx::raw_sql(script).execute(&pool).await.unwrap();
+    pool.close().await;
+    path.to_string_lossy().into_owned()
+}

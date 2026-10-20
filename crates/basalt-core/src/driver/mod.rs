@@ -2,8 +2,12 @@
 //! 会话生命周期见 [`crate::session`]。
 
 pub(crate) mod mysql;
+mod mysql_data;
+mod pg_binary;
 pub(crate) mod postgres;
+mod postgres_data;
 pub(crate) mod sqlite;
+mod sqlite_data;
 
 use std::fmt;
 use std::time::Duration;
@@ -11,6 +15,7 @@ use std::time::Duration;
 use serde::Serialize;
 
 use crate::config::{ConnectionConfig, DriverKind, Endpoint};
+use crate::error::{CoreError, CoreResult};
 
 /// 建立连接(含握手与认证)的最长等待时间。
 pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -111,6 +116,60 @@ pub struct TableInfo {
 
 pub(crate) fn non_empty(value: Option<String>) -> Option<String> {
     value.filter(|v| !v.trim().is_empty())
+}
+
+/// 第 `index` 条语句执行失败:给数据库原文加上序号和「已回滚」。
+pub(crate) fn statement_failed(index: usize, error: sqlx::Error) -> CoreError {
+    match CoreError::from(error) {
+        CoreError::Database(message) | CoreError::Authentication(message) => {
+            CoreError::Database(format!(
+                "第 {} 条语句执行失败，所有修改都已回滚：{message}",
+                index + 1
+            ))
+        }
+        other => other,
+    }
+}
+
+/// 按主键定位的语句必须恰好命中一行;否则说明这一行已经变了,整批回滚。
+pub(crate) fn check_affected(index: usize, affected: u64) -> CoreResult<()> {
+    if affected == 1 {
+        return Ok(());
+    }
+    Err(CoreError::RowMismatch(format!(
+        "第 {} 条语句影响了 {affected} 行（应为 1 行）：这一行可能已被别人修改或删除。所有修改都已回滚。",
+        index + 1
+    )))
+}
+
+/// 成功就提交,失败就显式回滚再把原错误交出去。
+pub(crate) async fn finish_transaction<DB: sqlx::Database>(
+    transaction: sqlx::Transaction<'_, DB>,
+    result: CoreResult<u64>,
+) -> CoreResult<u64> {
+    match result {
+        Ok(affected) => {
+            // COMMIT 本身失败(如连接在途中断开)时,数据库里到底有没有生效说不准,不能说「已回滚」。
+            transaction.commit().await.map_err(|error| {
+                CoreError::Database(format!(
+                    "提交（COMMIT）时出错，无法确定修改是否已经生效，请刷新后核对：{}",
+                    CoreError::from(error)
+                ))
+            })?;
+            Ok(affected)
+        }
+        Err(error) => {
+            if let Err(rollback) = transaction.rollback().await {
+                log::error!("回滚失败，连接断开后数据库会自行回滚：{rollback}");
+            }
+            Err(error)
+        }
+    }
+}
+
+/// 找不到表(或没有权限看到它的列)。
+pub(crate) fn table_not_found(name: &str) -> CoreError {
+    CoreError::Database(format!("找不到表「{name}」，可能已被删除或没有权限。"))
 }
 
 #[cfg(test)]

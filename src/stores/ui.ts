@@ -12,6 +12,13 @@ export interface Notice {
   message: string;
 }
 
+/** 关闭标签页或连接会丢掉未提交的修改时,先问一句。 */
+export interface DiscardPrompt {
+  count: number;
+  onConfirm(): void;
+  onCancel?(): void;
+}
+
 export interface PasswordPromptState {
   connection: ConnectionConfig;
   error?: string;
@@ -23,6 +30,8 @@ interface UiStore {
   connectionDialog: ConnectionDialogState;
   passwordPrompt: PasswordPromptState | null;
   pendingDelete: ConnectionConfig | null;
+  discardPrompt: DiscardPrompt | null;
+  askDiscard(prompt: DiscardPrompt | null): void;
   /** 最近一次打开失败的原因,显示在连接节点下方。 */
   connectionErrors: Readonly<Record<string, string>>;
   setConnectionError(id: string, message: string | null): void;
@@ -45,6 +54,8 @@ export const useUi = create<UiStore>((set) => ({
   connectionDialog: { mode: "closed" },
   passwordPrompt: null,
   pendingDelete: null,
+  discardPrompt: null,
+  askDiscard: (discardPrompt) => set({ discardPrompt }),
   connectionErrors: {},
   notice: null,
   notify: (message) => set((s) => ({ notice: { id: (s.notice?.id ?? 0) + 1, message } })),

@@ -38,6 +38,14 @@
   --success: oklch(56% 0.13 150);
   --success-soft: oklch(95% 0.035 150);
 
+  /* 未提交的修改:改过=余烬,新增=绿,删除=红;底色淡、标记条实 */
+  --change-edited: oklch(95.5% 0.045 70);
+  --change-edited-mark: var(--accent);
+  --change-added: oklch(96% 0.035 150);
+  --change-added-mark: var(--success);
+  --change-removed: oklch(96% 0.025 27);
+  --change-removed-mark: var(--danger);
+
   /* 数据库识别色 */
   --db-mysql: oklch(58% 0.11 205);
   --db-mariadb: oklch(52% 0.09 55);
@@ -117,6 +125,9 @@
     --danger-soft: oklch(28% 0.06 27);
     --success: oklch(70% 0.13 150);
     --success-soft: oklch(27% 0.05 150);
+    --change-edited: oklch(30% 0.055 60);
+    --change-added: oklch(28% 0.045 150);
+    --change-removed: oklch(28% 0.045 27);
     --shadow-popover: 0 0 0 0.5px oklch(100% 0 0 / 0.1), 0 8px 24px oklch(0% 0 0 / 0.5);
     --shadow-dialog: 0 0 0 0.5px oklch(100% 0 0 / 0.12), 0 24px 70px oklch(0% 0 0 / 0.6);
   }

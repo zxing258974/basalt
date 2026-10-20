@@ -1,9 +1,14 @@
 import type {
+  ApplyOutcome,
   ConnectionConfig,
   ConnectionDraft,
   ConnectionView,
+  PageRequest,
+  RowChange,
   ServerInfo,
   TableInfo,
+  TablePage,
+  TableRef,
 } from "./types";
 
 /** 前端能调用的全部后端能力。Tauri 与 mock 后端都实现它。 */
@@ -20,6 +25,11 @@ export interface Backend {
   listDatabases(id: string): Promise<string[]>;
   listSchemas(id: string, database: string): Promise<string[]>;
   listTables(id: string, database: string, schema?: string | null): Promise<TableInfo[]>;
+  readTablePage(id: string, table: TableRef, request: PageRequest): Promise<TablePage>;
+  /** 将要执行的语句(参数内联成字面量),提交前给用户确认。 */
+  previewTableChanges(id: string, table: TableRef, changes: RowChange[]): Promise<string[]>;
+  /** 一个事务里提交,任何一条失败都整体回滚。`expected` 是用户确认过的预览,后端生成的不一样就拒绝。 */
+  applyTableChanges(id: string, table: TableRef, changes: RowChange[], expected: string[]): Promise<ApplyOutcome>;
   pickSqliteFile(): Promise<string | null>;
 }
 
@@ -42,6 +52,10 @@ function createTauriBackend(): Backend {
     listSchemas: (id, database) => call("list_schemas", { id, database }),
     listTables: (id, database, schema) =>
       call("list_tables", { id, database, schema: schema ?? null }),
+    readTablePage: (id, table, request) => call("read_table_page", { id, table, request }),
+    previewTableChanges: (id, table, changes) => call("preview_table_changes", { id, table, changes }),
+    applyTableChanges: (id, table, changes, expected) =>
+      call("apply_table_changes", { id, table, changes, expected }),
     pickSqliteFile: async () => {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const picked = await open({

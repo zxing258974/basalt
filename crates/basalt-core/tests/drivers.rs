@@ -9,70 +9,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 use basalt_core::config::DriverKind;
-use basalt_core::driver::{ConnectParams, TableInfo, TableKind};
+use basalt_core::driver::{TableInfo, TableKind};
 use basalt_core::session::{Session, SessionManager, test_connection};
 use tokio::sync::OnceCell;
 
-/// 本机一次性测试容器的密码,与 docker-compose.test.yml 一致。
-const TEST_PASSWORD: &str = "basalt-test";
-const FIXTURE_DB: &str = "basalt_it";
+mod common;
 
-#[derive(Clone, Copy)]
-struct Target {
-    name: &'static str,
-    driver: DriverKind,
-    port: u16,
-    user: &'static str,
-}
-
-const MYSQL57: Target = Target {
-    name: "mysql57",
-    driver: DriverKind::Mysql,
-    port: 23306,
-    user: "root",
-};
-const MYSQL84: Target = Target {
-    name: "mysql84",
-    driver: DriverKind::Mysql,
-    port: 23307,
-    user: "root",
-};
-const MARIADB: Target = Target {
-    name: "mariadb",
-    driver: DriverKind::Mariadb,
-    port: 23308,
-    user: "root",
-};
-const POSTGRES: Target = Target {
-    name: "postgres",
-    driver: DriverKind::Postgres,
-    port: 25432,
-    user: "postgres",
-};
-const MYSQL_FAMILY: [Target; 3] = [MYSQL57, MYSQL84, MARIADB];
-
-fn selected(target: Target) -> bool {
-    let Ok(raw) = std::env::var("BASALT_IT") else {
-        return false;
-    };
-    match raw.trim() {
-        "1" => matches!(target.name, "mysql57" | "postgres"),
-        "all" => true,
-        list => list.split(',').any(|n| n.trim() == target.name),
-    }
-}
-
-fn params(target: Target, password: &str, database: Option<&str>) -> ConnectParams {
-    ConnectParams {
-        driver: target.driver,
-        host: "127.0.0.1".into(),
-        port: target.port,
-        username: target.user.into(),
-        password: Some(password.into()),
-        database: database.map(str::to_owned),
-        file_path: None,
-    }
-}
+use common::*;
 
 static MYSQL_FIXTURES: [OnceCell<()>; 3] = [
     OnceCell::const_new(),
@@ -333,18 +276,6 @@ async fn sqlite_file(dir: &Path) -> String {
     .unwrap();
     pool.close().await;
     path.to_string_lossy().into_owned()
-}
-
-fn sqlite_params(path: &str) -> ConnectParams {
-    ConnectParams {
-        driver: DriverKind::Sqlite,
-        host: String::new(),
-        port: 0,
-        username: String::new(),
-        password: None,
-        database: None,
-        file_path: Some(path.into()),
-    }
 }
 
 #[tokio::test]

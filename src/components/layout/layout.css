@@ -122,6 +122,15 @@
   display: flex;
   flex-direction: column;
 }
+.tab-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tab-panel[hidden] {
+  display: none;
+}
 
 /* ---------- 状态栏 ---------- */
 .statusbar {

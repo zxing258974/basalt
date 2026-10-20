@@ -1,6 +1,8 @@
 mod commands;
 mod service;
 #[cfg(test)]
+mod service_table_tests;
+#[cfg(test)]
 mod service_tests;
 mod state;
 
@@ -43,6 +45,9 @@ pub fn run() {
             commands::list_databases,
             commands::list_schemas,
             commands::list_tables,
+            commands::read_table_page,
+            commands::preview_table_changes,
+            commands::apply_table_changes,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Basalt");

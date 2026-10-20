@@ -48,6 +48,8 @@ pub fn run() {
             commands::read_table_page,
             commands::preview_table_changes,
             commands::apply_table_changes,
+            commands::scan_import_source,
+            commands::import_connections,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Basalt");

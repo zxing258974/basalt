@@ -50,7 +50,7 @@ describe("password prompt", () => {
     renderWithClient(<PasswordPrompt />);
 
     await user.type(screen.getByLabelText("密码"), "wrong");
-    await user.click(screen.getByLabelText("连接成功后把密码保存到钥匙串"));
+    expect(screen.getByLabelText("连接成功后把密码保存到钥匙串")).toBeChecked();
     await user.click(screen.getByRole("button", { name: "连接" }));
 
     expect(await screen.findByText("用户名或密码不正确：密码错误")).toBeInTheDocument();
@@ -73,7 +73,8 @@ describe("password prompt", () => {
     renderWithClient(<PasswordPrompt />);
 
     await user.type(screen.getByLabelText("密码"), "pw");
-    await user.click(screen.getByLabelText("连接成功后把密码保存到钥匙串"));
+    // 「记住」默认勾选(导入的连接只需输一次密码),这里不用再点。
+    expect(screen.getByLabelText("连接成功后把密码保存到钥匙串")).toBeChecked();
     await user.click(screen.getByRole("button", { name: "连接" }));
 
     await waitFor(() => expect(useUi.getState().notice?.message).toBe("已连接，但保存密码失败：钥匙串已锁定"));

@@ -9,6 +9,9 @@ use serde::Serialize;
 
 use crate::state::AppState;
 
+mod import;
+pub use import::{ImportReport, ImportSource, import_connections, scan_import_source};
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandError {

@@ -1,6 +1,7 @@
 // 浏览器里开发界面用的假后端:内存数据 + 少量延迟,行为尽量贴近 Rust 端。
 import type { Backend } from "./api";
 import { createMockTables } from "./mock/tableData";
+import { classifyMockImport, mockImportSources, planMockImport } from "./mockImport";
 import type {
   CommandError,
   ConnectionConfig,
@@ -292,6 +293,21 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
     async pickSqliteFile() {
       await wait(60);
       return "/Users/me/Documents/new.db";
+    },
+    async scanImportSource(source) {
+      await wait();
+      return classifyMockImport(mockImportSources(source), connections);
+    },
+    async importConnections(source, ids) {
+      await wait(300);
+      const { configs, report } = planMockImport(mockImportSources(source), ids);
+      connections = [...connections, ...configs];
+      for (const item of report.imported) if (item.passwordSaved) passwords.set(item.id, "mock");
+      return report;
+    },
+    async pickNcxFile() {
+      await wait(60);
+      return "/Users/me/Downloads/connections.ncx";
     },
   };
 }

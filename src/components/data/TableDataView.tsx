@@ -8,6 +8,7 @@ import { getBackend } from "../../lib/api";
 import { errorMessage, type PageRequest } from "../../lib/types";
 import type { TableDataTab } from "../../stores/tabs";
 import { useTabs } from "../../stores/tabs";
+import { useTransfer } from "../../stores/transfer";
 import { DriverBadge } from "../connection/DriverBadge";
 import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/EmptyState";
@@ -202,6 +203,15 @@ export function TableDataView({ tab, active }: { tab: TableDataTab; active: bool
           pending={pending}
           onRevert={() => setEdits(editing.EMPTY_EDITS)}
           onCommit={() => void openPreview()}
+          onExport={() =>
+            useTransfer.getState().openExport({
+              connectionId: tab.connectionId,
+              driver: connection?.driver ?? "mysql",
+              title: `${location}.${tab.table.table}`,
+              baseName: tab.table.table,
+              scope: { kind: "table", table: tab.table, filter: request.filter, sort: request.sort },
+            })
+          }
         />
       </header>
 

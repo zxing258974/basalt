@@ -129,3 +129,57 @@ test("table designer: save preview", async ({ page }) => {
   await expect(dialog.getByRole("list", { name: "将要执行的语句" })).toBeVisible();
   await snapshot(page, "table-designer-save");
 });
+
+/** 在 customers 上右键,选导入导出的菜单项。 */
+async function customersMenu(page: Page, item: string) {
+  await openWelcome(page);
+  await expandShop(page);
+  await row(page, "customers").click({ button: "right" });
+  await page.getByRole("menuitem", { name: item }).click();
+}
+
+test("export: options", async ({ page }) => {
+  await customersMenu(page, "导出数据…");
+  const dialog = page.getByRole("dialog", { name: "导出数据" });
+  await dialog.getByRole("radio", { name: /Excel/ }).click();
+  await expect(dialog.getByRole("radio", { name: /Excel/ })).toHaveAttribute("aria-checked", "true");
+  await snapshot(page, "export-options");
+});
+
+test("export: done", async ({ page }) => {
+  await customersMenu(page, "导出数据…");
+  await page.getByRole("dialog", { name: "导出数据" }).getByRole("button", { name: "导出…" }).click();
+  await expect(page.getByRole("dialog", { name: "导出完成" })).toBeVisible();
+  await snapshot(page, "export-done");
+});
+
+/** 导入向导:选好文件,停在第二步。 */
+async function importMapping(page: Page) {
+  await customersMenu(page, "导入数据…");
+  const dialog = page.getByRole("dialog", { name: "导入数据" });
+  await dialog.getByRole("button", { name: "选择文件…" }).click();
+  await expect(dialog.getByRole("table", { name: "文件预览" })).toBeVisible();
+  return dialog;
+}
+
+test("import: file", async ({ page }) => {
+  await importMapping(page);
+  await snapshot(page, "import-file");
+});
+
+test("import: mapping", async ({ page }) => {
+  const dialog = await importMapping(page);
+  await dialog.getByRole("button", { name: "下一步" }).click();
+  await expect(dialog.getByRole("table", { name: "列映射" })).toBeVisible();
+  await snapshot(page, "import-mapping");
+});
+
+test("import: result with failures", async ({ page }) => {
+  const dialog = await importMapping(page);
+  await dialog.getByRole("button", { name: "下一步" }).click();
+  await dialog.getByRole("button", { name: "下一步" }).click();
+  await dialog.getByRole("radio", { name: /跳过并记录/ }).click();
+  await dialog.getByRole("button", { name: "开始导入" }).click();
+  await expect(dialog.getByRole("table", { name: "失败的行" })).toBeVisible();
+  await snapshot(page, "import-result");
+});

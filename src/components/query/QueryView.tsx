@@ -7,6 +7,8 @@ import { getBackend } from "../../lib/api";
 import type { QueryScope, SavedQueryRef } from "../../lib/queryTypes";
 import { errorMessage } from "../../lib/types";
 import { useTabs, type QueryTab } from "../../stores/tabs";
+import { useTransfer } from "../../stores/transfer";
+import { guessTableName } from "../transfer/exportModel";
 import { useUi } from "../../stores/ui";
 import { Button } from "../ui/Button";
 import { HistoryPanel } from "./HistoryPanel";
@@ -214,6 +216,15 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
               pickedDuringRun.current = true;
               setActiveResult(key);
             }}
+            onExport={(result) =>
+              useTransfer.getState().openExport({
+                connectionId: tab.connectionId,
+                driver: driver ?? "mysql",
+                title: `${tab.title} 的${result.label}`,
+                baseName: guessTableName(result.sql),
+                scope: { kind: "query", editorId: tab.id, scope: tab.scope, sql: result.sql, set: result.set },
+              })
+            }
           />
         </div>
         {historyOpen && (

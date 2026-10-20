@@ -1,6 +1,16 @@
 import type { DdlOutcome, DdlPreview, TableDesign } from "./designTypes";
 import type { ImportCandidate, ImportReport, ImportSource } from "./importTypes";
 import type {
+  ExportOutcome,
+  ExportRequest,
+  ImportFailure,
+  ImportPreview,
+  ImportReport as DataImportReport,
+  ImportRequest,
+  SourceSpec,
+  TransferProgress,
+} from "./transferTypes";
+import type {
   HistoryEntry,
   QueryImportCandidate,
   QueryImportReport,
@@ -77,10 +87,35 @@ export interface Backend {
   onQuitRequested(handler: () => void): Promise<() => void>;
   /** 不再检查,直接退出应用。 */
   quitApp(): Promise<void>;
+  /** 保存对话框:导出、存失败明细时选路径。用户取消返回 null。 */
+  pickSavePath(defaultName: string, filter: FileFilter): Promise<string | null>;
+  /** 选要导入的 CSV / Excel 文件。 */
+  pickImportFile(): Promise<string | null>;
+  /** 导出;`jobId` 由前端起,命令还没返回时也能按它取消、认领进度。取消时以 code `cancelled` reject。 */
+  exportData(jobId: string, request: ExportRequest): Promise<ExportOutcome>;
+  /** 读文件预览、目标表的列和自动匹配的映射。 */
+  previewImport(connectionId: string, table: TableRef, source: SourceSpec): Promise<ImportPreview>;
+  /** 导入;数据库层面的失败写在报告里,不 reject。 */
+  importData(jobId: string, request: ImportRequest): Promise<DataImportReport>;
+  /** 取消导入导出;任务已经结束时返回 false。 */
+  cancelTransfer(jobId: string): Promise<boolean>;
+  /** 导入导出的进度;返回取消监听的函数。 */
+  onTransferProgress(handler: (progress: TransferProgress) => void): Promise<() => void>;
+  saveImportFailures(path: string, failures: ImportFailure[]): Promise<number>;
+  /** 在访达里选中这个文件。 */
+  revealInFinder(path: string): Promise<void>;
+}
+
+/** 文件对话框里的类型筛选。 */
+export interface FileFilter {
+  name: string;
+  extensions: string[];
 }
 
 /** 后端拦下退出时发给前端的事件,和 src-tauri/src/quit.rs 一致。 */
 const QUIT_REQUESTED_EVENT = "quit-requested";
+/** 导入导出的进度事件,和 src-tauri/src/commands.rs 一致。 */
+const TRANSFER_PROGRESS_EVENT = "transfer-progress";
 
 function createTauriBackend(): Backend {
   // 动态导入,浏览器里跑 mock 时不会加载 Tauri 运行时。
@@ -146,6 +181,29 @@ function createTauriBackend(): Backend {
       return listen(QUIT_REQUESTED_EVENT, () => handler());
     },
     quitApp: () => call("quit_app"),
+    pickSavePath: async (defaultName, filter) => {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      return (await save({ defaultPath: defaultName, filters: [filter] })) ?? null;
+    },
+    pickImportFile: async () => {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const picked = await open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "CSV 或 Excel", extensions: ["csv", "tsv", "txt", "xlsx", "xlsm", "xls"] }],
+      });
+      return typeof picked === "string" ? picked : null;
+    },
+    exportData: (jobId, request) => call("export_data", { jobId, request }),
+    previewImport: (connectionId, table, source) => call("preview_import", { connectionId, table, source }),
+    importData: (jobId, request) => call("import_data", { jobId, request }),
+    cancelTransfer: (jobId) => call("cancel_transfer", { jobId }),
+    onTransferProgress: async (handler) => {
+      const { listen } = await import("@tauri-apps/api/event");
+      return listen<TransferProgress>(TRANSFER_PROGRESS_EVENT, (event) => handler(event.payload));
+    },
+    saveImportFailures: (path, failures) => call("save_import_failures", { path, failures }),
+    revealInFinder: (path) => call("reveal_in_finder", { path }),
   };
 }
 

@@ -1,0 +1,347 @@
+/* ---------- 导入导出 ---------- */
+.transfer-body {
+  display: grid;
+  gap: var(--space-6);
+  min-width: 0;
+}
+.transfer-section {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.transfer-section-title {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+/* 四种格式:一排小卡片,选中的用余烬描边,图标块变成实心 */
+.transfer-formats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.transfer-format {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: var(--space-4);
+  align-items: center;
+  min-width: 0;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-canvas);
+  color: var(--text);
+  text-align: left;
+  transition:
+    border-color var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease,
+    transform var(--duration-normal) var(--ease-out);
+}
+.transfer-format:hover {
+  border-color: var(--line-strong);
+  transform: translateY(-1px);
+}
+.transfer-format:active {
+  transform: translateY(0);
+}
+.transfer-format:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+.transfer-format.is-checked {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 0.5px var(--accent);
+}
+.transfer-format-icon {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+.transfer-format.is-checked .transfer-format-icon {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+.transfer-format-icon svg {
+  width: 15px;
+  height: 15px;
+}
+.transfer-format-label {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+}
+.transfer-format-hint {
+  overflow: hidden;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 选项:两列的字段网格;轨道用 minmax(0, 1fr),WebKit 下下拉框不会把列撑开 */
+.transfer-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5) var(--space-6);
+  align-items: end;
+}
+.transfer-options.is-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.transfer-field {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.transfer-field.is-check {
+  align-self: end;
+  min-height: 26px;
+  align-content: center;
+}
+.transfer-field.is-danger .checkbox {
+  color: var(--danger);
+}
+.transfer-field-label {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.transfer-select,
+.transfer-input {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-canvas);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: var(--text-md);
+  transition:
+    border-color var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease;
+}
+.transfer-select:hover,
+.transfer-input:hover {
+  border-color: var(--text-faint);
+}
+.transfer-select:focus-visible,
+.transfer-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+.transfer-input-with-unit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.transfer-note,
+.transfer-placeholder,
+.transfer-confirm {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+.transfer-placeholder {
+  padding: var(--space-7) 0;
+  text-align: center;
+  color: var(--text-faint);
+}
+.transfer-confirm {
+  color: var(--text);
+}
+.transfer-error,
+.transfer-warning {
+  display: flex;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+.transfer-error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.transfer-warning {
+  background: var(--change-edited);
+  color: var(--text-strong);
+}
+.transfer-warning svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+/* 单选行:范围、遇错策略。圆点 + 标签 + 说明,选中的整行铺淡余烬 */
+.transfer-range {
+  display: grid;
+  gap: var(--space-2);
+}
+.transfer-range-option {
+  display: grid;
+  grid-template-columns: 14px auto minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.transfer-range-option:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.transfer-range-option:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+.transfer-range-option.is-checked {
+  border-color: var(--line);
+  background: var(--accent-soft);
+}
+.transfer-range-option:disabled {
+  opacity: 0.5;
+}
+.transfer-radio {
+  align-self: center;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface-raised);
+}
+.transfer-range-option.is-checked .transfer-radio {
+  border: 4px solid var(--accent);
+}
+.transfer-range-label {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--text-strong);
+  white-space: nowrap;
+}
+.transfer-range-detail,
+.transfer-range-text {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+}
+.transfer-range-detail {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+.transfer-range-text {
+  grid-column: 2 / -1;
+  margin-top: var(--space-1);
+  line-height: 1.5;
+}
+
+/* 进行中:大号行数做视觉重心,阶段与用时压在上方一行 */
+.transfer-progress {
+  display: grid;
+  gap: var(--space-5);
+  padding: var(--space-5) 0 var(--space-2);
+}
+.transfer-progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.transfer-phase {
+  font-weight: var(--weight-medium);
+  color: var(--text-strong);
+}
+.transfer-elapsed {
+  font-variant-numeric: tabular-nums;
+}
+.transfer-count {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  margin: 0;
+}
+.transfer-count-value {
+  font-size: var(--text-display);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
+}
+.transfer-count-unit {
+  font-size: var(--text-md);
+  color: var(--text-muted);
+}
+.transfer-bar {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--surface-sunken);
+}
+.transfer-bar-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent);
+  transform-origin: left center;
+  transition: transform var(--duration-normal) var(--ease-out);
+}
+.transfer-bar.is-indeterminate .transfer-bar-fill {
+  right: auto;
+  width: 30%;
+  animation: transfer-slide 1.4s var(--ease-out) infinite;
+}
+@keyframes transfer-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .transfer-bar.is-indeterminate .transfer-bar-fill {
+    width: 100%;
+    animation: none;
+    opacity: 0.45;
+  }
+  .transfer-format,
+  .transfer-bar-fill {
+    transition: none;
+  }
+}
+.transfer-failed {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--danger);
+}
+.transfer-progress-actions {
+  display: flex;
+  justify-content: flex-end;
+}

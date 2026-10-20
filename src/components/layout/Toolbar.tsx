@@ -1,8 +1,9 @@
-import { Pencil, Plug, PlugZap, Plus, RefreshCw } from "lucide-react";
-import type { ReactNode } from "react";
+import { Import, Pencil, Plug, PlugZap, Plus, RefreshCw } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { useConnections } from "../../hooks/useCatalog";
 import { useConnectionActions } from "../../hooks/useConnectionActions";
 import { useUi } from "../../stores/ui";
+import { ImportDialog } from "../import/ImportDialog";
 import { connectionIdFromKey } from "../sidebar/treeKeys";
 
 function ToolbarButton({ icon, label, shortcut, disabled, onClick }: {
@@ -30,6 +31,7 @@ export function Toolbar() {
   const connection = useConnections().data?.find((c) => c.id === selectedId);
   const actions = useConnectionActions();
   const { openConnectionDialog } = useUi.getState();
+  const [importing, setImporting] = useState(false);
 
   return (
     <header className="toolbar" data-tauri-drag-region>
@@ -56,6 +58,7 @@ export function Toolbar() {
           disabled={!connection}
           onClick={() => connection && openConnectionDialog({ mode: "edit", connection })}
         />
+        <ToolbarButton icon={<Import />} label="导入" onClick={() => setImporting(true)} />
         <span className="toolbar-divider" aria-hidden />
         <ToolbarButton
           icon={<RefreshCw />}
@@ -68,6 +71,8 @@ export function Toolbar() {
       <div className="toolbar-title" data-tauri-drag-region>
         Basalt
       </div>
+      {/* 拖动区域只认直接点在标题栏上的点击,对话框里的点击不会拖动窗口。 */}
+      {importing && <ImportDialog onClose={() => setImporting(false)} />}
     </header>
   );
 }

@@ -2,9 +2,11 @@
 
 use basalt_core::config::{ConnectionConfig, ConnectionDraft};
 use basalt_core::driver::{ServerInfo, TableInfo};
-use tauri::State;
+use basalt_core::import::ImportCandidate;
+use basalt_core::import::navicat::NavicatLocation;
+use tauri::{AppHandle, Manager, State};
 
-use crate::service::{self, CommandResult, ConnectionView};
+use crate::service::{self, CommandResult, ConnectionView, ImportReport, ImportSource};
 use crate::state::AppState;
 
 #[tauri::command]
@@ -87,4 +89,29 @@ pub async fn list_tables(
     schema: Option<String>,
 ) -> CommandResult<Vec<TableInfo>> {
     service::list_tables(&state, &id, &database, schema.as_deref()).await
+}
+
+/// 本机 Navicat 的配置在用户主目录下。
+fn local_navicat(app: &AppHandle) -> CommandResult<NavicatLocation> {
+    let home = app.path().home_dir().map_err(service::home_error)?;
+    Ok(NavicatLocation::under_home(&home))
+}
+
+#[tauri::command]
+pub async fn scan_import_source(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    source: ImportSource,
+) -> CommandResult<Vec<ImportCandidate>> {
+    service::scan_import_source(&state, &source, &local_navicat(&app)?).await
+}
+
+#[tauri::command]
+pub async fn import_connections(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    source: ImportSource,
+    ids: Vec<String>,
+) -> CommandResult<ImportReport> {
+    service::import_connections(&state, &source, &ids, &local_navicat(&app)?).await
 }

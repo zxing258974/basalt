@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- 合成夹具:结构仿照 Navicat 16 的 conn.plist({"0": {"0": {类型: {连接名: 字段}}}}),
+     主机、用户名都是虚构的;真实文件里本来就没有密码字段。 -->
+<plist version="1.0">
+<dict>
+	<key>0</key>
+	<dict>
+		<key>0</key>
+		<dict>
+			<key>MySQL</key>
+			<dict>
+				<key>本地 MySQL</key>
+				<dict>
+					<key>ServerVersion</key>
+					<integer>80036</integer>
+					<key>host</key>
+					<string>127.0.0.1</string>
+					<key>port</key>
+					<string>3306</string>
+					<key>savepassword</key>
+					<true/>
+					<key>username</key>
+					<string>root</string>
+					<key>usehttptunnel</key>
+					<false/>
+					<key>usessl</key>
+					<false/>
+					<key>usetunnel</key>
+					<false/>
+				</dict>
+				<key>测试 MySQL</key>
+				<dict>
+					<key>host</key>
+					<string>mysql.example.test</string>
+					<key>port</key>
+					<string>13306</string>
+					<key>savepassword</key>
+					<true/>
+					<key>username</key>
+					<string>tester</string>
+					<key>usessl</key>
+					<false/>
+					<key>usetunnel</key>
+					<true/>
+				</dict>
+			</dict>
+			<key>PostgreSQL</key>
+			<dict>
+				<key>分析库</key>
+				<dict>
+					<key>defaultdatabase</key>
+					<string>warehouse</string>
+					<key>host</key>
+					<string>pg.example.test</string>
+					<key>port</key>
+					<string>5432</string>
+					<key>savepassword</key>
+					<true/>
+					<key>username</key>
+					<string>analyst</string>
+					<key>usessl</key>
+					<true/>
+					<key>usetunnel</key>
+					<false/>
+				</dict>
+			</dict>
+			<key>REDIS</key>
+			<dict>
+				<key>会话缓存</key>
+				<dict>
+					<key>host</key>
+					<string>redis.example.test</string>
+					<key>port</key>
+					<string>6379</string>
+					<key>savepassword</key>
+					<true/>
+					<key>username</key>
+					<string></string>
+				</dict>
+			</dict>
+			<key>SQLite</key>
+			<dict/>
+		</dict>
+	</dict>
+	<key>Snowflake</key>
+	<dict>
+		<key>Servers</key>
+		<dict/>
+	</dict>
+</dict>
+</plist>

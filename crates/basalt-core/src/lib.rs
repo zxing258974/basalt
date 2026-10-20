@@ -3,6 +3,7 @@
 pub mod config;
 pub mod driver;
 pub mod error;
+pub mod import;
 pub mod secret;
 pub mod session;
 pub mod sql;

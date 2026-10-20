@@ -1,3 +1,4 @@
+import type { ImportCandidate, ImportReport, ImportSource } from "./importTypes";
 import type {
   ConnectionConfig,
   ConnectionDraft,
@@ -21,6 +22,11 @@ export interface Backend {
   listSchemas(id: string, database: string): Promise<string[]>;
   listTables(id: string, database: string, schema?: string | null): Promise<TableInfo[]>;
   pickSqliteFile(): Promise<string | null>;
+  /** 扫描导入来源,给出预览;不写任何东西。 */
+  scanImportSource(source: ImportSource): Promise<ImportCandidate[]>;
+  /** 导入勾选的连接:密码由后端直接写进钥匙串。 */
+  importConnections(source: ImportSource, ids: string[]): Promise<ImportReport>;
+  pickNcxFile(): Promise<string | null>;
 }
 
 function createTauriBackend(): Backend {
@@ -48,6 +54,17 @@ function createTauriBackend(): Backend {
         multiple: false,
         directory: false,
         filters: [{ name: "SQLite", extensions: ["db", "sqlite", "sqlite3", "db3"] }],
+      });
+      return typeof picked === "string" ? picked : null;
+    },
+    scanImportSource: (source) => call("scan_import_source", { source }),
+    importConnections: (source, ids) => call("import_connections", { source, ids }),
+    pickNcxFile: async () => {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const picked = await open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "Navicat 导出的连接", extensions: ["ncx"] }],
       });
       return typeof picked === "string" ? picked : null;
     },

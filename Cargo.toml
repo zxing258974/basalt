@@ -31,3 +31,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 keyring = { version = "3", features = ["apple-native"] }
 tempfile = "3"
 log = "0.4"
+# 导入 Navicat 连接:conn.plist、.ncx(XML)与其中 AES-128-CBC 加密的密码
+plist = "1.10"
+quick-xml = "0.42"
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+hex = "0.4"

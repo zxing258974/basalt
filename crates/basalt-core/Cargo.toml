@@ -17,6 +17,11 @@ rust_decimal.workspace = true
 uuid.workspace = true
 keyring.workspace = true
 log.workspace = true
+plist.workspace = true
+quick-xml.workspace = true
+aes.workspace = true
+cbc.workspace = true
+hex.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

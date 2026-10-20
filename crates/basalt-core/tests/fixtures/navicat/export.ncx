@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 合成夹具:主机用 example.test 和文档保留网段,密码都是假的,
+     Password 由 openssl 按 Navicat 12+ 的 AES 参数加密(对照向量见 cipher.rs)。 -->
+<Connections Ver="1.5">
+  <Connection ConnectionName="订单库" ProjectUUID="" ConnType="MYSQL" ServiceProvider="Default" Host="mysql.example.test" Port="3306" Database="" UserName="app_user" Password="7CD6F821FD5487C86ADFB4EE5FA0C277" SavePassword="true" DatabaseFileName="" SSL="false" SSH="false" SSH_Host="" SSH_Password="" HTTP="false"/>
+  <Connection ConnectionName="报表 PG" ProjectUUID="" ConnType="POSTGRESQL" Host="192.0.2.10" Port="5433" Database="reports" UserName="report_ro" Password="EEA1D394AF85EE94E0540D99DDF4251A" SavePassword="true" DatabaseFileName="" SSL="true" SSH="false" HTTP="false"/>
+  <Connection ConnectionName="跳板机后的库" ConnType="MARIADB" Host="10.0.0.8" Port="3307" Database="" UserName="ops" Password="" SavePassword="false" SSL="false" SSH="true" SSH_Host="bastion.example.test" SSH_Port="22" SSH_UserName="jump" SSH_Password="ABD6C2C1F9660EDA68A2204E976ACE44B43D515B635210328EAA2D5310FCC5F3" SSH_SavePassword="true" HTTP="false"/>
+  <Connection ConnectionName="本地笔记" ConnType="SQLITE" Host="" Port="0" Database="" UserName="" Password="" SavePassword="false" DatabaseFileName="/Users/example/notes.db" SSL="false" SSH="false" HTTP="false"/>
+  <Connection ConnectionName="旧版导出" ConnType="MYSQL" Host="legacy.example.test" Port="3306" Database="" UserName="legacy" Password="0123456789ABCDEF" SavePassword="true" SSL="false" SSH="false" HTTP="false"/>
+  <Connection ConnectionName="缓存" ConnType="REDIS" Host="redis.example.test" Port="6379" Database="" UserName="" Password="5CD8295C9776753E314CFC428A353BF4" SavePassword="true" SSL="false" SSH="false" HTTP="false"/>
+  <Connection ConnectionName="财务" ConnType="SQLSERVER" Host="mssql.example.test" Port="1433" Database="" UserName="sa" Password="" SavePassword="false" SSL="false" SSH="false" HTTP="false"/>
+  <Connection ConnectionName="无路径的 SQLite" ConnType="SQLITE" Host="" Port="0" Database="" UserName="" Password="" SavePassword="false" DatabaseFileName="" SSL="false" SSH="false" HTTP="false"/>
+  <Connection ConnectionName="订单库" ConnType="MYSQL" Host="mysql2.example.test" Port="3306" Database="shop" UserName="app_user" Password="" SavePassword="false" SSL="false" SSH="false" HTTP="true"/>
+</Connections>

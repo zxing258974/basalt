@@ -43,6 +43,8 @@ pub fn run() {
             commands::list_databases,
             commands::list_schemas,
             commands::list_tables,
+            commands::scan_import_source,
+            commands::import_connections,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Basalt");

@@ -19,6 +19,8 @@ mod mysql_tests;
 #[cfg(test)]
 mod postgres_tests;
 #[cfg(test)]
+mod serde_tests;
+#[cfg(test)]
 mod sqlite_tests;
 #[cfg(test)]
 mod test_support;

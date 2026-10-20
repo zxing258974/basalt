@@ -1,0 +1,5 @@
+# 生成物与锁文件不格式化(node_modules、dist 等已在 .gitignore 里,Prettier 会一并跳过)
+src-tauri/gen/
+pnpm-lock.yaml
+# Markdown 里的中文表格按显示宽度对齐会整表重排,文档手写维护
+*.md

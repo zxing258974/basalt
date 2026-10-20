@@ -24,18 +24,49 @@ pnpm dev                # 只起前端;浏览器里自动使用 mock 后端,方�
 
 ## 测试
 
+第一次跑之前装两样工具(都只装在用户目录):
+
 ```bash
-pnpm test                                   # 前端单测(Vitest)
+pnpm exec playwright install webkit                                # 截图测试用的 WebKit
+rustup component add llvm-tools-preview && cargo install cargo-llvm-cov --locked   # Rust 覆盖率
+```
+
+前端:
+
+```bash
+pnpm lint                                   # ESLint(typescript-eslint + react-hooks)+ Prettier 检查,零告警才算过
+pnpm format                                 # 用 Prettier 格式化
 pnpm typecheck
+pnpm test                                   # 单测与交互测试(Vitest + Testing Library,mock 后端)
+pnpm test --coverage                        # 同上并统计覆盖率,任一项低于 80% 即失败;HTML 报告在 coverage/
+pnpm test:visual                            # 截图回归(Playwright + WebKit,自动在 1430 端口起 pnpm dev)
+pnpm test:visual:update                     # 界面有意改动后重新生成基准图
+```
+
+截图测试覆盖欢迎页、展开的对象树、对象列表、新建连接对话框(选类型 / MySQL 表单),
+每个画面按 960、1280、1440 三种宽度和深浅两套主题各截一张,基准图在 `e2e/__screenshots__/`。
+只用 WebKit,因为 Tauri 在 macOS 上用的就是它,Chromium 的排版和它有出入。
+基准图依赖本机字体,换机器或升级系统后先 `pnpm test:visual:update`,再逐张看差异。
+失败时的对比图在 `test-results/`,`pnpm exec playwright show-report` 可以并排查看。
+
+Rust:
+
+```bash
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace                      # Rust 单测 + SQLite 集成测试
 docker compose -f docker-compose.test.yml up -d                   # MySQL 5.7 + PostgreSQL 17
 docker compose -f docker-compose.test.yml --profile full up -d    # 再加 MySQL 8.4 + MariaDB 11.4
 BASALT_IT=1 cargo test --workspace          # 连 MySQL 5.7 与 PostgreSQL
 BASALT_IT=all cargo test --workspace        # 连全部四个容器(会在测试库里建 basalt_it / basalt_m2 / basalt_svc)
+BASALT_IT=all cargo llvm-cov --workspace --fail-under-lines 80    # 覆盖率;不连容器时 MySQL / PG 驱动跑不到
 ```
 
 测试容器只监听 127.0.0.1:MySQL 5.7 `23306`、MySQL 8.4 `23307`、MariaDB `23308`、PostgreSQL `25432`,
 账号见 `docker-compose.test.yml`(仅用于本机一次性容器)。
+
+ESLint 通过 `tools/typescript-eslint-ts6` 给 typescript-eslint 配了一份 TypeScript 6:
+项目用的 TypeScript 7 是原生版,没有它需要的 JS 编译器接口。`tsc` 仍然用 7。
 
 ## 目录
 
@@ -43,4 +74,6 @@ BASALT_IT=all cargo test --workspace        # 连全部四个容器(会在测试
 crates/basalt-core/   连接配置、密码存储、驱动、会话、表数据读写、SQL 生成(不依赖 Tauri)
 src-tauri/            Tauri 外壳:commands.rs 只做转发,逻辑在 service.rs
 src/                  前端:components 按界面区域组织,lib/api.ts 是后端接口
+e2e/                  Playwright 截图测试与基准图
+tools/                开发工具用的本地包(给 typescript-eslint 配 TypeScript 6)
 ```

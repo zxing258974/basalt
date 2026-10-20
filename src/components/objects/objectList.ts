@@ -27,8 +27,7 @@ export function filterTables(tables: readonly TableInfo[], { kind, search }: Tab
     if (kind === "views" && table.kind === "table") return false;
     if (!needle) return true;
     return (
-      table.name.toLocaleLowerCase().includes(needle) ||
-      (table.comment ?? "").toLocaleLowerCase().includes(needle)
+      table.name.toLocaleLowerCase().includes(needle) || (table.comment ?? "").toLocaleLowerCase().includes(needle)
     );
   });
 }

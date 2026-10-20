@@ -4,7 +4,16 @@ import { EMPTY_EDITS, addRow, deleteRow, setCell } from "./editState";
 import { MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH, cellView, gridRows, initialWidth } from "./gridModel";
 
 function column(name: string, partial: Partial<ColumnInfo> = {}): ColumnInfo {
-  return { name, dataType: "text", isPrimaryKey: false, nullable: true, hasDefault: false, isGenerated: false, valueType: { kind: "text" }, ...partial };
+  return {
+    name,
+    dataType: "text",
+    isPrimaryKey: false,
+    nullable: true,
+    hasDefault: false,
+    isGenerated: false,
+    valueType: { kind: "text" },
+    ...partial,
+  };
 }
 
 const text = (value: string): CellValue => ({ kind: "text", value });
@@ -18,7 +27,13 @@ const page: TablePage = {
     column("label", { isGenerated: true }),
   ],
   rows: [
-    [{ kind: "int", value: "1" }, text("Ann"), { kind: "null" }, { kind: "unsupported", value: { typeName: "GEOMETRY" } }, text("#Ann")],
+    [
+      { kind: "int", value: "1" },
+      text("Ann"),
+      { kind: "null" },
+      { kind: "unsupported", value: { typeName: "GEOMETRY" } },
+      text("#Ann"),
+    ],
     [{ kind: "int", value: "2" }, text("Ben"), text("x"), { kind: "null" }, text("#Ben")],
   ],
   hasMore: false,
@@ -36,7 +51,9 @@ describe("gridRows", () => {
       { kind: "new", id: 0 },
     ]);
     expect(rows.map((r) => r.status)).toEqual(["clean", "deleted", "new"]);
-    expect(gridRows(page, setCell(EMPTY_EDITS, page, { kind: "existing", index: 0 }, "name", "A"))[0]?.status).toBe("edited");
+    expect(gridRows(page, setCell(EMPTY_EDITS, page, { kind: "existing", index: 0 }, "name", "A"))[0]?.status).toBe(
+      "edited",
+    );
   });
 });
 
@@ -44,13 +61,22 @@ describe("cellView", () => {
   const [first, second] = gridRows(page, EMPTY_EDITS);
 
   it("shows original values with their kind", () => {
-    expect(cellView(page, EMPTY_EDITS, first!, 1)).toMatchObject({ text: "Ann", tone: "value", edited: false, editable: true });
+    expect(cellView(page, EMPTY_EDITS, first!, 1)).toMatchObject({
+      text: "Ann",
+      tone: "value",
+      edited: false,
+      editable: true,
+    });
     expect(cellView(page, EMPTY_EDITS, first!, 2)).toMatchObject({ text: "NULL", tone: "null" });
     expect(cellView(page, EMPTY_EDITS, first!, 0)).toMatchObject({ numeric: true });
   });
 
   it("locks unsupported values, generated columns and deleted rows", () => {
-    expect(cellView(page, EMPTY_EDITS, first!, 3)).toMatchObject({ text: "‹GEOMETRY›", tone: "unsupported", editable: false });
+    expect(cellView(page, EMPTY_EDITS, first!, 3)).toMatchObject({
+      text: "‹GEOMETRY›",
+      tone: "unsupported",
+      editable: false,
+    });
     // 同一列别的行是 NULL 时可以编辑。
     expect(cellView(page, EMPTY_EDITS, second!, 3).editable).toBe(true);
     expect(cellView(page, EMPTY_EDITS, first!, 4).editable).toBe(false);
@@ -62,10 +88,20 @@ describe("cellView", () => {
     const mixed: TablePage = {
       ...page,
       columns: [page.columns[0]!, column("blob", { valueType: { kind: "binary" } }), column("note")],
-      rows: [[{ kind: "int", value: "1" }, { kind: "bytes", value: "0a1b" }, { kind: "bytes", value: "ff" }]],
+      rows: [
+        [
+          { kind: "int", value: "1" },
+          { kind: "bytes", value: "0a1b" },
+          { kind: "bytes", value: "ff" },
+        ],
+      ],
     };
     const row = gridRows(mixed, EMPTY_EDITS)[0]!;
-    expect(cellView(mixed, EMPTY_EDITS, row, 1)).toMatchObject({ text: "0x0a1b", editable: true, editorText: "0x0a1b" });
+    expect(cellView(mixed, EMPTY_EDITS, row, 1)).toMatchObject({
+      text: "0x0a1b",
+      editable: true,
+      editorText: "0x0a1b",
+    });
     expect(cellView(mixed, EMPTY_EDITS, row, 2)).toMatchObject({ text: "0xff", editable: false });
   });
 

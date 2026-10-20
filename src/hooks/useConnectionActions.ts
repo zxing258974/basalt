@@ -107,7 +107,13 @@ export function useConnectionActions() {
           forget(id);
           await refreshConnections();
         };
-        guardDiscard((tab) => tab.connectionId === id, () => run().then(resolve, reject), resolve);
+        guardDiscard(
+          (tab) => tab.connectionId === id,
+          () => {
+            void run().then(resolve, reject);
+          },
+          resolve,
+        );
       }),
     [forget, refreshConnections],
   );

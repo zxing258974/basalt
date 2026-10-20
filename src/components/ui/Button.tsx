@@ -20,9 +20,7 @@ export function Button({
   type = "button",
   ...rest
 }: ButtonProps) {
-  const classes = ["btn", `btn-${variant}`, `btn-${size}`, busy && "is-busy", className]
-    .filter(Boolean)
-    .join(" ");
+  const classes = ["btn", `btn-${variant}`, `btn-${size}`, busy && "is-busy", className].filter(Boolean).join(" ");
   return (
     <button {...rest} type={type} className={classes} disabled={disabled || busy} aria-busy={busy}>
       {busy ? <span className="spinner" aria-hidden /> : icon}

@@ -61,8 +61,7 @@ export type CellValue =
 
 /** 写回时怎么解释输入;二进制列才把 0x 开头的输入当十六进制。 */
 export type ValueType =
-  | { kind: "integer"; unsigned: boolean }
-  | { kind: "float" | "decimal" | "bit" | "binary" | "text" };
+  { kind: "integer"; unsigned: boolean } | { kind: "float" | "decimal" | "bit" | "binary" | "text" };
 
 export interface ColumnInfo {
   name: string;

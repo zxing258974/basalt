@@ -124,7 +124,12 @@ export function TreeRow({
 }
 
 /** 子节点的加载中 / 出错占位行。 */
-export function TreeStatusRow({ depth, status, message, onRetry }: {
+export function TreeStatusRow({
+  depth,
+  status,
+  message,
+  onRetry,
+}: {
   depth: number;
   status: "loading" | "error" | "empty";
   message: string;

@@ -18,8 +18,7 @@ export interface EditState {
 }
 
 export type RowTarget =
-  | { readonly kind: "existing"; readonly index: number }
-  | { readonly kind: "new"; readonly id: number };
+  { readonly kind: "existing"; readonly index: number } | { readonly kind: "new"; readonly id: number };
 
 export const EMPTY_EDITS: EditState = { edits: {}, deleted: [], inserted: [], nextId: 0 };
 
@@ -91,7 +90,8 @@ export function pendingCount(state: EditState): number {
 
 /** 这一格未提交的新值;没改过为 undefined。 */
 export function editedValue(state: EditState, target: RowTarget, column: string): EditInput | undefined {
-  const values = target.kind === "new" ? state.inserted.find((r) => r.id === target.id)?.values : state.edits[target.index];
+  const values =
+    target.kind === "new" ? state.inserted.find((r) => r.id === target.id)?.values : state.edits[target.index];
   return values && column in values ? values[column] : undefined;
 }
 

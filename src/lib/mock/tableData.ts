@@ -52,7 +52,8 @@ function toCell(column: ColumnInfo, input: EditInput): CellValue {
     if (!/^-?\d+$/.test(input.trim())) fail("invalid_edit", `「${column.name}」不是有效的整数：${input}`);
     return { kind: "int", value: input.trim() };
   }
-  if (/blob|bytea|binary/i.test(column.dataType) && input.startsWith("0x")) return { kind: "bytes", value: input.slice(2) };
+  if (/blob|bytea|binary/i.test(column.dataType) && input.startsWith("0x"))
+    return { kind: "bytes", value: input.slice(2) };
   if (/datetime|timestamp/i.test(column.dataType)) return { kind: "dateTime", value: input };
   return { kind: "text", value: input };
 }
@@ -61,7 +62,8 @@ const sameCell = (a: CellValue | undefined, b: CellValue) => JSON.stringify(a) =
 
 /** 只认 `列 运算符 值`,可用 AND 连接;够在浏览器里调界面。 */
 function rowFilter(columns: ColumnInfo[], filter: string): (row: CellValue[]) => boolean {
-  if (filter.includes(";")) fail("invalid_filter", "筛选条件里不能有分号：这里只填 WHERE 后面的条件，不能再接别的语句。");
+  if (filter.includes(";"))
+    fail("invalid_filter", "筛选条件里不能有分号：这里只填 WHERE 后面的条件，不能再接别的语句。");
   const tests = filter.split(/\s+AND\s+/i).map((part) => {
     const match = /^\s*(\w+)\s*(=|!=|<>|>=|<=|>|<|LIKE|IS NOT NULL|IS NULL)\s*(.*?)\s*$/i.exec(part);
     const index = match ? columns.findIndex((c) => c.name === match[1]) : -1;
@@ -76,17 +78,26 @@ function rowFilter(columns: ColumnInfo[], filter: string): (row: CellValue[]) =>
       const text = String(cell.value);
       if (op === "LIKE") return new RegExp(`^${raw.replaceAll("%", ".*").replaceAll("_", ".")}$`, "i").test(text);
       const [a, b] = /^-?\d+(\.\d+)?$/.test(raw) ? [Number(text), Number(raw)] : [text, raw];
-      return { "=": a === b, "!=": a !== b, "<>": a !== b, ">": a > b, "<": a < b, ">=": a >= b, "<=": a <= b }[op] ?? false;
+      return (
+        { "=": a === b, "!=": a !== b, "<>": a !== b, ">": a > b, "<": a < b, ">=": a >= b, "<=": a <= b }[op] ?? false
+      );
     };
   });
   return (row) => tests.every((test) => test(row));
 }
 
+/** 排序用的文本:不支持的类型按类型名排,布尔按 true/false。 */
+function sortText(cell: Exclude<CellValue, { kind: "null" }>): string {
+  if (cell.kind === "unsupported") return cell.value.typeName;
+  return typeof cell.value === "string" ? cell.value : String(cell.value);
+}
+
 function compareCells(a: CellValue, b: CellValue): number {
   if (a.kind === "null" || b.kind === "null") return a.kind === b.kind ? 0 : a.kind === "null" ? -1 : 1;
-  const x = "value" in a ? a.value : "";
-  const y = "value" in b ? b.value : "";
-  if (typeof x === "string" && typeof y === "string" && /^-?\d/.test(x) && /^-?\d/.test(y)) return Number(x) - Number(y);
+  const x = sortText(a);
+  const y = sortText(b);
+  if (typeof x === "string" && typeof y === "string" && /^-?\d/.test(x) && /^-?\d/.test(y))
+    return Number(x) - Number(y);
   return String(x).localeCompare(String(y), "zh-CN");
 }
 
@@ -103,7 +114,9 @@ export function createMockTables() {
 
   function selectSql(driver: DriverKind, table: TableRef, data: MockTable, request: PageRequest): string {
     const pk = data.columns.filter((c) => c.isPrimaryKey).map((c) => quote(driver, c.name));
-    const order = request.sort ? [`${quote(driver, request.sort.column)}${request.sort.descending ? " DESC" : ""}`, ...pk] : pk;
+    const order = request.sort
+      ? [`${quote(driver, request.sort.column)}${request.sort.descending ? " DESC" : ""}`, ...pk]
+      : pk;
     return [
       `SELECT ${data.columns.map((c) => quote(driver, c.name)).join(", ")} FROM ${tableName(driver, table)}`,
       request.filter?.trim() ? ` WHERE (\n${request.filter.trim()}\n)` : "",
@@ -118,7 +131,9 @@ export function createMockTables() {
     }
     const column = (name: string) => data.columns.find((c) => c.name === name);
     const where = (key: Record<string, CellValue>) =>
-      ` WHERE ${Object.entries(key).map(([k, v]) => `${quote(driver, k)} = ${literal(column(k), v)}`).join(" AND ")}`;
+      ` WHERE ${Object.entries(key)
+        .map(([k, v]) => `${quote(driver, k)} = ${literal(column(k), v)}`)
+        .join(" AND ")}`;
     const rank = { delete: 0, update: 1, insert: 2 } as const;
     return [...changes]
       .sort((a, b) => rank[a.kind] - rank[b.kind])
@@ -133,7 +148,9 @@ export function createMockTables() {
         }
         if (!entries.length) return [`INSERT INTO ${target} DEFAULT VALUES`];
         const names = entries.map(([k]) => quote(driver, k)).join(", ");
-        return [`INSERT INTO ${target} (${names}) VALUES (${entries.map(([k, v]) => literal(column(k), v)).join(", ")})`];
+        return [
+          `INSERT INTO ${target} (${names}) VALUES (${entries.map(([k, v]) => literal(column(k), v)).join(", ")})`,
+        ];
       });
   }
 
@@ -151,7 +168,11 @@ export function createMockTables() {
       if (change.kind === "insert") {
         const row = data.columns.map((c): CellValue => {
           if (c.name in change.values) return toCell(c, change.values[c.name]!);
-          if (c.isPrimaryKey && c.hasDefault) return { kind: "int", value: String(Math.max(0, ...rows.map((r) => Number((r[0] as { value: string }).value) || 0)) + 1) };
+          if (c.isPrimaryKey && c.hasDefault)
+            return {
+              kind: "int",
+              value: String(Math.max(0, ...rows.map((r) => Number((r[0] as { value: string }).value) || 0)) + 1),
+            };
           return { kind: "null" };
         });
         if (find(Object.fromEntries(pk.map((i) => [data.columns[i]!.name, row[i]!]))) >= 0) {
@@ -162,10 +183,16 @@ export function createMockTables() {
       }
       const index = find(change.key);
       if (index < 0) {
-        fail("row_mismatch", `第 ${n + 1} 条语句影响了 0 行（应为 1 行）：这一行可能已被别人修改或删除。所有修改都已回滚。`);
+        fail(
+          "row_mismatch",
+          `第 ${n + 1} 条语句影响了 0 行（应为 1 行）：这一行可能已被别人修改或删除。所有修改都已回滚。`,
+        );
       }
       if (change.kind === "delete") rows = rows.filter((_, i) => i !== index);
-      else rows[index] = data.columns.map((c, i) => (c.name in change.values ? toCell(c, change.values[c.name]!) : rows[index]![i]!));
+      else
+        rows[index] = data.columns.map((c, i) =>
+          c.name in change.values ? toCell(c, change.values[c.name]!) : rows[index]![i]!,
+        );
     });
     return rows;
   }
@@ -178,13 +205,17 @@ export function createMockTables() {
       const sorted =
         sortIndex < 0
           ? filtered
-          : [...filtered].sort((a, b) => compareCells(a[sortIndex]!, b[sortIndex]!) * (request.sort!.descending ? -1 : 1));
+          : [...filtered].sort(
+              (a, b) => compareCells(a[sortIndex]!, b[sortIndex]!) * (request.sort!.descending ? -1 : 1),
+            );
       const slice = sorted.slice(request.offset, request.offset + request.limit + 1);
       return {
         columns: data.columns,
         rows: slice.slice(0, request.limit),
         hasMore: slice.length > request.limit,
-        readOnlyReason: data.columns.some((c) => c.isPrimaryKey) ? null : "这张表没有主键，无法安全地定位要修改的行，只能查看。",
+        readOnlyReason: data.columns.some((c) => c.isPrimaryKey)
+          ? null
+          : "这张表没有主键，无法安全地定位要修改的行，只能查看。",
         sql: selectSql(driver, table, data, request),
       };
     },

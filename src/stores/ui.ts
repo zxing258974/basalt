@@ -2,9 +2,7 @@ import { create } from "zustand";
 import type { ConnectionConfig, DriverKind } from "../lib/types";
 
 export type ConnectionDialogState =
-  | { mode: "closed" }
-  | { mode: "create"; driver: DriverKind | null }
-  | { mode: "edit"; connection: ConnectionConfig };
+  { mode: "closed" } | { mode: "create"; driver: DriverKind | null } | { mode: "edit"; connection: ConnectionConfig };
 
 /** 状态栏右侧的一行提示,用于没有专属位置显示的操作失败。 */
 export interface Notice {

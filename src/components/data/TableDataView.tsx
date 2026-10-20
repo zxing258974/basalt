@@ -74,7 +74,9 @@ export function TableDataView({ tab, active }: { tab: TableDataTab; active: bool
       revertCell: (target, column) => setEdits((current) => editing.revertCell(current, target, column)),
       deleteRow: (row) =>
         setEdits((current) =>
-          row.target.kind === "new" ? editing.removeNewRow(current, row.target.id) : editing.deleteRow(current, row.target.index),
+          row.target.kind === "new"
+            ? editing.removeNewRow(current, row.target.id)
+            : editing.deleteRow(current, row.target.index),
         ),
       restoreRow: (row) => {
         const { target } = row;
@@ -115,7 +117,8 @@ export function TableDataView({ tab, active }: { tab: TableDataTab; active: bool
     setPreview({ phase: "loading" });
     try {
       const statements = await (await getBackend()).previewTableChanges(tab.connectionId, tab.table, changes);
-      if (token === previewToken.current) setPreview({ phase: "ready", statements, changes, applying: false, error: null });
+      if (token === previewToken.current)
+        setPreview({ phase: "ready", statements, changes, applying: false, error: null });
     } catch (error) {
       if (token === previewToken.current) setPreview({ phase: "invalid", message: errorMessage(error) });
     }
@@ -126,12 +129,9 @@ export function TableDataView({ tab, active }: { tab: TableDataTab; active: bool
     if (shown.phase !== "ready" || shown.applying) return;
     setPreview({ ...shown, applying: true, error: null });
     try {
-      const outcome = await (await getBackend()).applyTableChanges(
-        tab.connectionId,
-        tab.table,
-        shown.changes,
-        shown.statements,
-      );
+      const outcome = await (
+        await getBackend()
+      ).applyTableChanges(tab.connectionId, tab.table, shown.changes, shown.statements);
       // 等重读完再关对话框、清修改:否则会先闪回旧值。重读失败也照样收尾,数据库里已经提交了。
       await queryClient.invalidateQueries({ queryKey: tableDataKeys.table(tab.connectionId, tab.table) });
       setEdits(editing.EMPTY_EDITS);
@@ -274,11 +274,7 @@ export function TableDataView({ tab, active }: { tab: TableDataTab; active: bool
         sql={page?.sql ?? null}
       />
 
-      <PreviewDialog
-        state={preview}
-        onCancel={closePreview}
-        onSubmit={() => void submit()}
-      />
+      <PreviewDialog state={preview} onCancel={closePreview} onSubmit={() => void submit()} />
     </section>
   );
 }

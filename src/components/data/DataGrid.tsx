@@ -1,6 +1,15 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Ban, Copy, Eraser, Pencil, RotateCcw, Trash2, Undo2 } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 import type { EditInput, SortSpec, TablePage } from "../../lib/types";
 import { ContextMenu, type MenuEntry } from "../ui/ContextMenu";
 import type { EditMove } from "./CellEditor";
@@ -49,7 +58,12 @@ interface DataGridProps {
 
 function measureWidths(page: TablePage): number[] {
   const sample = page.rows.slice(0, WIDTH_SAMPLE_ROWS);
-  return page.columns.map((column, index) => initialWidth(column, sample.map((row) => row[index])));
+  return page.columns.map((column, index) =>
+    initialWidth(
+      column,
+      sample.map((row) => row[index]),
+    ),
+  );
 }
 
 export function DataGrid(props: DataGridProps) {
@@ -68,6 +82,8 @@ export function DataGrid(props: DataGridProps) {
   const [editing, setEditing] = useState<EditingCell | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; row: number; col: number } | null>(null);
 
+  // 项目没启用 React Compiler;TanStack Virtual 的返回值本来就不该被 memo,这条提示对我们无影响。
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
@@ -97,7 +113,6 @@ export function DataGrid(props: DataGridProps) {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [props.scrollKey]);
-
 
   const viewOf = (row: number, col: number) => cellView(page, edits, rows[row]!, col);
   const focusGrid = () => scrollRef.current?.focus({ preventScroll: true });
@@ -181,8 +196,18 @@ export function DataGrid(props: DataGridProps) {
         disabled: !writable || !column.nullable,
         onSelect: () => actions.setCell(target.target, column.name, null),
       },
-      { label: "设为空字符串", icon: <Eraser />, disabled: !writable, onSelect: () => actions.setCell(target.target, column.name, "") },
-      { label: "撤销这一格", icon: <Undo2 />, disabled: !view.edited, onSelect: () => actions.revertCell(target.target, column.name) },
+      {
+        label: "设为空字符串",
+        icon: <Eraser />,
+        disabled: !writable,
+        onSelect: () => actions.setCell(target.target, column.name, ""),
+      },
+      {
+        label: "撤销这一格",
+        icon: <Undo2 />,
+        disabled: !view.edited,
+        onSelect: () => actions.revertCell(target.target, column.name),
+      },
       "separator",
       { label: "复制", icon: <Copy />, shortcut: "⌘C", onSelect: () => copy(row, col) },
       "separator",

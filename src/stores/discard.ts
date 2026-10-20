@@ -18,5 +18,8 @@ export function guardDiscard(affects: (tab: Tab) => boolean, action: () => void,
 
 /** 关掉一个标签页;有未提交的修改先确认。 */
 export function closeTabGuarded(id: string): void {
-  guardDiscard((tab) => tab.id === id, () => useTabs.getState().close(id));
+  guardDiscard(
+    (tab) => tab.id === id,
+    () => useTabs.getState().close(id),
+  );
 }

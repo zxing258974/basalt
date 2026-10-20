@@ -3,7 +3,16 @@ import type { CellValue, ColumnInfo } from "../types";
 import type { MockTable } from "./tableData";
 
 function column(name: string, dataType: string, partial: Partial<ColumnInfo> = {}): ColumnInfo {
-  return { name, dataType, isPrimaryKey: false, nullable: true, hasDefault: false, isGenerated: false, valueType: { kind: "text" }, ...partial };
+  return {
+    name,
+    dataType,
+    isPrimaryKey: false,
+    nullable: true,
+    hasDefault: false,
+    isGenerated: false,
+    valueType: { kind: "text" },
+    ...partial,
+  };
 }
 
 const pk = (name: string, dataType: string): ColumnInfo =>
@@ -24,7 +33,20 @@ function random(seed: number): () => number {
   };
 }
 
-const NAMES = ["张伟", "王芳", "李娜", "刘洋", "陈静", "杨磊", "赵敏", "黄勇", "周杰", "吴霞", "Emily Chen", "Seán O'Brien"];
+const NAMES = [
+  "张伟",
+  "王芳",
+  "李娜",
+  "刘洋",
+  "陈静",
+  "杨磊",
+  "赵敏",
+  "黄勇",
+  "周杰",
+  "吴霞",
+  "Emily Chen",
+  "Seán O'Brien",
+];
 const CITIES = ["上海", "北京", "成都", "杭州", "深圳", "武汉", "西安"];
 const STATUSES = ["paid", "shipped", "refunded", "pending"];
 

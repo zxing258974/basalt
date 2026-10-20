@@ -64,7 +64,14 @@ export function cellView(page: TablePage, edits: EditState, row: GridRow, column
   }
   const original = row.original?.[columnIndex];
   if (!original) {
-    return { text: placeholder(column), tone: "placeholder", numeric: false, edited: false, editable: writable, editorText: "" };
+    return {
+      text: placeholder(column),
+      tone: "placeholder",
+      numeric: false,
+      edited: false,
+      editable: writable,
+      editorText: "",
+    };
   }
   // 文本列里出现的二进制值(无效 UTF-8、SQLite 动态类型)写回时 0x 不会被当十六进制,改了就变成字面文本。
   const bytesInTextColumn = original.kind === "bytes" && column.valueType.kind !== "binary";

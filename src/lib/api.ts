@@ -50,12 +50,10 @@ function createTauriBackend(): Backend {
     closeConnection: (id) => call("close_connection", { id }),
     listDatabases: (id) => call("list_databases", { id }),
     listSchemas: (id, database) => call("list_schemas", { id, database }),
-    listTables: (id, database, schema) =>
-      call("list_tables", { id, database, schema: schema ?? null }),
+    listTables: (id, database, schema) => call("list_tables", { id, database, schema: schema ?? null }),
     readTablePage: (id, table, request) => call("read_table_page", { id, table, request }),
     previewTableChanges: (id, table, changes) => call("preview_table_changes", { id, table, changes }),
-    applyTableChanges: (id, table, changes, expected) =>
-      call("apply_table_changes", { id, table, changes, expected }),
+    applyTableChanges: (id, table, changes, expected) => call("apply_table_changes", { id, table, changes, expected }),
     pickSqliteFile: async () => {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const picked = await open({

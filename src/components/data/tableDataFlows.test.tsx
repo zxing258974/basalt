@@ -55,17 +55,23 @@ async function renderTable(table = "customers") {
 
 /** 第 row 个数据行(从 0 数)的第 col 个格子。 */
 function cell(grid: HTMLElement, row: number, col: number): HTMLElement {
-  const dataRows = within(grid).getAllByRole("row").filter((r) => r.getAttribute("aria-rowindex") === String(row + 2));
+  const dataRows = within(grid)
+    .getAllByRole("row")
+    .filter((r) => r.getAttribute("aria-rowindex") === String(row + 2));
   return within(dataRows[0]!).getAllByRole("gridcell")[col]!;
 }
 
 const readName = async (backend: ReturnType<typeof createMockBackend>) => {
-  const page = await backend.readTablePage("local", { database: "shop", schema: null, table: "customers" }, {
-    offset: 0,
-    limit: 1,
-    sort: null,
-    filter: null,
-  });
+  const page = await backend.readTablePage(
+    "local",
+    { database: "shop", schema: null, table: "customers" },
+    {
+      offset: 0,
+      limit: 1,
+      sort: null,
+      filter: null,
+    },
+  );
   return page.rows[0]![1];
 };
 
@@ -128,7 +134,11 @@ describe("table data", () => {
     await user.type(screen.getByRole("textbox", { name: "编辑「city」" }), "{Escape}");
     expect(screen.getByText(/1 行有未提交的修改/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "撤销修改" }));
-    expect(within(grid).queryAllByRole("row").some((r) => r.classList.contains("is-deleted"))).toBe(false);
+    expect(
+      within(grid)
+        .queryAllByRole("row")
+        .some((r) => r.classList.contains("is-deleted")),
+    ).toBe(false);
     expect(screen.queryByText(/未提交的修改/)).not.toBeInTheDocument();
   });
 
@@ -175,7 +185,9 @@ describe("table data", () => {
     const { grid, user } = await renderTable();
     await user.click(screen.getByRole("button", { name: /^balance/ }));
     await waitFor(() => expect(screen.getByText(/ORDER BY `balance`, `id`/)).toBeInTheDocument());
-    const header = within(grid).getAllByRole("columnheader").find((h) => h.textContent?.includes("balance"))!;
+    const header = within(grid)
+      .getAllByRole("columnheader")
+      .find((h) => h.textContent?.includes("balance"))!;
     expect(header).toHaveAttribute("aria-sort", "ascending");
   });
 

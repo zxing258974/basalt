@@ -15,7 +15,9 @@ import type {
 
 const LATENCY_MS = 120;
 
-const wait = (ms = LATENCY_MS) => new Promise((resolve) => setTimeout(resolve, ms));
+// 单测里不模拟延迟,省得每个用例都要等;浏览器里保留,能看到加载状态。
+const wait = (ms = LATENCY_MS) =>
+  import.meta.env.MODE === "test" ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, ms));
 
 function fail(code: string, message: string, fields: FieldError[] = []): never {
   const error: CommandError = { code, message, fields };
@@ -72,14 +74,52 @@ const SERVERS: Record<DriverKind, ServerInfo> = {
 
 const MYSQL_TABLES: Record<string, TableInfo[]> = {
   shop: [
-    table("customers", { engine: "InnoDB", rows: 18_204, dataBytes: 2_637_824, indexBytes: 540_672, createdAt: "2026-03-02 10:12:40", updatedAt: "2026-10-19 22:41:03", comment: "客户" }),
-    table("order_items", { engine: "InnoDB", rows: 412_880, dataBytes: 39_337_984, indexBytes: 12_075_008, createdAt: "2026-03-02 10:12:41", updatedAt: "2026-10-20 09:58:12" }),
-    table("orders", { engine: "InnoDB", rows: 96_310, dataBytes: 11_026_432, indexBytes: 4_734_976, createdAt: "2026-03-02 10:12:41", updatedAt: "2026-10-20 09:58:12", comment: "订单主表" }),
-    table("products", { engine: "InnoDB", rows: 1_204, dataBytes: 344_064, indexBytes: 49_152, createdAt: "2026-03-02 10:12:40", comment: "商品" }),
+    table("customers", {
+      engine: "InnoDB",
+      rows: 18_204,
+      dataBytes: 2_637_824,
+      indexBytes: 540_672,
+      createdAt: "2026-03-02 10:12:40",
+      updatedAt: "2026-10-19 22:41:03",
+      comment: "客户",
+    }),
+    table("order_items", {
+      engine: "InnoDB",
+      rows: 412_880,
+      dataBytes: 39_337_984,
+      indexBytes: 12_075_008,
+      createdAt: "2026-03-02 10:12:41",
+      updatedAt: "2026-10-20 09:58:12",
+    }),
+    table("orders", {
+      engine: "InnoDB",
+      rows: 96_310,
+      dataBytes: 11_026_432,
+      indexBytes: 4_734_976,
+      createdAt: "2026-03-02 10:12:41",
+      updatedAt: "2026-10-20 09:58:12",
+      comment: "订单主表",
+    }),
+    table("products", {
+      engine: "InnoDB",
+      rows: 1_204,
+      dataBytes: 344_064,
+      indexBytes: 49_152,
+      createdAt: "2026-03-02 10:12:40",
+      comment: "商品",
+    }),
     table("v_daily_sales", { kind: "view" }),
   ],
   information_schema: [table("COLUMNS", { kind: "view" }), table("TABLES", { kind: "view" })],
-  mysql: [table("user", { engine: "InnoDB", rows: 6, dataBytes: 16_384, indexBytes: 0, comment: "Users and global privileges" })],
+  mysql: [
+    table("user", {
+      engine: "InnoDB",
+      rows: 6,
+      dataBytes: 16_384,
+      indexBytes: 0,
+      comment: "Users and global privileges",
+    }),
+  ],
 };
 
 const PG_SCHEMAS: Record<string, string[]> = {
@@ -156,9 +196,7 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
         savePassword: draft.savePassword,
       };
       const previous = draft.id ? find(draft.id) : undefined;
-      connections = previous
-        ? connections.map((c) => (c.id === id ? config : c))
-        : [...connections, config];
+      connections = previous ? connections.map((c) => (c.id === id ? config : c)) : [...connections, config];
       const newPassword = draft.savePassword && draft.password != null;
       if (newPassword) passwords.set(id, draft.password!);
       if (!draft.savePassword) passwords.delete(id);

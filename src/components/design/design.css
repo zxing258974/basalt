@@ -183,7 +183,7 @@
 }
 .column-grid {
   width: 100%;
-  min-width: 760px;
+  min-width: 880px;
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
@@ -203,19 +203,19 @@
   text-align: left;
 }
 .column-grid th:nth-child(2) {
-  width: 22%;
-}
-.column-grid th:nth-child(3) {
   width: 20%;
 }
-.column-grid th:nth-child(6) {
+.column-grid th:nth-child(3) {
   width: 18%;
+}
+.column-grid th:nth-child(6) {
+  width: 17%;
 }
 .column-grid .col-mark {
   width: 52px;
 }
 .column-grid .col-check {
-  width: 52px;
+  width: 48px;
   text-align: center;
 }
 .column-grid.no-comment th:nth-child(6) {

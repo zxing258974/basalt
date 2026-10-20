@@ -67,3 +67,28 @@ test("new connection: MySQL form", async ({ page }) => {
   await expect(page.getByLabel("主机")).toHaveValue("127.0.0.1");
   await snapshot(page, "new-connection-form");
 });
+
+/** 打开 customers 的设计器,改一个字段名、加一个新字段。 */
+async function designCustomers(page: Page) {
+  await openWelcome(page);
+  await expandShop(page);
+  await row(page, "customers").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "设计表" }).click();
+  await page.getByRole("textbox", { name: "name：字段名" }).fill("full_name");
+  await page.getByRole("button", { name: "新增字段" }).click();
+  await page.keyboard.type("age");
+  await expect(page.getByRole("button", { name: /保存/ })).toContainText("2");
+}
+
+test("table designer", async ({ page }) => {
+  await designCustomers(page);
+  await snapshot(page, "table-designer");
+});
+
+test("table designer: save preview", async ({ page }) => {
+  await designCustomers(page);
+  await page.keyboard.press("Meta+s");
+  const dialog = page.getByRole("dialog", { name: "保存表结构" });
+  await expect(dialog.getByRole("list", { name: "将要执行的语句" })).toBeVisible();
+  await snapshot(page, "table-designer-save");
+});

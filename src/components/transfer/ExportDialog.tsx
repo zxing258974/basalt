@@ -3,6 +3,7 @@ import { useState } from "react";
 import { getBackend } from "../../lib/api";
 import type { BinaryEncoding, ExportOutcome } from "../../lib/transferTypes";
 import { errorMessage, isCommandError } from "../../lib/types";
+import { useUi } from "../../stores/ui";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { ExportOptionsForm } from "./ExportOptionsForm";
@@ -26,7 +27,10 @@ import {
 import { TransferProgressView } from "./TransferProgressView";
 import { useTransferJob } from "./useTransferJob";
 
-type View = { kind: "options"; error: string | null } | { kind: "done"; outcome: ExportOutcome };
+/** 选项页下方的一行话:取消是平常事,出错才用警示色。 */
+type Message = { tone: "error" | "note"; text: string } | null;
+
+type View = { kind: "options"; message: Message } | { kind: "done"; outcome: ExportOutcome };
 
 export function ExportDialog({ target, onClose }: { target: ExportTarget; onClose(): void }) {
   const [choices, setChoices] = useState<FormatChoices>({
@@ -38,14 +42,14 @@ export function ExportDialog({ target, onClose }: { target: ExportTarget; onClos
   });
   const [binary, setBinary] = useState<BinaryEncoding>("hex");
   const [range, setRange] = useState<RangeChoice>(() => defaultRange(target));
-  const [view, setView] = useState<View>({ kind: "options", error: null });
+  const [view, setView] = useState<View>({ kind: "options", message: null });
   const { job, run, cancel } = useTransferJob();
   const running = job.status === "running";
 
   const start = async () => {
     const format = buildFormat(choices);
     if (format.kind === "sql" && !format.table) {
-      setView({ kind: "options", error: "请填写 INSERT 语句里的表名。" });
+      setView({ kind: "options", message: { tone: "error", text: "请填写 INSERT 语句里的表名。" } });
       return;
     }
     try {
@@ -65,7 +69,12 @@ export function ExportDialog({ target, onClose }: { target: ExportTarget; onClos
       setView({ kind: "done", outcome });
     } catch (error) {
       const cancelled = isCommandError(error) && error.code === "cancelled";
-      setView({ kind: "options", error: cancelled ? "已取消，没有生成文件。" : errorMessage(error) });
+      setView({
+        kind: "options",
+        message: cancelled
+          ? { tone: "note", text: "已取消，没有生成文件。" }
+          : { tone: "error", text: errorMessage(error) },
+      });
     }
   };
 
@@ -73,7 +82,7 @@ export function ExportDialog({ target, onClose }: { target: ExportTarget; onClos
     try {
       await (await getBackend()).revealInFinder(path);
     } catch (error) {
-      setView((current) => (current.kind === "done" ? current : { kind: "options", error: errorMessage(error) }));
+      useUi.getState().notify(`没能在访达中显示：${errorMessage(error)}`);
     }
   };
 
@@ -161,9 +170,14 @@ export function ExportDialog({ target, onClose }: { target: ExportTarget; onClos
             <h3 className="transfer-section-title">格式</h3>
             <ExportOptionsForm choices={choices} onChange={setChoices} binary={binary} onBinaryChange={setBinary} />
           </section>
-          {view.error && (
+          {view.message?.tone === "error" && (
             <p className="transfer-error" role="alert">
-              {view.error}
+              {view.message.text}
+            </p>
+          )}
+          {view.message?.tone === "note" && (
+            <p className="transfer-cancelled" role="status">
+              {view.message.text}
             </p>
           )}
         </div>

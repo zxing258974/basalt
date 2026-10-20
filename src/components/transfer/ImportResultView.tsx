@@ -2,6 +2,7 @@ import { CircleAlert, CircleCheck, TriangleAlert } from "lucide-react";
 import type { ImportReport } from "../../lib/transferTypes";
 import { formatCount } from "./exportModel";
 import { reportTitle, reportTone } from "./importModel";
+import { previewRows } from "./PreviewTable";
 
 /** 明细表里最多列这么多条,其余导出成 CSV 看。 */
 export const SHOWN_FAILURES = 200;
@@ -31,7 +32,7 @@ export function ImportResultView({ report }: { report: ImportReport }) {
       </div>
       {shown.length > 0 && (
         <>
-          <div className="transfer-preview-scroll">
+          <div className="transfer-preview-scroll" style={previewRows(shown.length)}>
             <table className="transfer-preview transfer-failures" aria-label="失败的行">
               <thead>
                 <tr>

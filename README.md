@@ -16,6 +16,13 @@ SQL 编辑器:工具栏「新建查询」(⌘T)或在库 / schema 上右键「�
 在字段 / 索引 / 外键 / 选项页里改,「SQL 预览」页实时看将要执行的 DDL,⌘S 确认后执行。
 PostgreSQL、SQLite 在一个事务里执行;SQLite 做不到的改动自动走重建表;MySQL 逐条执行,中途失败会说明哪些已经生效。
 
+导入导出(M6):表节点右键「导出数据…」「导入数据…」,表数据页和查询结果上也有「导出」按钮。
+导出成 CSV(分隔符、引号、列名行、UTF-8 / 带 BOM / GBK)、Excel、JSON(数组或 JSON Lines)、SQL INSERT,
+整张表、当前筛选条件下的结果、查询的全部结果都行,边读边写、内存不随行数涨,能中途取消,
+完成后可以在访达中显示。导入 CSV / Excel 走三步向导(选文件 → 映射列 → 选项),
+按目标列类型解析,解析不了的进失败报告(可以另存成 CSV),不悄悄改成 NULL;
+PostgreSQL、SQLite 整体一个事务,MySQL 每批提交并写明哪些批已经生效。
+
 表格快捷键:方向键移动、回车或双击编辑、Tab 提交并右移、Esc 取消、⌘C 复制、⌘⌫ 删除 / 恢复行、⌘S 提交、
 右键「设为 NULL」「撤销这一格」。没有主键的表(含视图)只读。
 
@@ -62,7 +69,8 @@ pnpm test:visual:update                     # 界面有意改动后重新生成�
 ```
 
 截图测试覆盖欢迎页、展开的对象树、对象列表、新建连接对话框(选类型 / MySQL 表单)、
-SQL 编辑器的结果表格与消息页、导入 Navicat 查询的预览,
+SQL 编辑器的结果表格与消息页、导入 Navicat 查询的预览、表结构设计器、导出对话框(选项 / 完成)、
+导入向导(选文件 / 映射列 / 结果),
 每个画面按 960、1280、1440 三种宽度和深浅两套主题各截一张,基准图在 `e2e/__screenshots__/`。
 只用 WebKit,因为 Tauri 在 macOS 上用的就是它,Chromium 的排版和它有出入。
 基准图依赖本机字体,换机器或升级系统后先 `pnpm test:visual:update`,再逐张看差异。
@@ -77,9 +85,12 @@ cargo test --workspace                      # Rust 单测 + SQLite 集成测试
 docker compose -f docker-compose.test.yml up -d                   # MySQL 5.7 + PostgreSQL 17
 docker compose -f docker-compose.test.yml --profile full up -d    # 再加 MySQL 8.4 + MariaDB 11.4
 BASALT_IT=1 cargo test --workspace          # 连 MySQL 5.7 与 PostgreSQL
-BASALT_IT=all cargo test --workspace        # 连全部四个容器(会在测试库里建 basalt_it / basalt_m2 / basalt_m3 / basalt_svc)
+BASALT_IT=all cargo test --workspace        # 连全部四个容器(会在测试库里建 basalt_it / basalt_m2 / basalt_m3 / basalt_m6 / basalt_svc)
 BASALT_IT=all cargo llvm-cov --workspace --fail-under-lines 80    # 覆盖率;不连容器时 MySQL / PG 驱动跑不到
 ```
+
+设了 `BASALT_IT` 时还会跑 `transfer_large`:每种库 10 万行(约 100 MB)导出 CSV / Excel 并量进程内存、
+中途取消、导回再取消,调试构建下要几分钟,`--nocapture` 能看到每一步的用时和内存。
 
 测试容器只监听 127.0.0.1:MySQL 5.7 `23306`、MySQL 8.4 `23307`、MariaDB `23308`、PostgreSQL `25432`,
 账号见 `docker-compose.test.yml`(仅用于本机一次性容器)。
@@ -90,7 +101,8 @@ ESLint 通过 `tools/typescript-eslint-ts6` 给 typescript-eslint 配了一份 T
 ## 目录
 
 ```
-crates/basalt-core/   连接配置、密码存储、驱动、会话、表数据读写、SQL 生成、SQL 编辑器的执行 / 历史 / 保存的查询(不依赖 Tauri)
+crates/basalt-core/   连接配置、密码存储、驱动、会话、表数据读写、SQL 生成、SQL 编辑器的执行 / 历史 / 保存的查询、
+                      导入导出(transfer/)(不依赖 Tauri)
 src-tauri/            Tauri 外壳:commands.rs 只做转发,逻辑在 service.rs
 src/                  前端:components 按界面区域组织,lib/api.ts 是后端接口
 e2e/                  Playwright 截图测试与基准图

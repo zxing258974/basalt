@@ -82,6 +82,16 @@
 }
 
 /* 预览与失败明细:表头吸顶,单元格等宽字、过长省略 */
+/*
+ * 行不多时高度由内容决定,可 WebKit 算自动高度时不算横向滚动条(系统设置成「始终显示滚动条」时它占地方),
+ * 最后一行会被挡住、还冒出纵向滚动条。按行数给个最小高度,多留一条滚动条的位置。
+ */
+.transfer-preview-scroll {
+  min-height: min(260px, calc(30px + var(--preview-rows, 0) * 25px + 16px));
+}
+.transfer-preview-scroll.has-subheaders {
+  min-height: min(260px, calc(46px + var(--preview-rows, 0) * 25px + 16px));
+}
 .transfer-preview-scroll,
 .transfer-mapping-scroll {
   max-height: 260px;

@@ -1,3 +1,10 @@
+import type { CSSProperties } from "react";
+
+/** 行数交给 CSS 算最小高度,给横向滚动条留出位置(见 transfer-tables.css)。 */
+export function previewRows(count: number): CSSProperties {
+  return { "--preview-rows": count } as CSSProperties;
+}
+
 /** 文件前几行的预览:行号、列头(可以带一行小字说明来源),NULL 显示成淡色的 NULL。 */
 export function PreviewTable({
   label,
@@ -14,7 +21,10 @@ export function PreviewTable({
 }) {
   if (headers.length === 0) return <p className="transfer-placeholder">没有可以预览的列。</p>;
   return (
-    <div className="transfer-preview-scroll">
+    <div
+      className={subheaders ? "transfer-preview-scroll has-subheaders" : "transfer-preview-scroll"}
+      style={previewRows(rows.length)}
+    >
       <table className="transfer-preview" aria-label={label}>
         <thead>
           <tr>

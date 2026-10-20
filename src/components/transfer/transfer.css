@@ -169,6 +169,14 @@
 .transfer-confirm {
   color: var(--text);
 }
+.transfer-cancelled {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font-size: var(--text-sm);
+  color: var(--text);
+}
 .transfer-error,
 .transfer-warning {
   display: flex;

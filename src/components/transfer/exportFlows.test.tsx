@@ -149,7 +149,8 @@ describe("exporting", { timeout: 15_000 }, () => {
 
     await user.click(within(status).getByRole("button", { name: "取消" }));
     expect(backend.cancelTransfer).toHaveBeenCalledTimes(1);
-    expect(await view.findByRole("alert")).toHaveTextContent("已取消，没有生成文件。");
+    expect(await view.findByText("已取消，没有生成文件。")).toBeInTheDocument();
+    expect(view.queryByRole("alert")).not.toBeInTheDocument();
 
     vi.spyOn(backend, "exportData").mockRejectedValueOnce({
       code: "invalid_data",

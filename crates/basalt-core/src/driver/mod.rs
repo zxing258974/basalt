@@ -3,11 +3,14 @@
 
 pub(crate) mod mysql;
 mod mysql_data;
+mod mysql_design;
 mod pg_binary;
 pub(crate) mod postgres;
 mod postgres_data;
+mod postgres_design;
 pub(crate) mod sqlite;
 mod sqlite_data;
+mod sqlite_design;
 
 use std::fmt;
 use std::time::Duration;

@@ -50,6 +50,9 @@ pub enum CoreError {
     /// 某条 UPDATE / DELETE 没有恰好命中一行,整个事务已回滚。
     #[error("{0}")]
     RowMismatch(String),
+    /// MySQL 逐条执行 DDL 时中途失败:前面的已经生效、无法回滚。
+    #[error("{0}")]
+    PartiallyApplied(String),
 }
 
 impl CoreError {
@@ -71,6 +74,7 @@ impl CoreError {
             Self::InvalidEdit(_) => "invalid_edit",
             Self::ReadOnly(_) => "read_only",
             Self::RowMismatch(_) => "row_mismatch",
+            Self::PartiallyApplied(_) => "partially_applied",
         }
     }
 

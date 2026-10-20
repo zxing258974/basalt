@@ -1,6 +1,7 @@
 //! 前端可调用的命令:只取出状态,交给 [`crate::service`]。
 
 use basalt_core::config::{ConnectionConfig, ConnectionDraft};
+use basalt_core::design::{DdlOutcome, DdlPreview, TableDesign};
 use basalt_core::driver::{ServerInfo, TableInfo};
 use basalt_core::import::ImportCandidate;
 use basalt_core::import::navicat::NavicatLocation;
@@ -121,6 +122,36 @@ pub async fn apply_table_changes(
     expected: Vec<String>,
 ) -> CommandResult<ApplyOutcome> {
     service::apply_table_changes(&state, &id, &table, &changes, &expected).await
+}
+
+#[tauri::command]
+pub async fn read_table_design(
+    state: State<'_, AppState>,
+    id: String,
+    table: TableRef,
+) -> CommandResult<TableDesign> {
+    service::read_table_design(&state, &id, &table).await
+}
+
+#[tauri::command]
+pub async fn preview_table_design(
+    state: State<'_, AppState>,
+    id: String,
+    original: Option<TableRef>,
+    design: TableDesign,
+) -> CommandResult<DdlPreview> {
+    service::preview_table_design(&state, &id, original.as_ref(), &design).await
+}
+
+#[tauri::command]
+pub async fn apply_table_design(
+    state: State<'_, AppState>,
+    id: String,
+    original: Option<TableRef>,
+    design: TableDesign,
+    expected: Vec<String>,
+) -> CommandResult<DdlOutcome> {
+    service::apply_table_design(&state, &id, original.as_ref(), &design, &expected).await
 }
 
 /// 本机 Navicat 的配置在用户主目录下;找不到主目录只影响本机来源,不妨碍导入 .ncx。

@@ -352,5 +352,9 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
     deleteSavedQuery: (query) => queries.deleteSavedQuery(query),
     scanNavicatQueries: () => queries.scanNavicatQueries(),
     importNavicatQueries: (ids) => queries.importNavicatQueries(ids),
+    // 浏览器里没有原生菜单和窗口关闭按钮,不会有退出请求。
+    setUnsavedWork: () => Promise.resolve(),
+    onQuitRequested: () => Promise.resolve(() => undefined),
+    quitApp: () => Promise.resolve(),
   };
 }

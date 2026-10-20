@@ -1,4 +1,5 @@
 mod commands;
+mod quit;
 mod service;
 #[cfg(test)]
 mod service_table_tests;
@@ -18,6 +19,10 @@ const KEYCHAIN_SERVICE: &str = "dev.basalt.app";
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .menu(quit::menu)
+        .on_menu_event(quit::on_menu_event)
+        .on_window_event(quit::on_window_event)
+        .manage(quit::QuitGuard::default())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -65,6 +70,8 @@ pub fn run() {
             commands::delete_saved_query,
             commands::scan_navicat_queries,
             commands::import_navicat_queries,
+            quit::set_unsaved_work,
+            quit::quit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Basalt");

@@ -144,6 +144,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-log",
+ "tauri-runtime",
  "tempfile",
  "tokio",
  "uuid",

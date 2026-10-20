@@ -13,6 +13,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [dev-dependencies]
 tempfile.workspace = true
 sqlx.workspace = true
+# 用 mock 运行时测退出前确认(quit.rs);tauri-runtime 用来构造窗口事件。
+tauri = { version = "2.12.4", features = ["test"] }
+tauri-runtime = "2.12.2"
 
 [build-dependencies]
 tauri-build = { version = "2.7.3", features = [] }

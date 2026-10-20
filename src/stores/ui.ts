@@ -18,6 +18,8 @@ export interface DiscardPrompt {
   queries: number;
   /** 表结构没保存的设计器个数。 */
   designs: number;
+  /** 是退出整个应用(⌘Q、关主窗口),不是关标签页或连接。 */
+  quit?: boolean;
   onConfirm(): void;
   onCancel?(): void;
 }

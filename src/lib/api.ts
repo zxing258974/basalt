@@ -71,7 +71,16 @@ export interface Backend {
   /** 扫描本机 Navicat 保存的查询,给出预览;不写任何东西。 */
   scanNavicatQueries(): Promise<QueryImportCandidate[]>;
   importNavicatQueries(ids: string[]): Promise<QueryImportReport>;
+  /** 告诉后端现在有没有未提交的表格修改、没保存的查询:有的话 ⌘Q、关窗口会先拦下来问前端。 */
+  setUnsavedWork(unsaved: boolean): Promise<void>;
+  /** 用户按了 ⌘Q 或关主窗口、后端拦下来了;返回取消监听的函数。 */
+  onQuitRequested(handler: () => void): Promise<() => void>;
+  /** 不再检查,直接退出应用。 */
+  quitApp(): Promise<void>;
 }
+
+/** 后端拦下退出时发给前端的事件,和 src-tauri/src/quit.rs 一致。 */
+const QUIT_REQUESTED_EVENT = "quit-requested";
 
 function createTauriBackend(): Backend {
   // 动态导入,浏览器里跑 mock 时不会加载 Tauri 运行时。
@@ -131,6 +140,12 @@ function createTauriBackend(): Backend {
     deleteSavedQuery: (query) => call("delete_saved_query", { query }),
     scanNavicatQueries: () => call("scan_navicat_queries"),
     importNavicatQueries: (ids) => call("import_navicat_queries", { ids }),
+    setUnsavedWork: (unsaved) => call("set_unsaved_work", { unsaved }),
+    onQuitRequested: async (handler) => {
+      const { listen } = await import("@tauri-apps/api/event");
+      return listen(QUIT_REQUESTED_EVENT, () => handler());
+    },
+    quitApp: () => call("quit_app"),
   };
 }
 

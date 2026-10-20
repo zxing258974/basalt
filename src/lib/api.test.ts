@@ -5,7 +5,9 @@ import type { ConnectionDraft } from "./types";
 
 const invoke = vi.hoisted(() => vi.fn<(command: string, args?: Record<string, unknown>) => Promise<unknown>>());
 const openDialog = vi.hoisted(() => vi.fn<(options: unknown) => Promise<string | string[] | null>>());
+const listen = vi.hoisted(() => vi.fn<(event: string, handler: () => void) => Promise<() => void>>());
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+vi.mock("@tauri-apps/api/event", () => ({ listen }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: openDialog }));
 
 const tauriWindow = window as unknown as Record<string, unknown>;
@@ -110,6 +112,8 @@ describe("Tauri backend", () => {
     ["deleteSavedQuery", (b) => b.deleteSavedQuery(saved), "delete_saved_query", { query: saved }],
     ["scanNavicatQueries", (b) => b.scanNavicatQueries(), "scan_navicat_queries"],
     ["importNavicatQueries", (b) => b.importNavicatQueries(["a"]), "import_navicat_queries", { ids: ["a"] }],
+    ["setUnsavedWork", (b) => b.setUnsavedWork(true), "set_unsaved_work", { unsaved: true }],
+    ["quitApp", (b) => b.quitApp(), "quit_app"],
   ];
 
   it.each(calls)("%s invokes the matching command", async (_name, run, command, args) => {
@@ -120,6 +124,20 @@ describe("Tauri backend", () => {
   it("passes the command result through", async () => {
     invoke.mockResolvedValue(["shop", "mysql"]);
     expect(await (await getBackend()).listDatabases("c1")).toEqual(["shop", "mysql"]);
+  });
+
+  it("listens for the quit request the Rust side sends", async () => {
+    const unlisten = vi.fn();
+    let emit = () => {};
+    listen.mockImplementationOnce((_event, onEvent) => {
+      emit = onEvent;
+      return Promise.resolve(unlisten);
+    });
+    const handler = vi.fn();
+    expect(await (await getBackend()).onQuitRequested(handler)).toBe(unlisten);
+    expect(listen).toHaveBeenCalledWith("quit-requested", expect.any(Function));
+    emit();
+    expect(handler).toHaveBeenCalledOnce();
   });
 
   it("asks the native dialog for a single SQLite file", async () => {

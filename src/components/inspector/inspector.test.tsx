@@ -1,5 +1,5 @@
 // 右侧信息面板(mock 后端):跟着对象树的选中走、属性与建表语句两页、开关记在本机、读不到时说原因。
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockBackend } from "../../lib/mockBackend";
 import { useInspector } from "../../stores/inspector";
@@ -56,6 +56,25 @@ describe("inspector panel", () => {
     await user.click(toggle());
     expect(screen.getByRole("complementary", { name: "信息" })).toBeInTheDocument();
     expect(localStorage.getItem("basalt.inspector.open")).toBe("1");
+  });
+
+  it("can be dragged wider from its left edge, like the sidebar", async () => {
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    const { user, container } = await openShop();
+    const shell = container.querySelector<HTMLElement>(".app-shell")!;
+    const resizer = screen.getByRole("separator", { name: "调整信息面板宽度" });
+    expect(shell.style.getPropertyValue("--inspector-width")).toBe("280px");
+    fireEvent.pointerDown(resizer, { clientX: 900, pointerId: 1 });
+    fireEvent.pointerMove(resizer, { clientX: 780 });
+    fireEvent.pointerUp(resizer);
+    expect(shell.style.getPropertyValue("--inspector-width")).toBe("400px");
+    expect(localStorage.getItem("basalt.inspectorWidth")).toBe("400");
+
+    await user.click(toggle());
+    expect(screen.queryByRole("separator", { name: "调整信息面板宽度" })).not.toBeInTheDocument();
+    expect(shell.style.getPropertyValue("--inspector-width")).toBe("0px");
+    await user.click(toggle());
+    expect(shell.style.getPropertyValue("--inspector-width")).toBe("400px");
   });
 
   it("explains why the details could not be read", async () => {

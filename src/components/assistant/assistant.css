@@ -1,7 +1,4 @@
 /* ---------- SQL 助手:查询页右侧,和执行历史同一层表面 ---------- */
-.query-body.has-assistant {
-  grid-template-columns: minmax(0, 1fr) 340px;
-}
 .assistant {
   min-width: 0;
   min-height: 0;

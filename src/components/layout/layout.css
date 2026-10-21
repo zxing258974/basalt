@@ -1,16 +1,15 @@
+/* 两根分隔条各占一条 0 宽的列;信息面板再宽也给工作区留 320px(窗口缩小后也一样) */
 .app-shell {
-  --inspector-width: 0px;
   display: grid;
-  grid-template-columns: var(--sidebar-width) 0 minmax(0, 1fr) var(--inspector-width);
+  grid-template-columns:
+    var(--sidebar-width) 0 minmax(0, 1fr) 0
+    min(var(--inspector-width), max(0px, 100% - var(--sidebar-width) - 320px));
   grid-template-rows: var(--toolbar-height) minmax(0, 1fr) var(--statusbar-height);
   grid-template-areas:
-    "toolbar toolbar toolbar toolbar"
-    "sidebar resizer workspace inspector"
-    "status status status status";
+    "toolbar toolbar toolbar toolbar toolbar"
+    "sidebar resizer workspace inspector-resizer inspector"
+    "status status status status status";
   height: 100vh;
-}
-.app-shell.has-inspector {
-  --inspector-width: 280px;
 }
 
 /* ---------- 工具栏:Overlay 标题栏,左侧让出红绿灯 ---------- */
@@ -102,20 +101,33 @@
 }
 .sidebar-resizer {
   grid-area: resizer;
+}
+.inspector-resizer {
+  grid-area: inspector-resizer;
+}
+/* 面板分隔条:本身 0 宽,两边各伸 3px 当把手;悬停、拖动、键盘聚焦时亮出一道余烬色的线 */
+.panel-resizer {
   position: relative;
   z-index: 2;
   width: 0;
+  min-height: 0;
+  outline: none;
+  touch-action: none;
 }
-.sidebar-resizer::after {
+.panel-resizer::after {
   content: "";
   position: absolute;
   inset: 0 -3px;
   cursor: col-resize;
 }
-.sidebar-resizer:hover::after,
-.sidebar-resizer:active::after {
+.panel-resizer:hover::after,
+.panel-resizer:active::after,
+.panel-resizer:focus-visible::after {
   background: linear-gradient(to right, transparent 2px, var(--accent) 2px, var(--accent) 4px, transparent 4px);
   opacity: 0.6;
+}
+.panel-resizer:focus-visible::after {
+  opacity: 1;
 }
 
 /* ---------- 工作区 ---------- */

@@ -1,5 +1,5 @@
 // SQL 助手(mock 后端):生成 SQL 并插入编辑器(不执行)、优化当前 SQL、停止、出错、⌘↩ 不会执行 SQL、没配置模型时。
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Backend } from "../../lib/api";
 import type { ChatDelta, ChatRequest } from "../../lib/llmTypes";
@@ -179,6 +179,30 @@ describe("SQL assistant", { timeout: 15_000 }, () => {
     expect(panel.getByText("DELETE FROM orders WHERE id = 7;")).toBeInTheDocument();
     expect(panel.getByText(/含 DELETE：会改动数据或表结构/)).toBeInTheDocument();
     expect(panel.getByRole("textbox", { name: "问助手" })).toHaveFocus();
+  });
+
+  it("is resized from its left edge, separately from the history panel", async () => {
+    localStorage.clear();
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    const { user, container } = await openAssistant();
+    const body = container.querySelector<HTMLElement>(".query-body")!;
+    const drag = (name: string, dx: number) => {
+      const resizer = screen.getByRole("separator", { name });
+      fireEvent.pointerDown(resizer, { clientX: 800, pointerId: 1 });
+      fireEvent.pointerMove(resizer, { clientX: 800 + dx });
+      fireEvent.pointerUp(resizer);
+    };
+    expect(body.style.getPropertyValue("--query-side-width")).toBe("340px");
+    drag("调整 SQL 助手宽度", -160);
+    expect(body.style.getPropertyValue("--query-side-width")).toBe("500px");
+    expect(localStorage.getItem("basalt.assistantWidth")).toBe("500");
+
+    await user.click(screen.getByRole("button", { name: "历史" }));
+    expect(body.style.getPropertyValue("--query-side-width")).toBe("300px");
+    drag("调整执行历史宽度", 40);
+    expect(body.style.getPropertyValue("--query-side-width")).toBe("260px");
+    await user.click(screen.getByRole("button", { name: "助手" }));
+    expect(body.style.getPropertyValue("--query-side-width")).toBe("500px");
   });
 
   it("can still stop after the panel is reopened, and closing the tab stops the answer", async () => {

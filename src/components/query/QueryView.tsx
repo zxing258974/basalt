@@ -22,11 +22,30 @@ import { SaveQueryDialog } from "./SaveQueryDialog";
 import { editorDialect, SqlEditor, type SqlEditorHandle } from "./SqlEditor";
 import { useCompletionProvider } from "./useCompletionProvider";
 import { useEditorHeight } from "./useEditorHeight";
+import { usePanelWidth, type PanelWidthOptions } from "../../hooks/usePanelWidth";
 import { useQueryRunner } from "./useQueryRunner";
 import { hasPrimaryModifier } from "../../lib/platform";
 
 /** 和保存时的内容比;没保存过的,写了东西就算有改动。 */
 const isDirty = (text: string, baseline: string, saved: boolean) => (saved ? text !== baseline : text.trim() !== "");
+
+/** 右侧栏两种面板各记各的宽度:助手要放代码,通常比历史宽。 */
+const HISTORY_PANEL: PanelWidthOptions = {
+  storageKey: "basalt.historyWidth",
+  defaultWidth: 300,
+  min: 240,
+  max: 640,
+  edge: "left",
+  label: "调整执行历史宽度",
+};
+const ASSISTANT_PANEL: PanelWidthOptions = {
+  storageKey: "basalt.assistantWidth",
+  defaultWidth: 340,
+  min: 280,
+  max: 720,
+  edge: "left",
+  label: "调整 SQL 助手宽度",
+};
 
 export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
   const connection = useConnections().data?.find((c) => c.id === tab.connectionId);
@@ -49,6 +68,9 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
   const { run, execute, cancel } = useQueryRunner(tab);
   const provider = useCompletionProvider(tab.connectionId, driver, tab.scope);
   const { height, handlers } = useEditorHeight();
+  const historyWidth = usePanelWidth(HISTORY_PANEL);
+  const assistantWidth = usePanelWidth(ASSISTANT_PANEL);
+  const sidePanel = side === "assistant" ? assistantWidth : side === "history" ? historyWidth : null;
 
   const markDirty = useCallback(
     (next: boolean) => {
@@ -198,9 +220,8 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
         </p>
       )}
       <div
-        className={
-          side === "assistant" ? "query-body has-history has-assistant" : side ? "query-body has-history" : "query-body"
-        }
+        className={sidePanel ? "query-body has-side" : "query-body"}
+        style={sidePanel ? ({ "--query-side-width": `${sidePanel.width}px` } as React.CSSProperties) : undefined}
       >
         <div className="query-main" style={{ "--editor-height": `${height}px` } as React.CSSProperties}>
           <SqlEditor
@@ -241,6 +262,7 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
             }
           />
         </div>
+        {sidePanel && <div className="panel-resizer" {...sidePanel.separator} />}
         {side === "history" && (
           <HistoryPanel
             connectionId={tab.connectionId}

@@ -1,10 +1,7 @@
 // 关键画面的截图回归。宽度和深浅主题由 playwright.config.ts 里的 project 决定,
 // 基准图在 e2e/__screenshots__/,界面有意改动后用 `pnpm test:visual:update` 重新生成。
 import { expect, test, type Page } from "@playwright/test";
-
-/** 双击、右键这些事件挂在 treeitem 的第一行上。 */
-const row = (page: Page, name: string) =>
-  page.getByRole("treeitem", { name, exact: true }).locator(":scope > .tree-row");
+import { askAssistant, expandShop, expectFitsWindow, inspectCustomers, openWelcome, row } from "./helpers";
 
 /** 鼠标停在哪个按钮上就会带上悬停样式,截图前挪到状态栏左下角。 */
 async function parkPointer(page: Page) {
@@ -12,33 +9,11 @@ async function parkPointer(page: Page) {
   await page.mouse.move(1, (viewport?.height ?? 1) - 1);
 }
 
-/** 页面不能比窗口宽:超出的部分在桌面窗口里看不到,也滚不过去。 */
-async function expectFitsWindow(page: Page) {
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-  expect(overflow, "页面横向超出窗口的像素").toBeLessThanOrEqual(0);
-}
-
 async function snapshot(page: Page, name: string) {
   await expectFitsWindow(page);
   await parkPointer(page);
   await page.evaluate(() => document.fonts.ready);
   await expect(page).toHaveScreenshot(`${name}.png`);
-}
-
-async function openWelcome(page: Page) {
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: /看清每一张表/ })).toBeVisible();
-  await expect(page.getByRole("treeitem", { name: "笔记" })).toBeVisible();
-}
-
-/** 展开「开发 → 本地 MySQL → shop → 表」。 */
-async function expandShop(page: Page) {
-  await row(page, "开发").dblclick();
-  await row(page, "本地 MySQL").dblclick();
-  await row(page, "shop").click();
-  await page.keyboard.press("ArrowRight");
-  await row(page, "表").dblclick();
-  await expect(page.getByRole("treeitem", { name: "customers" })).toBeVisible();
 }
 
 test("welcome", async ({ page }) => {
@@ -76,18 +51,6 @@ test("new connection: MySQL form", async ({ page }) => {
 });
 
 /** 选中 customers:右侧信息面板显示它的属性(窄窗口默认收着,点工具栏的「信息」打开)。 */
-async function inspectCustomers(page: Page) {
-  await openWelcome(page);
-  await expandShop(page);
-  await row(page, "customers").click();
-  const toggle = page.getByRole("banner").getByRole("button", { name: "信息" });
-  if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
-  const panel = page.getByRole("complementary", { name: "信息" });
-  await expect(panel.getByRole("heading", { name: "customers" })).toBeVisible();
-  await expect(panel.getByText("InnoDB")).toBeVisible();
-  return panel;
-}
-
 test("inspector: table properties", async ({ page }) => {
   await inspectCustomers(page);
   await snapshot(page, "inspector-properties");
@@ -140,18 +103,6 @@ test("query: result grid", async ({ page }) => {
 });
 
 /** 在 shop 上新建查询,打开 SQL 助手,问一句等它答完。 */
-async function askAssistant(page: Page) {
-  await openWelcome(page);
-  await row(page, "开发").dblclick();
-  await row(page, "本地 MySQL").dblclick();
-  await row(page, "shop").click({ button: "right" });
-  await page.getByRole("menuitem", { name: /新建查询/ }).click();
-  await page.getByRole("button", { name: "助手", exact: true }).click();
-  const panel = page.getByRole("complementary", { name: "SQL 助手" });
-  await expect(panel.getByText(/会附带「shop」里 \d+ 张表的结构/)).toBeVisible();
-  return panel;
-}
-
 test("assistant: generated SQL", async ({ page }) => {
   const panel = await askAssistant(page);
   await panel.getByRole("textbox", { name: "问助手" }).fill("查最近 30 天的订单，带上客户名");

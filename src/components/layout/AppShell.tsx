@@ -1,5 +1,6 @@
-import { lazy, Suspense, useCallback, useRef, useState, type PointerEvent } from "react";
+import { lazy, Suspense } from "react";
 import { useConnections } from "../../hooks/useCatalog";
+import { usePanelWidth, type PanelWidthOptions } from "../../hooks/usePanelWidth";
 import { useInspector } from "../../stores/inspector";
 import { useTabs, type Tab } from "../../stores/tabs";
 import { TableDesignView } from "../design/TableDesignView";
@@ -16,60 +17,38 @@ import { Toolbar } from "./Toolbar";
 // SQL 编辑器(CodeMirror)只在打开查询标签页时才加载,不拖慢启动。
 const QueryView = lazy(() => import("../query/QueryView").then((m) => ({ default: m.QueryView })));
 
-const SIDEBAR_WIDTH_KEY = "basalt.sidebarWidth";
-const SIDEBAR_DEFAULT = 260;
-const SIDEBAR_MIN = 200;
-const SIDEBAR_MAX = 480;
-
-const clampWidth = (width: number) => Math.min(Math.max(width, SIDEBAR_MIN), SIDEBAR_MAX);
-
-/** 侧栏宽度只是个人偏好:读写失败(隐私模式等)就用默认值。 */
-function readSidebarWidth(): number {
-  try {
-    const saved = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
-    return saved ? clampWidth(saved) : SIDEBAR_DEFAULT;
-  } catch {
-    return SIDEBAR_DEFAULT;
-  }
-}
-
-function saveSidebarWidth(width: number): void {
-  try {
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
-  } catch (error) {
-    console.warn("无法保存侧栏宽度", error);
-  }
-}
+const SIDEBAR: PanelWidthOptions = {
+  storageKey: "basalt.sidebarWidth",
+  defaultWidth: 260,
+  min: 200,
+  max: 480,
+  edge: "right",
+  label: "调整侧栏宽度",
+};
+const INSPECTOR: PanelWidthOptions = {
+  storageKey: "basalt.inspectorWidth",
+  defaultWidth: 280,
+  min: 240,
+  max: 600,
+  edge: "left",
+  label: "调整信息面板宽度",
+};
 
 export function AppShell() {
-  const [width, setWidth] = useState(readSidebarWidth);
-  const drag = useRef<{ startX: number; startWidth: number; latest: number } | null>(null);
+  const sidebar = usePanelWidth(SIDEBAR);
+  const inspector = usePanelWidth(INSPECTOR);
   const connectionCount = useConnections().data?.length ?? 0;
   const inspectorOpen = useInspector((s) => s.open);
-
-  const onPointerDown = useCallback(
-    (event: PointerEvent<HTMLDivElement>) => {
-      event.currentTarget.setPointerCapture(event.pointerId);
-      drag.current = { startX: event.clientX, startWidth: width, latest: width };
-    },
-    [width],
-  );
-  const onPointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
-    if (!drag.current) return;
-    const next = clampWidth(drag.current.startWidth + event.clientX - drag.current.startX);
-    drag.current.latest = next;
-    setWidth(next);
-  }, []);
-  const onPointerUp = useCallback(() => {
-    if (!drag.current) return;
-    saveSidebarWidth(drag.current.latest);
-    drag.current = null;
-  }, []);
 
   return (
     <div
       className={inspectorOpen ? "app-shell has-inspector" : "app-shell"}
-      style={{ "--sidebar-width": `${width}px` } as React.CSSProperties}
+      style={
+        {
+          "--sidebar-width": `${sidebar.width}px`,
+          "--inspector-width": `${inspectorOpen ? inspector.width : 0}px`,
+        } as React.CSSProperties
+      }
     >
       <Toolbar />
       <aside className="sidebar" aria-label="对象树">
@@ -81,28 +60,14 @@ export function AppShell() {
           <ObjectTree />
         </div>
       </aside>
-      <div
-        className="sidebar-resizer"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="调整侧栏宽度"
-        aria-valuenow={width}
-        aria-valuemin={SIDEBAR_MIN}
-        aria-valuemax={SIDEBAR_MAX}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onDoubleClick={() => {
-          setWidth(SIDEBAR_DEFAULT);
-          saveSidebarWidth(SIDEBAR_DEFAULT);
-        }}
-      />
+      <div className="panel-resizer sidebar-resizer" {...sidebar.separator} />
       <main className="workspace">
         <TabBar />
         <div className="workspace-body">
           <TabPanels />
         </div>
       </main>
+      {inspectorOpen && <div className="panel-resizer inspector-resizer" {...inspector.separator} />}
       {inspectorOpen && <InspectorPanel />}
       <StatusBar />
     </div>

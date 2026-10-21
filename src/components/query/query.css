@@ -102,8 +102,9 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
 }
-.query-body.has-history {
-  grid-template-columns: minmax(0, 1fr) 300px;
+/* 右侧栏(执行历史或 SQL 助手)可拖宽,中间夹一条 0 宽的分隔条;再宽也给编辑器留 320px */
+.query-body.has-side {
+  grid-template-columns: minmax(0, 1fr) 0 min(var(--query-side-width), max(0px, 100% - 320px));
 }
 /* 列宽要钉成 minmax(0, 1fr):隐式列按内容取宽,宽结果表会把整页撑出窗口 */
 .query-main {

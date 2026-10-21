@@ -222,22 +222,12 @@ optional = true
 version = "0.26"
 optional = true
 
-[dev-dependencies.sqlx]
-version = "=0.8.6"
-features = [
-    "postgres",
-    "sqlite",
-    "mysql",
-    "migrate",
-    "macros",
-    "time",
-    "uuid",
-]
-default-features = false
+# basalt 补丁:去掉了 dev-dependencies(sqlx 自身、tokio rt,只给文档测试用),
+# 这样在 basalt 的工作区里能直接 `cargo test -p sqlx-core --lib` 跑单元测试。
 
-[dev-dependencies.tokio]
-version = "1"
-features = ["rt"]
+# basalt 补丁:作为路径依赖编译时 cargo 不压它的警告;新版 rustc 对原代码报的这条与补丁无关。
+[lints.rust]
+mismatched_lifetime_syntaxes = "allow"
 
 [features]
 _rt-async-std = [

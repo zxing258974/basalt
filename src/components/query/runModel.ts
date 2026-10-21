@@ -1,5 +1,5 @@
 // 执行的纯逻辑:要执行哪几条语句、每条的结果怎么说、结果分成哪几个标签。不碰后端和 DOM。
-import type { ResultSet, StatementOutcome } from "../../lib/queryTypes";
+import type { QueryScope, ResultSet, StatementOutcome } from "../../lib/queryTypes";
 import { splitStatements, statementAtCursor, type SqlDialect, type SqlStatement } from "./splitStatements";
 
 export type RunMode = "current" | "all";
@@ -104,6 +104,8 @@ export interface ResultTab {
   label: string;
   /** 产生它的那条语句,标签的提示里显示。 */
   sql: string;
+  /** 执行那条语句时所在的库 / schema:导出全部结果要重新执行时回到这里,不跟着标签页后来换的库走。 */
+  scope: QueryScope;
   set: ResultSet;
 }
 
@@ -111,7 +113,13 @@ export interface ResultTab {
 export function resultTabs(entries: readonly RunEntry[]): ResultTab[] {
   return entries
     .flatMap((entry, i) =>
-      (entry.outcome?.resultSets ?? []).map((set, j) => ({ key: `r${i}-${j}`, label: "", sql: entry.sql, set })),
+      (entry.outcome?.resultSets ?? []).map((set, j) => ({
+        key: `r${i}-${j}`,
+        label: "",
+        sql: entry.sql,
+        scope: entry.outcome!.scope,
+        set,
+      })),
     )
     .map((tab, n) => ({ ...tab, label: `结果 ${n + 1}` }));
 }

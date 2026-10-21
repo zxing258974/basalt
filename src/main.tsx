@@ -14,6 +14,8 @@ import "./components/data/data.css";
 import "./components/data/grid.css";
 import "./components/query/query.css";
 import "./components/query/queryPanels.css";
+import "./components/transfer/transfer.css";
+import "./components/transfer/transfer-tables.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("找不到 #root 挂载点");

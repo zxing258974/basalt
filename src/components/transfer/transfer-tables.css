@@ -1,0 +1,243 @@
+/* ---------- 导入导出:结果、选文件、预览与映射表、向导步骤 ---------- */
+/* 完成 */
+.transfer-done,
+.transfer-result {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+.transfer-done-icon,
+.transfer-result-icon {
+  width: 22px;
+  height: 22px;
+  color: var(--success);
+}
+.transfer-done-title,
+.transfer-result-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+}
+.transfer-done-path {
+  margin: var(--space-3) 0 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transfer-result.is-warning .transfer-result-icon {
+  color: var(--accent);
+}
+.transfer-result.is-error .transfer-result-icon {
+  color: var(--danger);
+}
+.transfer-result-summary {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-md);
+  line-height: 1.6;
+  color: var(--text);
+}
+.transfer-result-stats {
+  display: flex;
+  gap: var(--space-6);
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.transfer-result-stats strong {
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+}
+
+/* 选文件 */
+.transfer-file {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  min-width: 0;
+}
+.transfer-file-text {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.transfer-file-name {
+  overflow: hidden;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transfer-file-meta {
+  overflow: hidden;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 预览与失败明细:表头吸顶,单元格等宽字、过长省略 */
+/*
+ * 行不多时高度由内容决定,可 WebKit 算自动高度时不算横向滚动条(系统设置成「始终显示滚动条」时它占地方),
+ * 最后一行会被挡住、还冒出纵向滚动条。按行数给个最小高度,多留一条滚动条的位置。
+ */
+.transfer-preview-scroll {
+  min-height: min(260px, calc(30px + var(--preview-rows, 0) * 25px + 16px));
+}
+.transfer-preview-scroll.has-subheaders {
+  min-height: min(260px, calc(46px + var(--preview-rows, 0) * 25px + 16px));
+}
+.transfer-preview-scroll,
+.transfer-mapping-scroll {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-canvas);
+}
+.transfer-preview,
+.transfer-mapping {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--text-sm);
+}
+.transfer-preview th,
+.transfer-mapping thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-chrome);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-align: left;
+  white-space: nowrap;
+}
+.transfer-preview-head {
+  display: block;
+  color: var(--text-strong);
+}
+.transfer-preview-sub {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--text-faint);
+  font-weight: var(--weight-regular);
+}
+.transfer-preview td {
+  max-width: 220px;
+  height: 24px;
+  padding: 0 var(--space-4);
+  overflow: hidden;
+  border-bottom: 1px solid var(--line-hairline);
+  font-family: var(--font-mono);
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transfer-preview td.is-null {
+  color: var(--text-faint);
+  font-style: italic;
+}
+.transfer-preview-gutter {
+  width: 1%;
+  color: var(--text-faint);
+  text-align: right;
+}
+.transfer-failures td.transfer-failure-reason {
+  max-width: 360px;
+  font-family: var(--font-ui);
+  white-space: normal;
+}
+.transfer-mapping-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+}
+.transfer-mapping-scroll {
+  max-height: 220px;
+}
+.transfer-mapping tbody th,
+.transfer-mapping td {
+  height: 30px;
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--line-hairline);
+  font-weight: var(--weight-regular);
+  text-align: left;
+}
+.transfer-mapping td .transfer-select {
+  height: 24px;
+}
+.transfer-mapping tr.is-skipped .transfer-mapping-name {
+  color: var(--text-faint);
+}
+.transfer-mapping-name {
+  color: var(--text-strong);
+}
+.transfer-mapping-type {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.transfer-tag {
+  margin-left: var(--space-3);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-xs);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+}
+.transfer-tag.is-required {
+  background: var(--change-edited);
+  color: var(--text-strong);
+}
+
+/* 向导步骤:页脚左边,当前一步用余烬,走过的变淡 */
+.transfer-steps {
+  display: flex;
+  gap: var(--space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+.transfer-steps li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.transfer-step-number {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  font-size: var(--text-2xs);
+}
+.transfer-steps li.is-current {
+  color: var(--text-strong);
+  font-weight: var(--weight-medium);
+}
+.transfer-steps li.is-current .transfer-step-number {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+.transfer-steps li.is-done {
+  color: var(--text-muted);
+}
+
+/* 查询结果的标签条:导出按钮靠右 */
+.query-result-export {
+  align-self: center;
+  margin-left: auto;
+}

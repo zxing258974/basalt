@@ -1,7 +1,8 @@
-import { Table2, TriangleAlert } from "lucide-react";
+import { FileDown, Table2, TriangleAlert } from "lucide-react";
+import { Button } from "../ui/Button";
 import { MessagesView } from "./MessagesView";
 import { ResultGrid } from "./ResultGrid";
-import { resultTabs, type RunState } from "./runModel";
+import { resultTabs, type ResultTab, type RunState } from "./runModel";
 
 export const MESSAGES = "messages";
 
@@ -11,10 +12,12 @@ interface ResultPanelProps {
   /** 选中的标签;null 或找不到时显示第一个。 */
   active: string | null;
   onActiveChange(key: string): void;
+  /** 导出选中的结果集。 */
+  onExport(tab: ResultTab): void;
 }
 
 /** 编辑器下面的结果区:每个结果集一个标签,最后是「消息」。 */
-export function ResultPanel({ title, run, active, onActiveChange }: ResultPanelProps) {
+export function ResultPanel({ title, run, active, onActiveChange, onExport }: ResultPanelProps) {
   const tabs = resultTabs(run.entries);
   if (run.entries.length === 0) {
     return (
@@ -53,6 +56,19 @@ export function ResultPanel({ title, run, active, onActiveChange }: ResultPanelP
           {failed && <TriangleAlert aria-hidden />}
           消息
         </button>
+        {shown && (
+          <Button
+            className="query-result-export"
+            variant="ghost"
+            size="sm"
+            icon={<FileDown />}
+            disabled={run.running}
+            title={shown.set.truncated ? "导出时会重新执行这条语句，读出全部结果" : "导出这个结果集"}
+            onClick={() => onExport(shown)}
+          >
+            导出
+          </Button>
+        )}
       </div>
       <div className="query-result-body" role="tabpanel">
         {shown ? (

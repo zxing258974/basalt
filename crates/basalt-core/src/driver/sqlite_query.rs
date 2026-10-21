@@ -16,10 +16,10 @@ use crate::query::ResultColumn;
 use crate::query::collect::{Collected, collect, described_columns};
 
 /// 每执行这么多条虚拟机指令检查一次取消标志:够及时,又几乎不拖慢执行。
-const PROGRESS_STEPS: i32 = 1000;
+pub(super) const PROGRESS_STEPS: i32 = 1000;
 
 pub(crate) struct SqliteEditor {
-    conn: SqliteConnection,
+    pub(super) conn: SqliteConnection,
 }
 
 impl SqliteSession {

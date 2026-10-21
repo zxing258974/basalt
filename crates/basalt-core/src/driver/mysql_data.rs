@@ -117,7 +117,7 @@ impl MysqlSession {
     }
 }
 
-fn bind(
+pub(super) fn bind(
     query: Query<'_, MySql, MySqlArguments>,
     value: BindValue,
 ) -> Query<'_, MySql, MySqlArguments> {

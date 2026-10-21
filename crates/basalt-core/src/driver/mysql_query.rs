@@ -14,7 +14,7 @@ use crate::sql::{Dialect, quote_ident};
 use crate::value::CellValue;
 
 pub(crate) struct MysqlEditor {
-    conn: MySqlConnection,
+    pub(super) conn: MySqlConnection,
     thread_id: u64,
 }
 

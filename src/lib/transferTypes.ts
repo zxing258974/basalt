@@ -1,0 +1,135 @@
+// 导入导出:与 crates/basalt-core/src/transfer 和 src-tauri/src/service/transfer.rs 的序列化结构对应。
+import type { QueryScope, ResultColumn } from "./queryTypes";
+import type { CellValue, ColumnInfo, SortSpec, TableRef } from "./types";
+
+export type BinaryEncoding = "hex" | "base64";
+export type TextEncoding = "utf8" | "utf8Bom" | "gbk";
+
+export interface CsvOptions {
+  delimiter: string;
+  quote: string;
+  /** 第一行写列名。 */
+  header: boolean;
+  encoding: TextEncoding;
+}
+
+export type ExportFormat =
+  | ({ kind: "csv" } & CsvOptions)
+  | { kind: "xlsx" }
+  /** lines:每行一个对象(JSON Lines),否则是一个数组。 */
+  | { kind: "json"; lines: boolean }
+  | { kind: "sql"; table: string; rowsPerStatement: number };
+
+export type ExportFormatKind = ExportFormat["kind"];
+
+export interface ExportOptions {
+  format: ExportFormat;
+  binary: BinaryEncoding;
+}
+
+export type ExportSource =
+  /** 整张表,或表数据页当前筛选条件下的全部结果。 */
+  | { kind: "table"; table: TableRef; filter: string | null; sort: SortSpec | null }
+  /** 结果超出显示上限:在查询标签页自己的连接上重新执行,读出全部结果。 */
+  | { kind: "query"; editorId: string; scope: QueryScope; sql: string }
+  /** 结果已经完整显示了:直接写这些行。 */
+  | { kind: "rows"; columns: ResultColumn[]; rows: CellValue[][] };
+
+export interface ExportRequest {
+  connectionId: string;
+  source: ExportSource;
+  options: ExportOptions;
+  path: string;
+}
+
+export interface ExportOutcome {
+  rows: number;
+  bytes: number;
+  path: string;
+  /** 准备连接时发生的事(断线重连过)。 */
+  notice: string | null;
+}
+
+export type TransferPhase = "preparing" | "exporting" | "checking" | "importing" | "finishing";
+
+/** 后端经 transfer-progress 事件推来的进度。 */
+export interface TransferProgress {
+  jobId: string;
+  phase: TransferPhase;
+  rows: number;
+  failed: number;
+  /** 已知总量时的完成比例(0–1)。 */
+  fraction: number | null;
+}
+
+export type SourceFormat =
+  /** encoding、delimiter 为 null 时自动探测。 */
+  | { kind: "csv"; encoding: TextEncoding | null; delimiter: string | null; quote: string }
+  /** sheet 为 null 时用第一个工作表。 */
+  | { kind: "excel"; sheet: string | null };
+
+export interface SourceSpec {
+  path: string;
+  /** null:按扩展名判断。 */
+  format: SourceFormat | null;
+  hasHeader: boolean;
+}
+
+export interface SourcePreview {
+  /** 探测之后实际用的格式。 */
+  format: SourceFormat;
+  sheets: string[];
+  headers: string[];
+  /** 前 20 行,null 是 NULL。 */
+  rows: (string | null)[][];
+  rowNumbers: number[];
+}
+
+/** 目标列 column 取来源第 source 列;null 是不导入。 */
+export interface ColumnMapping {
+  column: string;
+  source: number | null;
+}
+
+export interface ImportPreview {
+  source: SourcePreview;
+  columns: ColumnInfo[];
+  mapping: ColumnMapping[];
+}
+
+export type OnError = "stop" | "skip";
+
+export interface ImportOptions {
+  onError: OnError;
+  batchSize: number;
+  clearTable: boolean;
+  binary: BinaryEncoding;
+}
+
+export interface ImportRequest {
+  connectionId: string;
+  table: TableRef;
+  source: SourceSpec;
+  mapping: ColumnMapping[];
+  options: ImportOptions;
+}
+
+export type ImportStatus = "completed" | "stopped" | "cancelled" | "failed";
+
+export interface ImportFailure {
+  /** 文件里的行号。 */
+  row: number;
+  column: string | null;
+  value: string | null;
+  reason: string;
+}
+
+export interface ImportReport {
+  status: ImportStatus;
+  /** 已经在表里生效的行数。 */
+  inserted: number;
+  failed: number;
+  /** 最多带回 10000 条明细。 */
+  failures: ImportFailure[];
+  summary: string;
+}

@@ -61,6 +61,15 @@ pub enum CoreError {
     /// MySQL 逐条执行 DDL 时中途失败:前面的已经生效、无法回滚。
     #[error("{0}")]
     PartiallyApplied(String),
+    /// 导入导出时读写文件失败。
+    #[error("读写文件失败：{0}")]
+    File(String),
+    /// 导入导出时遇到没法如实写出或读入的值(Excel 装不下的长文本、GBK 表示不了的字符……)。
+    #[error("{0}")]
+    InvalidData(String),
+    /// 用户取消了导入导出。
+    #[error("已取消")]
+    Cancelled,
 }
 
 impl CoreError {
@@ -86,6 +95,9 @@ impl CoreError {
             Self::AlreadyExists(_) => "already_exists",
             Self::NotFound(_) => "not_found",
             Self::PartiallyApplied(_) => "partially_applied",
+            Self::File(_) => "file",
+            Self::InvalidData(_) => "invalid_data",
+            Self::Cancelled => "cancelled",
         }
     }
 

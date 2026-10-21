@@ -19,7 +19,7 @@ pub enum BindValue {
 }
 
 /// 显示用的字面量。MySQL 默认把反斜杠当转义符,所以要多转一层。
-pub(super) fn literal(dialect: Dialect, value: &BindValue) -> String {
+pub(crate) fn literal(dialect: Dialect, value: &BindValue) -> String {
     match value {
         BindValue::Null => "NULL".into(),
         BindValue::Bool(b) => if *b { "TRUE" } else { "FALSE" }.into(),
@@ -36,7 +36,7 @@ pub(super) fn literal(dialect: Dialect, value: &BindValue) -> String {
     }
 }
 
-fn quote_string(dialect: Dialect, text: &str) -> String {
+pub(crate) fn quote_string(dialect: Dialect, text: &str) -> String {
     let escaped = match dialect {
         Dialect::Mysql => text.replace('\\', "\\\\").replace('\'', "''"),
         Dialect::Postgres | Dialect::Sqlite => text.replace('\'', "''"),

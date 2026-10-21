@@ -3,7 +3,7 @@
 use super::filter::check_filter;
 use super::{Dialect, qualified, quote_ident, table_name};
 use crate::error::{CoreError, CoreResult};
-use crate::table::{ColumnInfo, MAX_PAGE_SIZE, PageRequest, TableRef};
+use crate::table::{ColumnInfo, MAX_PAGE_SIZE, PageRequest, SortSpec, TableRef};
 
 /// 生成一页数据的 SELECT。多取一行(`LIMIT limit + 1`)用来判断后面还有没有。
 ///
@@ -15,15 +15,47 @@ pub fn select_page(
     columns: &[ColumnInfo],
     request: &PageRequest,
 ) -> CoreResult<String> {
-    if columns.is_empty() {
-        return Err(CoreError::Unsupported(
-            "这张表没有任何列，无法读取数据。".into(),
-        ));
-    }
     if request.limit == 0 || request.limit > MAX_PAGE_SIZE {
         return Err(CoreError::InvalidFilter(format!(
             "每页行数要在 1 到 {MAX_PAGE_SIZE} 之间。"
         )));
+    }
+    let mut sql = select_unpaged(dialect, table, columns, request)?;
+    sql.push_str(&format!(
+        " LIMIT {} OFFSET {}",
+        u64::from(request.limit) + 1,
+        request.offset
+    ));
+    Ok(sql)
+}
+
+/// 导出整张表或筛选后的全部结果:和读一页一样显式列出列、带筛选与排序(主键打破平局),但不分页。
+pub fn select_all(
+    dialect: Dialect,
+    table: &TableRef,
+    columns: &[ColumnInfo],
+    filter: Option<&str>,
+    sort: Option<&SortSpec>,
+) -> CoreResult<String> {
+    let request = PageRequest {
+        offset: 0,
+        limit: 1,
+        sort: sort.cloned(),
+        filter: filter.map(str::to_owned),
+    };
+    select_unpaged(dialect, table, columns, &request)
+}
+
+fn select_unpaged(
+    dialect: Dialect,
+    table: &TableRef,
+    columns: &[ColumnInfo],
+    request: &PageRequest,
+) -> CoreResult<String> {
+    if columns.is_empty() {
+        return Err(CoreError::Unsupported(
+            "这张表没有任何列，无法读取数据。".into(),
+        ));
     }
     let mut sql = format!(
         "SELECT {} FROM {}",
@@ -45,11 +77,6 @@ pub fn select_page(
         sql.push_str(" ORDER BY ");
         sql.push_str(&order.join(", "));
     }
-    sql.push_str(&format!(
-        " LIMIT {} OFFSET {}",
-        u64::from(request.limit) + 1,
-        request.offset
-    ));
     Ok(sql)
 }
 
@@ -104,7 +131,7 @@ fn order_by(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::table::{SortSpec, ValueType};
+    use crate::table::ValueType;
 
     fn pk(name: &str, data_type: &str) -> ColumnInfo {
         ColumnInfo {
@@ -234,6 +261,36 @@ mod tests {
             "SELECT \"id\", \"tags\"::text AS \"tags\" FROM \"sales\".\"orders\" \
              ORDER BY \"orders\".\"tags\" DESC, \"orders\".\"id\" LIMIT 51 OFFSET 0"
         );
+    }
+
+    #[test]
+    fn select_all_keeps_filter_and_order_but_no_limit() {
+        let columns = [pk("id", "int"), ColumnInfo::new("name", "text")];
+        let sort = SortSpec {
+            column: "name".into(),
+            descending: true,
+        };
+        let sql = select_all(
+            Dialect::Mysql,
+            &mysql_table(),
+            &columns,
+            Some("id > 5"),
+            Some(&sort),
+        )
+        .unwrap();
+        assert_eq!(
+            sql,
+            "SELECT `id`, `name` FROM `shop`.`orders` WHERE (\nid > 5\n) ORDER BY `name` DESC, `id`"
+        );
+        let error = select_all(
+            Dialect::Mysql,
+            &mysql_table(),
+            &columns,
+            Some("1; DROP TABLE t"),
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(error.code(), "invalid_filter");
     }
 
     #[test]

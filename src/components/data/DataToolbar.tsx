@@ -1,4 +1,4 @@
-import { Check, Minus, Plus, RefreshCw, RotateCcw, Undo2, X } from "lucide-react";
+import { Check, FileDown, Minus, Plus, RefreshCw, RotateCcw, Undo2, X } from "lucide-react";
 import { Button } from "../ui/Button";
 
 interface DataToolbarProps {
@@ -20,6 +20,8 @@ interface DataToolbarProps {
   pending: number;
   onRevert(): void;
   onCommit(): void;
+  /** 导出这张表(带着当前的筛选条件)。 */
+  onExport(): void;
 }
 
 const LOCKED_HINT = "先提交（⌘S）或撤销未提交的修改";
@@ -69,6 +71,15 @@ export function DataToolbar(props: DataToolbarProps) {
           disabled={locked}
           onClick={props.onRefresh}
         />
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<FileDown />}
+          title={pending > 0 ? "导出的是数据库里的数据，不含还没提交的修改" : "导出这张表或筛选后的结果"}
+          onClick={props.onExport}
+        >
+          导出
+        </Button>
         <span className="data-actions-divider" aria-hidden />
         <Button variant="ghost" size="sm" icon={<Plus />} disabled={!editable} onClick={props.onAddRow}>
           新增行

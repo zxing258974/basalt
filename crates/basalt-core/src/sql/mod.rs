@@ -3,6 +3,7 @@
 pub mod bind;
 pub mod dml;
 pub mod filter;
+pub mod insert;
 pub mod select;
 #[cfg(test)]
 mod test_support;

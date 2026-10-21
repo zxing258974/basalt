@@ -15,6 +15,7 @@ mod import;
 pub use import::{ImportReport, ImportSource, import_connections, scan_import_source};
 pub mod query;
 mod query_import;
+pub mod transfer;
 pub use query_import::{import_navicat_queries, scan_navicat_queries};
 
 #[derive(Debug, Serialize)]

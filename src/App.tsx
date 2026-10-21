@@ -5,6 +5,7 @@ import { DeleteConnectionDialog } from "./components/connection/DeleteConnection
 import { PasswordPrompt } from "./components/connection/PasswordPrompt";
 import { AppShell } from "./components/layout/AppShell";
 import { DiscardChangesDialog } from "./components/data/DiscardChangesDialog";
+import { TransferDialogs } from "./components/transfer/TransferDialogs";
 import { useNewQueryFromSelection } from "./hooks/useNewQueryFromSelection";
 import { useQuitGuard } from "./hooks/useQuitGuard";
 import { closeTabGuarded } from "./stores/discard";
@@ -61,6 +62,7 @@ export function App({ queryClient }: { queryClient: QueryClient }) {
       <PasswordPrompt />
       <DeleteConnectionDialog />
       <DiscardChangesDialog />
+      <TransferDialogs />
     </QueryClientProvider>
   );
 }

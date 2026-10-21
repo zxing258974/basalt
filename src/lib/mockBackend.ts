@@ -4,6 +4,7 @@ import { createMockQueries } from "./mock/queryMock";
 import { seedTable } from "./mock/seedTables";
 import { createMockTables } from "./mock/tableData";
 import { createMockDesigns } from "./mock/tableDesign";
+import { createMockTransfer } from "./mock/transferMock";
 import { classifyMockImport, mockImportSources, planMockImport } from "./mockImport";
 import type {
   CommandError,
@@ -174,6 +175,7 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
   const designs = createMockDesigns();
   const tableData = createMockTables();
   const queries = createMockQueries(() => connections, wait);
+  const transfer = createMockTransfer(wait);
 
   const find = (id: string) =>
     connections.find((c) => c.id === id) ?? fail("connection_not_found", `找不到连接：${id}`);
@@ -356,5 +358,18 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
     setUnsavedWork: () => Promise.resolve(),
     onQuitRequested: () => Promise.resolve(() => undefined),
     quitApp: () => Promise.resolve(),
+    ...transfer,
+    async exportData(jobId, request) {
+      requireOpen(request.connectionId);
+      return transfer.exportData(jobId, request);
+    },
+    async previewImport(connectionId, table, source) {
+      requireOpen(connectionId);
+      return transfer.previewImport(connectionId, table, source);
+    },
+    async importData(jobId, request) {
+      requireOpen(request.connectionId);
+      return transfer.importData(jobId, request);
+    },
   };
 }

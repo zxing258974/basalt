@@ -11,6 +11,7 @@ import { SavedQueryGroup } from "./QueryNodes";
 import { useTreeMenu } from "./treeMenu";
 import { TreeRow, TreeStatusRow } from "./TreeRow";
 import { designTableItem, newTableItem } from "../design/designMenu";
+import { exportTableItem, importTableItem } from "../transfer/transferMenu";
 
 interface QueryLike<T> {
   data?: T;
@@ -224,15 +225,19 @@ function ObjectGroups({
                 title={table.comment ?? undefined}
                 icon={table.kind === "table" ? <Table2 /> : <Eye />}
                 onActivate={() => openData(table.name)}
-                onContextMenu={(event) =>
+                onContextMenu={(event) => {
+                  const ref = { database, schema, table: table.name };
                   openMenu(event, [
                     { label: "打开数据", icon: <Rows3 />, shortcut: "↩", onSelect: () => openData(table.name) },
                     { label: "打开对象列表", icon: <TableProperties />, onSelect: () => openObjects(database, schema) },
                     ...(table.kind === "table"
                       ? ["separator" as const, designTableItem(connection.id, database, schema, table.name)]
                       : []),
-                  ])
-                }
+                    "separator",
+                    exportTableItem(connection, ref),
+                    ...(table.kind === "table" ? [importTableItem(connection, ref)] : []),
+                  ]);
+                }}
               />
             ))}
           </TreeRow>

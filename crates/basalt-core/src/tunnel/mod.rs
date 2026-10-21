@@ -9,6 +9,7 @@ mod known_hosts;
 
 use std::fmt;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
@@ -122,6 +123,16 @@ pub struct Tunnel {
 impl Tunnel {
     /// 登录 SSH 服务器并开始在本机端口上转发到 `target_host:target_port`(从 SSH 服务器那边看的地址)。
     pub async fn open(params: &SshParams, target_host: &str, target_port: u16) -> CoreResult<Self> {
+        Self::open_with(params, target_host, target_port, CONNECT_TIMEOUT).await
+    }
+
+    /// `channel_timeout`:开一个转发通道最多等多久(测试里调短)。
+    async fn open_with(
+        params: &SshParams,
+        target_host: &str,
+        target_port: u16,
+        channel_timeout: Duration,
+    ) -> CoreResult<Self> {
         let handle = connect(params).await?;
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
             .await
@@ -135,6 +146,8 @@ impl Tunnel {
             target_port,
             ssh: Mutex::new(Some(Arc::new(handle))),
             last_failure: StdMutex::new(None),
+            closed: AtomicBool::new(false),
+            channel_timeout,
         });
         let forwarder = tokio::spawn(forward(listener, shared.clone()));
         log::info!(
@@ -169,6 +182,8 @@ impl Tunnel {
 
     /// 停止接新连接、断开已有的转发,再礼貌地断开 SSH。
     pub async fn close(&self) {
+        // 先立牌子:已经排在锁上的转发看到它就不会再去重新登录。
+        self.shared.closed.store(true, Ordering::SeqCst);
         self.forwarder.abort();
         let handle = self.shared.ssh.lock().await.take();
         let Some(handle) = handle else {
@@ -207,12 +222,18 @@ struct Shared {
     target_port: u16,
     ssh: Mutex<Option<Arc<client::Handle<Client>>>>,
     last_failure: StdMutex<Option<String>>,
+    /// 隧道已经关了:不再重新登录。
+    closed: AtomicBool,
+    channel_timeout: Duration,
 }
 
 impl Shared {
     /// 当前的 SSH 连接;断了就重新登录。
     async fn handle(&self) -> CoreResult<Arc<client::Handle<Client>>> {
         let mut slot = self.ssh.lock().await;
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(CoreError::Ssh("SSH 隧道已经关闭".into()));
+        }
         if let Some(handle) = slot.as_ref().filter(|h| !h.is_closed()) {
             return Ok(handle.clone());
         }
@@ -222,17 +243,37 @@ impl Shared {
         Ok(handle)
     }
 
+    /// 开一个转发通道。SSH 连接半死不活(睡眠唤醒、NAT 超时)时心跳要两分钟才认定它断了,
+    /// 这期间开通道会一直等:超时就丢掉这条 SSH 连接,下一条转发重新登录。
     async fn open_channel(&self, peer: SocketAddr) -> CoreResult<russh::Channel<client::Msg>> {
         let handle = self.handle().await?;
-        handle
-            .channel_open_direct_tcpip(
-                self.target_host.clone(),
-                u32::from(self.target_port),
-                peer.ip().to_string(),
-                u32::from(peer.port()),
-            )
-            .await
-            .map_err(|error| CoreError::Ssh(self.channel_error(&error)))
+        let opening = handle.channel_open_direct_tcpip(
+            self.target_host.clone(),
+            u32::from(self.target_port),
+            peer.ip().to_string(),
+            u32::from(peer.port()),
+        );
+        match tokio::time::timeout(self.channel_timeout, opening).await {
+            Ok(opened) => opened.map_err(|error| CoreError::Ssh(self.channel_error(&error))),
+            Err(_) => {
+                self.forget(&handle).await;
+                Err(CoreError::Ssh(format!(
+                    "SSH 服务器 {} 没有响应，连接可能已经断了；下一次连接会重新登录",
+                    self.params.address()
+                )))
+            }
+        }
+    }
+
+    /// 丢掉这条 SSH 连接(别的转发已经换上新的就不动)。
+    async fn forget(&self, stale: &Arc<client::Handle<Client>>) {
+        let mut slot = self.ssh.lock().await;
+        if slot
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, stale))
+        {
+            *slot = None;
+        }
     }
 
     fn channel_error(&self, error: &russh::Error) -> String {

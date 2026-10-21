@@ -124,7 +124,7 @@ pub async fn save_connection(
         .clone()
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let change = secret_change(draft.save_password, draft.password.clone());
-    let ssh_change = tunnel::ssh_secret_change(draft.ssh.as_ref(), draft.ssh_secret.clone());
+    let ssh_secret = draft.ssh_secret.clone();
     let config = draft.into_config(id.clone())?;
 
     let store = state.store().await;
@@ -141,10 +141,9 @@ pub async fn save_connection(
     // 原来就没存密码(或者是新建的连接)时钥匙串里没有它的密码,不用去读:
     // 不需要密码的连接(如 SQLite)保存时不会触发钥匙串授权。
     let had_password = previous.as_ref().is_some_and(|p| p.save_password);
-    let had_ssh_secret = previous
-        .as_ref()
-        .and_then(|p| p.ssh.as_ref())
-        .is_some_and(|t| t.save_secret);
+    let previous_ssh = previous.as_ref().and_then(|p| p.ssh.as_ref());
+    let had_ssh_secret = previous_ssh.is_some_and(|t| t.save_secret);
+    let ssh_change = tunnel::ssh_secret_change(previous_ssh, config.ssh.as_ref(), ssh_secret);
     let edits = [
         SecretEdit::plan(state, password_key(&id), change, had_password)?,
         SecretEdit::plan(state, ssh_secret_key(&id), ssh_change, had_ssh_secret)?,
@@ -276,12 +275,19 @@ pub async fn test_connection(
         (None, Some(saved)) => state.saved_password(saved)?,
         (None, None) => None,
     };
-    let ssh_secret = match (&draft.ssh_secret, &saved) {
-        (Some(secret), _) => Some(secret.clone()),
-        (None, Some(saved)) => state.saved_ssh_secret(saved)?,
+    let typed_ssh_secret = draft.ssh_secret.clone();
+    let config = draft.into_config(String::new())?;
+    // 表单里换了 SSH 登录时,存着的密码 / 口令不能拿来用。
+    let ssh_secret = match (typed_ssh_secret, &saved) {
+        (Some(secret), _) => Some(secret),
+        (None, Some(saved)) => match (&saved.ssh, &config.ssh) {
+            (Some(before), Some(now)) if tunnel::same_login(before, now) => {
+                state.saved_ssh_secret(saved)?
+            }
+            _ => None,
+        },
         (None, None) => None,
     };
-    let config = draft.into_config(String::new())?;
     let params = ConnectParams::from_config(&config, password, ssh_secret, &state.known_hosts);
     Ok(session::test_connection(&params).await?)
 }

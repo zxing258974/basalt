@@ -2,6 +2,7 @@
 //! 再起一个回显服务当「数据库」,经隧道连过去收发数据。真 sshd 的测试在 tests/ssh_tunnel.rs。
 
 use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
 use std::time::Duration;
 
 use russh::keys::{PrivateKey, PublicKey};
@@ -34,7 +35,13 @@ struct ServerRules {
     allow_forwarding: bool,
     /// 只开键盘交互、不收 password 方式(像只开了 PAM 的 sshd)。
     interactive_only: bool,
+    /// 键盘交互答对密码以后再要一个动态口令。
+    otp_after_password: bool,
     authorized: Vec<PublicKey>,
+    /// 前几个转发请求不回话(像半死不活的 SSH 连接)。
+    stall_channels: Arc<AtomicUsize>,
+    /// 登录成功的次数。
+    logins: Arc<AtomicUsize>,
 }
 
 struct TestServer {
@@ -54,6 +61,7 @@ impl server::Handler for TestServer {
             });
         }
         Ok(if password == PASSWORD {
+            self.rules.logins.fetch_add(1, Ordering::SeqCst);
             Auth::Accept
         } else {
             Auth::reject()
@@ -76,7 +84,15 @@ impl server::Handler for TestServer {
         let answers: Vec<_> = response
             .map(|b| String::from_utf8_lossy(&b).into_owned())
             .collect();
+        if answers == [PASSWORD] && self.rules.otp_after_password {
+            return Ok(Auth::Partial {
+                name: "".into(),
+                instructions: "".into(),
+                prompts: vec![("Verification code: ".into(), false)].into(),
+            });
+        }
         Ok(if answers == [PASSWORD] {
+            self.rules.logins.fetch_add(1, Ordering::SeqCst);
             Auth::Accept
         } else {
             Auth::reject()
@@ -102,6 +118,19 @@ impl server::Handler for TestServer {
         reply: ChannelOpenHandle,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
+        let stalled = self
+            .rules
+            .stall_channels
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok();
+        if stalled {
+            // 既不接受也不拒绝,就这么挂着(丢掉 reply 会自动拒绝)。
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                drop(reply);
+            });
+            return Ok(());
+        }
         if !self.rules.allow_forwarding {
             reply
                 .reject(ChannelOpenFailure::AdministrativelyProhibited)
@@ -178,6 +207,9 @@ fn rules() -> ServerRules {
     ServerRules {
         allow_forwarding: true,
         interactive_only: false,
+        otp_after_password: false,
+        stall_channels: Arc::new(AtomicUsize::new(0)),
+        logins: Arc::new(AtomicUsize::new(0)),
         authorized: vec![
             public_key("id_ed25519"),
             public_key("id_ed25519_passphrase"),
@@ -526,4 +558,66 @@ async fn unreadable_or_foreign_key_files_are_reported() {
     let _: PrivateKey = auth::load_private_key(&fixture_path("id_ed25519"), Some(""))
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn a_stalled_ssh_connection_is_dropped_and_the_next_one_logs_in_again() {
+    let rules = ServerRules {
+        stall_channels: Arc::new(AtomicUsize::new(1)),
+        ..rules()
+    };
+    let logins = rules.logins.clone();
+    let fixture = trusted(rules, SshAuth::Password(Some(PASSWORD.into()))).await;
+    let target = echo_server().await;
+    let tunnel = Tunnel::open_with(
+        &fixture.params,
+        "127.0.0.1",
+        target,
+        Duration::from_millis(300),
+    )
+    .await
+    .unwrap();
+    assert_eq!(logins.load(Ordering::SeqCst), 1);
+
+    // 第一条转发没人理:超时后本机连接断开,记下原因。
+    let mut socket = TcpStream::connect((Ipv4Addr::LOCALHOST, tunnel.local_port()))
+        .await
+        .unwrap();
+    let mut buf = [0u8; 1];
+    let read = tokio::time::timeout(Duration::from_secs(5), socket.read(&mut buf))
+        .await
+        .unwrap();
+    assert!(matches!(read, Ok(0) | Err(_)));
+    assert!(tunnel.last_failure().unwrap().contains("没有响应"));
+
+    // 下一条重新登录,照常转发。
+    assert_eq!(round_trip(&tunnel, b"fresh").await, b"echo:fresh");
+    assert_eq!(logins.load(Ordering::SeqCst), 2);
+    tunnel.close().await;
+}
+
+#[tokio::test]
+async fn a_closed_tunnel_never_logs_in_again() {
+    let fixture = trusted(rules(), SshAuth::Password(Some(PASSWORD.into()))).await;
+    let tunnel = Tunnel::open(&fixture.params, "127.0.0.1", 1).await.unwrap();
+    tunnel.close().await;
+    let Err(error) = tunnel.shared.handle().await else {
+        panic!("关了的隧道不该再登录");
+    };
+    assert_eq!(error.code(), "ssh");
+}
+
+#[tokio::test]
+async fn the_password_is_not_offered_as_a_one_time_code() {
+    let rules = ServerRules {
+        interactive_only: true,
+        otp_after_password: true,
+        ..rules()
+    };
+    let fixture = trusted(rules, SshAuth::Password(Some(PASSWORD.into()))).await;
+    let error = Tunnel::open(&fixture.params, "127.0.0.1", 1)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "ssh_authentication");
+    assert!(error.to_string().contains("动态口令"), "{error}");
 }

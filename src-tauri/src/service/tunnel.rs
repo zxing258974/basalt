@@ -78,12 +78,29 @@ pub(super) fn revert_all(state: &AppState, edits: &[SecretEdit]) {
     }
 }
 
-/// 隧道这次的密码怎么处理:没有隧道了就删掉存着的。
-pub(super) fn ssh_secret_change(ssh: Option<&SshTunnel>, secret: Option<String>) -> SecretChange {
-    match ssh {
-        Some(tunnel) => super::secret_change(tunnel.save_secret, secret),
-        None => SecretChange::Delete,
+/// 隧道这次的密码怎么处理:没有隧道了就删掉存着的;换了登录(服务器、用户、登录方式、私钥)又没给新的,
+/// 存着的那个是别处的密码或口令,也删掉——不然会把私钥口令当成 SSH 密码发出去。
+pub(super) fn ssh_secret_change(
+    previous: Option<&SshTunnel>,
+    next: Option<&SshTunnel>,
+    secret: Option<String>,
+) -> SecretChange {
+    match (next, secret) {
+        (None, _) => SecretChange::Delete,
+        (Some(tunnel), None) if !previous.is_some_and(|p| same_login(p, tunnel)) => {
+            SecretChange::Delete
+        }
+        (Some(tunnel), secret) => super::secret_change(tunnel.save_secret, secret),
     }
+}
+
+/// 存着的 SSH 密码 / 口令还能不能用在这个隧道上:同一台服务器、同一个用户、同一种登录方式(同一把私钥)。
+pub(super) fn same_login(a: &SshTunnel, b: &SshTunnel) -> bool {
+    a.host.trim().eq_ignore_ascii_case(b.host.trim())
+        && a.port == b.port
+        && a.username.trim() == b.username.trim()
+        && a.auth == b.auth
+        && a.private_key_path == b.private_key_path
 }
 
 /// 连到哪儿的设置变了没有(隧道换了服务器、换了登录方式,SSL 改了)。只改「是否保存密码」不算。

@@ -115,6 +115,88 @@ async fn ssh_secret_is_saved_kept_and_removed_with_the_tunnel() {
 }
 
 #[tokio::test]
+async fn a_secret_saved_for_another_login_is_dropped_not_reused() {
+    let h = harness();
+    let key_login = SshTunnel {
+        auth: SshAuthMethod::PrivateKey,
+        private_key_path: Some("/keys/id".into()),
+        ..tunnel(true)
+    };
+    let saved = service::save_connection(&h.state, draft(Some(key_login), Some("passphrase")))
+        .await
+        .unwrap();
+    let key = ssh_secret_key(&saved.id);
+    assert_eq!(h.secrets.get(&key).unwrap().as_deref(), Some("passphrase"));
+
+    // 换成密码登录、没填密码:存着的私钥口令不能留着当 SSH 密码用。
+    let switched = ConnectionDraft {
+        id: Some(saved.id.clone()),
+        password: None,
+        ..draft(Some(tunnel(true)), None)
+    };
+    service::save_connection(&h.state, switched).await.unwrap();
+    assert_eq!(h.secrets.get(&key).unwrap(), None);
+
+    // 只改「保存」以外的无关设置(同一个登录)时照旧保留。
+    service::save_connection(
+        &h.state,
+        ConnectionDraft {
+            id: Some(saved.id.clone()),
+            password: None,
+            ..draft(Some(tunnel(true)), Some("pw"))
+        },
+    )
+    .await
+    .unwrap();
+    service::save_connection(
+        &h.state,
+        ConnectionDraft {
+            id: Some(saved.id.clone()),
+            name: "改了名".into(),
+            password: None,
+            ..draft(Some(tunnel(true)), None)
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(h.secrets.get(&key).unwrap().as_deref(), Some("pw"));
+}
+
+#[test]
+fn same_login_compares_server_user_and_method() {
+    let base = tunnel(true);
+    assert!(same_login(
+        &base,
+        &SshTunnel {
+            host: "JUMP.example.test".into(),
+            save_secret: false,
+            ..base.clone()
+        }
+    ));
+    assert!(!same_login(
+        &base,
+        &SshTunnel {
+            port: 2222,
+            ..base.clone()
+        }
+    ));
+    assert!(!same_login(
+        &base,
+        &SshTunnel {
+            username: "other".into(),
+            ..base.clone()
+        }
+    ));
+    assert!(!same_login(
+        &base,
+        &SshTunnel {
+            auth: SshAuthMethod::PrivateKey,
+            ..base.clone()
+        }
+    ));
+}
+
+#[tokio::test]
 async fn duplicate_and_delete_handle_the_ssh_secret_too() {
     let h = harness();
     let saved = service::save_connection(&h.state, draft(Some(tunnel(true)), Some("ssh-pass")))

@@ -9,8 +9,10 @@ use russh::keys::{PrivateKey, PrivateKeyWithHashAlg};
 use super::{SshAuth, SshParams};
 use crate::error::{CoreError, CoreResult};
 
-/// 键盘交互最多来回几轮。正常一轮就够,多轮的多半是还要动态口令。
+/// 键盘交互最多来回几轮(空的提问也算一轮)。
 const MAX_INTERACTIVE_ROUNDS: usize = 4;
+
+const MORE_FACTORS: &str = "SSH 服务器还要求别的验证（比如动态口令），Basalt 暂不支持";
 
 pub(super) async fn authenticate<H: client::Handler>(
     handle: &mut client::Handle<H>,
@@ -80,13 +82,19 @@ async fn keyboard_interactive<H: client::Handler>(
         .authenticate_keyboard_interactive_start(user, None)
         .await
         .map_err(super::session_error)?;
+    let mut answered = false;
     for _ in 0..MAX_INTERACTIVE_ROUNDS {
         let prompts = match response {
             KeyboardInteractiveAuthResponse::Success => return Ok(true),
             KeyboardInteractiveAuthResponse::Failure { .. } => return Ok(false),
             KeyboardInteractiveAuthResponse::InfoRequest { prompts, .. } => prompts,
         };
-        // 不回显的提问是在要密码;回显的(问用户名之类)答空。
+        // 密码只答一轮。之后还有提问,多半是在要动态口令:拿密码去答会白白耗掉它的出错次数。
+        if answered && !prompts.is_empty() {
+            return Err(CoreError::SshAuthentication(MORE_FACTORS.into()));
+        }
+        answered |= !prompts.is_empty();
+        // 不回显的提问是在要密码;回显的(问用户名之类)答空。没有提问的一轮(只是提示信息)回空。
         let answers = prompts
             .iter()
             .map(|p| {
@@ -111,9 +119,7 @@ fn check(result: client::AuthResult, rejected: impl FnOnce() -> String) -> CoreR
         client::AuthResult::Failure {
             partial_success: true,
             ..
-        } => Err(CoreError::SshAuthentication(
-            "SSH 服务器还要求别的验证（比如动态口令），Basalt 暂不支持".into(),
-        )),
+        } => Err(CoreError::SshAuthentication(MORE_FACTORS.into())),
         client::AuthResult::Failure { .. } => Err(CoreError::SshAuthentication(rejected())),
     }
 }

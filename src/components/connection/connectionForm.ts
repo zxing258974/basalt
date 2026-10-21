@@ -1,6 +1,14 @@
 // 连接对话框的表单状态与「表单 → 提交内容」的转换。全部是纯函数,便于测试。
 import { fileName } from "../../lib/platform";
-import type { ConnectionConfig, ConnectionDraft, DriverKind } from "../../lib/types";
+import type {
+  ConnectionConfig,
+  ConnectionDraft,
+  DriverKind,
+  SshAuthMethod,
+  SshTunnel,
+  SslMode,
+  SslSettings,
+} from "../../lib/types";
 import { driverMeta } from "./driverMeta";
 
 export interface ConnectionForm {
@@ -21,7 +29,38 @@ export interface ConnectionForm {
   savePassword: boolean;
   /** 打开表单时钥匙串里已经存着密码(原配置 savePassword 为真)。 */
   hadSavedPassword: boolean;
+  /** 「SSH」页:关掉时下面的设置保留,只是不用。 */
+  sshEnabled: boolean;
+  sshHost: string;
+  sshPort: string;
+  sshUsername: string;
+  sshAuth: SshAuthMethod;
+  sshKeyPath: string;
+  /** SSH 密码或私钥口令,规则同 password。 */
+  sshSecret: string;
+  sshSecretTouched: boolean;
+  sshSaveSecret: boolean;
+  hadSavedSshSecret: boolean;
+  /** 「SSL」页。 */
+  sslMode: SslMode;
+  sslCa: string;
+  sslCert: string;
+  sslKey: string;
 }
+
+/** 对话框的三页。SQLite 只有「常规」。 */
+export type FormPage = "general" | "ssh" | "ssl";
+
+export const DEFAULT_SSH_PORT = "22";
+
+/** SSL 模式的名字,导入预览、SSL 页共用。 */
+export const SSL_MODE_LABELS: Readonly<Record<SslMode, string>> = {
+  disabled: "禁用",
+  preferred: "优先",
+  required: "必须",
+  verifyCa: "校验 CA",
+  verifyIdentity: "校验主机名",
+};
 
 const LOCAL_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
 
@@ -55,6 +94,44 @@ export function emptyForm(driver: DriverKind): ConnectionForm {
     passwordTouched: false,
     savePassword: !isFile,
     hadSavedPassword: false,
+    sshEnabled: false,
+    sshHost: "",
+    sshPort: DEFAULT_SSH_PORT,
+    sshUsername: "",
+    sshAuth: "password",
+    sshKeyPath: "",
+    sshSecret: "",
+    sshSecretTouched: false,
+    sshSaveSecret: true,
+    hadSavedSshSecret: false,
+    sslMode: "preferred",
+    sslCa: "",
+    sslCert: "",
+    sslKey: "",
+  };
+}
+
+function sshFields(ssh: SshTunnel | null | undefined): Partial<ConnectionForm> {
+  if (!ssh) return {};
+  return {
+    sshEnabled: true,
+    sshHost: ssh.host,
+    sshPort: String(ssh.port),
+    sshUsername: ssh.username,
+    sshAuth: ssh.auth,
+    sshKeyPath: ssh.privateKeyPath ?? "",
+    sshSaveSecret: ssh.saveSecret,
+    hadSavedSshSecret: ssh.saveSecret,
+  };
+}
+
+function sslFields(ssl: SslSettings | undefined): Partial<ConnectionForm> {
+  if (!ssl) return {};
+  return {
+    sslMode: ssl.mode,
+    sslCa: ssl.caPath ?? "",
+    sslCert: ssl.clientCertPath ?? "",
+    sslKey: ssl.clientKeyPath ?? "",
   };
 }
 
@@ -71,7 +148,34 @@ export function formFromConfig(config: ConnectionConfig): ConnectionForm {
     database: config.endpoint.database ?? "",
     savePassword: config.savePassword,
     hadSavedPassword: config.savePassword,
+    ...sshFields(config.ssh),
+    ...sslFields(config.ssl),
   };
+}
+
+/** 换登录方式:原来存的是密码还是口令说不准,框里清空,当作重新填过。 */
+export function withSshAuth(form: ConnectionForm, sshAuth: SshAuthMethod): ConnectionForm {
+  if (sshAuth === form.sshAuth) return form;
+  return { ...form, sshAuth, sshSecret: "", sshSecretTouched: true };
+}
+
+/** SSH 那个密码框叫什么:密码登录是 SSH 密码,私钥登录是私钥口令。 */
+export function sshSecretLabel(auth: SshAuthMethod): string {
+  return auth === "password" ? "SSH 密码" : "私钥口令";
+}
+
+/** 字段错误在哪一页:保存失败时切到第一个出错的页。 */
+export function pageOfField(field: string): FormPage {
+  if (field.startsWith("ssh")) return "ssh";
+  if (field.startsWith("ssl")) return "ssl";
+  return "general";
+}
+
+/** 这一页的设置是不是和默认不一样:页签上点一个小圆点。 */
+export function pageIsActive(form: ConnectionForm, page: FormPage): boolean {
+  if (page === "ssh") return form.sshEnabled;
+  if (page === "ssl") return form.sslMode !== "preferred";
+  return false;
 }
 
 /** 换数据库类型时,只有仍是旧默认值的端口和用户名才跟着换。 */
@@ -131,5 +235,29 @@ export function toDraft(form: ConnectionForm): ConnectionDraft {
     },
     savePassword: form.savePassword,
     password: keepSavedPassword ? undefined : form.password,
+    ...sshDraft(form),
+    ssl: {
+      mode: form.sslMode,
+      caPath: form.sslCa.trim() || null,
+      clientCertPath: form.sslCert.trim() || null,
+      clientKeyPath: form.sslKey.trim() || null,
+    },
+  };
+}
+
+function sshDraft(form: ConnectionForm): Pick<ConnectionDraft, "ssh" | "sshSecret"> {
+  if (!form.sshEnabled) return { ssh: null, sshSecret: null };
+  const keepSavedSecret = form.hadSavedSshSecret && !form.sshSecretTouched;
+  return {
+    ssh: {
+      host: form.sshHost.trim(),
+      port: parsePort(form.sshPort),
+      username: form.sshUsername.trim(),
+      auth: form.sshAuth,
+      privateKeyPath: form.sshAuth === "privateKey" ? form.sshKeyPath.trim() || null : null,
+      saveSecret: form.sshSaveSecret,
+    },
+    // 私钥没填口令就是没有口令;密码登录没填密码时不传,测试连接会说缺 SSH 密码。
+    sshSecret: keepSavedSecret ? undefined : form.sshAuth === "password" && !form.sshSecret ? null : form.sshSecret,
   };
 }

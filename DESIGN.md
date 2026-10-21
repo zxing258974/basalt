@@ -1,7 +1,7 @@
 # Basalt 设计文档
 
 > 一个对标 Navicat Premium 使用体验的桌面数据库客户端,给自己用。
-> v0.5 · 2026-10-20 · M0–M3、M5、M6 已完成
+> v0.6 · 2026-10-21 · M0–M6 已完成
 
 ## 1. 目标与边界
 
@@ -13,7 +13,7 @@
 
 | 模块 | 内容 |
 |---|---|
-| 连接管理 | 新建/编辑/复制/删除连接,分组,测试连接,密码进 macOS 钥匙串,SSH 隧道(密码/私钥) |
+| 连接管理 | 新建/编辑/复制/删除连接,分组,测试连接,密码进 macOS 钥匙串,SSH 隧道(密码/私钥),SSL |
 | 对象树 | 连接 → 数据库 →(PG 的 schema)→ 表 / 视图;对象列表页显示行数、大小、引擎、注释 |
 | 数据浏览与编辑 | 分页表格、排序、筛选(WHERE)、行内编辑、新增/删除行,按主键生成 UPDATE/DELETE,提交前可看 SQL |
 | SQL 编辑器 | 方言高亮、按库结构补全、执行全部 / 选中 / 当前语句、多结果集标签、消息与耗时、取消执行、历史 |
@@ -33,7 +33,7 @@
 |---|---|---|
 | 桌面壳 | Tauri 2 | 安装包小、内存占用低,Rust 后端直接持有数据库连接 |
 | 数据库驱动 | sqlx 0.8(mysql / postgres / sqlite,tokio + rustls) | 一套 API 覆盖三种库;MariaDB 走 mysql 协议;不用编译期宏,不依赖 DATABASE_URL。0.9 要求 Rust 1.94(本机 1.93),暂不升 |
-| SSH 隧道 | russh | 纯 Rust、异步;本地起 127.0.0.1 随机端口做 direct-tcpip 转发,驱动层无感 |
+| SSH 隧道 | russh 0.64 | 纯 Rust、异步、维护活跃;关掉默认的 aws-lc-rs(要 cmake 编 C 库),加密后端用 sqlx / rustls 已经在用的 ring,不依赖系统 OpenSSL;本地起 127.0.0.1 随机端口做 direct-tcpip 转发,驱动层无感 |
 | 密码存储 | keyring(apple-native) | 连接配置文件里不落明文密码 |
 | 导入导出 | rust_xlsxwriter(常量内存模式)、calamine、encoding_rs | 都是成熟库;CSV 读写自己写(要分清没加引号的空字段和 `""`,csv crate 不告诉调用方有没有引号) |
 | 前端 | React 19 + TypeScript + Vite | |
@@ -59,7 +59,7 @@ basalt/
 │   ├── import/              导入 Navicat 的连接(navicat/conn_plist、ncx)和保存的查询(navicat/queries)
 │   ├── design/              表结构设计:模型、校验、按方言生成 DDL(纯函数);驱动里 *_design.rs 读结构、执行 DDL
 │   ├── transfer/            导入导出:四种写器、CSV / Excel 读取、列映射、按目标列转换(纯函数);export / import 编排
-│   └── tunnel.rs            (M4)SSH 本地端口转发
+│   └── tunnel/              SSH 本地端口转发:登录(auth)、主机密钥(known_hosts)、转发与断线重登(mod)
 ├── src-tauri/               Tauri 外壳:命令层只做参数校验、调 core、错误转换
 └── src/                     前端
     ├── components/          按界面区域组织(layout / sidebar / connection / objects / data / ...)
@@ -103,6 +103,18 @@ PostgreSQL 一个连接只能连一个库,所以会话里按「库名」懒建�
 
 **已知限制(M2)**:大 BLOB / TEXT 整值传给前端,不截断;inet 转 text 总带掩码(如 10.0.0.1/32);选中格子直接打中文已支持(简体拼音在真窗口验证过组字、空格选字、回车上屏字母、Esc 取消、中文标点直接上屏),读屏的当前格只在辅助功能接口层核对过(焦点框的 AXActiveElement 指向选中格),没开 VoiceOver 实际试听;MySQL 以 FLOAT 列或超过 28 位有效数字的 DECIMAL 列为主键的行无法定位,只能看不能改。
 
+**SSH 隧道与 SSL(M4)**:
+
+- **隧道**:打开会话时先登录 SSH 服务器,在 127.0.0.1 的随机端口上监听,每进来一条连接开一个 direct-tcpip 通道转发到数据库(主机、端口填从 SSH 服务器那边看的地址);驱动改连这个本机端口,连接池、查询标签页的专用连接、取消用的连接、PostgreSQL 按库懒建的池全都经它走。隧道归会话所有:关会话先关池再关隧道,打开失败也关掉。SSH 连接断了(网络切换、服务器重启)不用重开会话,下一条新连接进来时重新登录(同样核对主机密钥);空闲时每 30 秒发一次心跳。半死不活的连接(睡眠唤醒、NAT 超时)心跳要两分钟才认定断了,所以开转发通道限时 10 秒,超时就丢掉这条 SSH 连接,下一条重新登录;隧道关了以后不再重新登录。转发失败时(服务器禁止转发、从服务器那边连不上数据库)本机这条连接只能直接断开,驱动看到的是「连接被断开」,所以隧道记下真正的原因,驱动连库失败时拿它替换错误。
+- **登录**:密码;或私钥文件(OpenSSH、PKCS#8、PEM 格式的 Ed25519 / ECDSA / RSA,可带口令;RSA 按服务器支持选 rsa-sha2-512 / 256)。只开了 PAM 键盘交互的服务器(password 方式被拒、说可以用 keyboard-interactive)用同一个密码回答它的提问,只答一轮——之后再问多半是要动态口令,拿密码去答会白白耗掉它的出错次数;还要二次验证的明确报不支持;PuTTY 的 .ppk 提示先导出成 OpenSSH 格式。错误码和数据库的分开:SSH 密码 / 口令不对是 `ssh_authentication`,缺是 `ssh_secret_required`,前端据此知道该重问哪一个。私钥的口令打开前不问,解析私钥时发现有口令才报缺。连接、核对、登录整体 10 秒超时。
+- **主机密钥**:记在配置目录的 `known_hosts`(OpenSSH 格式,非 22 端口写成 `[host]:port`,主机名小写),不读也不改用户的 `~/.ssh/known_hosts`。第一次连接某台服务器时拒绝连接,错误(`host_key_unknown`)里带上主机密钥(算法、SHA256 指纹、公钥),前端弹框请用户核对(附上在服务器上查指纹的 `ssh-keygen -lf` 命令),确认后 `trust_host_key` 记下、再连一次;记的时候按公钥重新算指纹,和用户看到的对不上就拒绝。之后同一算法的密钥变了一律拒绝(`host_key_changed`),写明记下的和这次的指纹、known_hosts 的路径和行号,要用户确认服务器确实换了密钥后自己删掉那一行——界面上不提供一键覆盖。服务器出示主机证书时按证书里的公钥核对,不认 CA。
+- **SSL**:禁用 / 优先 / 必须 / 校验 CA / 校验主机名五档,对应 sqlx 的 `MySqlSslMode` 与 `PgSslMode`(PostgreSQL 的 allow 并入优先)。M4 以前的连接没有这一项,读成「优先」,正是 sqlx 原来的默认值,行为不变。可选 CA 证书(不选时只认 webpki 内置的公共 CA)和客户端证书 + 私钥(要成对)。连接前先查证书文件在不在,免得握手时报一句看不懂的 I/O 错误;rustls 的证书校验失败(UnknownIssuer、NotValidForName、Expired……)换成人话、原文附后。经 SSH 隧道时驱动连的是 127.0.0.1,证书里的主机名永远对不上,所以「隧道 + 校验主机名」保存时就拒绝,界面上这一档也禁用。
+- **配置与密钥**:`ConnectionConfig` 多了 `ssh`(主机、端口、用户、登录方式、私钥路径、是否保存密码)和 `ssl`(模式与三个证书路径),都带 serde 默认值,旧的 connections.json 照常读;SQLite 连接两项都清空。SSH 密码或私钥口令存在密钥库的 `connection:<id>:ssh`(macOS 上同样合在 `basalt:vault` 那一条里,不新建钥匙串条目;Windows 是凭据管理器里的一条)。保存、复制、删除连接时两条密码一起写、一起回滚、一起删;换了 SSH 服务器、用户或登录方式又没填新密码时,存着的那个删掉(不然私钥口令会被当成 SSH 密码发出去),测试连接也不拿它用。只改「是否保存」不断开会话,改了隧道或 SSL、换了 SSH 密码才断开。
+- **前端**:网络类型的连接对话框分「常规 / SSH / SSL」三页,页签上的小圆点表示这一页开着(强调色)或有字段出错(警示色),保存失败时切到第一个出错的页;切回「常规」时焦点留在页签上。核对指纹的弹框挂在应用最外层,「测试连接」和在对象树里打开连接都经它(`withHostKeyTrust`:遇到没见过的主机密钥 → 问 → 记下 → 重试,连续最多问 3 次)。打开前的密码框按需多一个「SSH 密码」或「私钥口令」,后端说哪个不对就重问哪个,已经输了的数据库密码不丢;勾了「记住」两个都存。
+- **导入 Navicat**:.ncx 里 `SSH="true"` 时映射 SSH_Host / SSH_Port / SSH_UserName / SSH_AuthenMethod(PASSWORD / PUBLICKEY)/ SSH_PrivateKey,保存了的 SSH 密码、私钥口令一起解密导入;`SSL="true"` 时 PostgreSQL 按 SSL_PGSSLMode、MySQL 按 SSL_VerifyCACert 定模式,SSL_CACert 和(勾了 SSL_Authen 时的)客户端证书与私钥照搬。映射不了的写进提醒:HTTP 隧道、别的电脑上的路径(私钥用不了时先改成密码登录)、指定的加密套件、CRL、带口令的客户端私钥、经隧道的「校验主机名」(改成校验 CA)。本机 conn.plist 里隧道和 SSL 的字段没见过实例,不猜,仍只提醒。判重时连同 SSH 服务器一起比:隧道后面的库地址常常都是 127.0.0.1。
+
+**已知限制(M4)**:不支持 SSH 代理(ssh-agent、Pageant)、跳板机串联(ProxyJump)、OpenSSH 证书登录和二次验证(动态口令);不读 `~/.ssh/config` 和 `~/.ssh/known_hosts`;不支持 Navicat 的 HTTP 隧道;SSL 客户端私钥不能带口令(sqlx 不支持),不支持 CRL 和指定加密套件;「校验 CA」不选 CA 文件时只认 webpki 内置的公共 CA,不读系统钥匙串里的根证书;主机密钥变了只能手动编辑 known_hosts;SSH 断线时已经建立的数据库连接会断(正在执行的语句失败,之后的新连接自动重新登录);会话中途重新登录失败(主机密钥变了、密码改了)时只报连接断开,关掉连接重新打开才看得到具体原因和指纹确认框;本机 Navicat 配置(conn.plist)里的隧道 / SSL 设置不迁移。
+
 **表结构设计(M5)**:
 
 - **模型**:字段、索引、外键各带一个稳定 id。读出来的用 `col:原名`、`idx:原名`、`fk:原名`(SQLite 的外键没有名字,用 PRAGMA 给的序号),设计器里新加的用 `new:…`。索引、外键、主键里引用字段用的是 id,字段改名后它们自动跟着走。生成 DDL 时按 id 配对:同一个 id 名字变了就是改名,不会变成删了再加;带着 `col:` 之类前缀却在库里找不到,说明打开设计器之后表被别人改过,直接拒绝并提示重读。
@@ -145,7 +157,7 @@ PostgreSQL 一个连接只能连一个库,所以会话里按「库名」懒建�
 ## 5. 测试策略
 
 - **core 单测**:配置仓库、值解码、标识符转义、DML / DDL 生成、执行历史、保存的查询、Navicat 查询的扫描与匹配、导入导出的写器 / 解析 / 映射 / 类型转换——纯函数先写测试。语句切分在前端(`splitStatements`),同样先写测试。
-- **core 集成测**:`docker-compose.test.yml` 起 MySQL 5.7 / 8.4、MariaDB 11.4、PostgreSQL 17 和 sshd,测试按环境变量连接,没起容器时跳过。
+- **core 集成测**:`docker-compose.test.yml` 起 MySQL 5.7 / 8.4、MariaDB 11.4、PostgreSQL 17 和 sshd,测试按环境变量连接,没起容器时跳过。MySQL 5.7 和 PostgreSQL 挂着测试 CA 签的证书开 SSL(`tests/fixtures/tls`);sshd 有能转发的 basalt 和不许转发的 noforward 两个用户。隧道的单元测试在测试进程里用 russh 的服务端起 SSH 服务器,不靠容器。
 - **前端**:Vitest + Testing Library 测组件逻辑;开发模式的 mock 后端让界面能在浏览器里跑,用 Playwright 截图核对布局。
 - **真机**:每个里程碑结束在 Tauri 窗口里手动走一遍主流程。
 
@@ -157,7 +169,7 @@ PostgreSQL 一个连接只能连一个库,所以会话里按「库名」懒建�
 | M1 ✅ | 连接管理 + 三种驱动 + 对象树 + 对象列表 | 能新建并保存 MySQL / PG / SQLite 连接,展开到表,看到表信息 |
 | M2 ✅ | 数据浏览与编辑 | 分页、排序、筛选,改一行提交成功,SQL 预览正确 |
 | M3 ✅ | SQL 编辑器 | 补全可用,多语句多结果集,能取消长查询 |
-| M4 | SSH 隧道 + SSL | 经 sshd 容器连上 MySQL / PG |
+| M4 ✅ | SSH 隧道 + SSL | 经 sshd 容器连上 MySQL / PG |
 | M5 ✅ | 表结构设计 | 三种方言的建表 / 改表 SQL 生成通过单测与真库验证 |
 | M6 ✅ | 导入导出 | 四种格式导出、两种格式导入往返一致 |
 | M7 | 打磨与打包 | 深色模式、快捷键、错误提示、打出 .app |

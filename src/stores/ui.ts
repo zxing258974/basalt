@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ConnectionConfig, DriverKind } from "../lib/types";
+import type { ConnectionConfig, DriverKind, HostKey } from "../lib/types";
 
 export type ConnectionDialogState =
   { mode: "closed" } | { mode: "create"; driver: DriverKind | null } | { mode: "edit"; connection: ConnectionConfig };
@@ -26,7 +26,16 @@ export interface DiscardPrompt {
 
 export interface PasswordPromptState {
   connection: ConnectionConfig;
+  /** 数据库密码不对:重新问数据库密码。 */
   error?: string;
+  /** SSH 密码或私钥口令不对、或者后端说要:问 SSH 那一个。 */
+  sshError?: string;
+}
+
+/** 第一次连接某台 SSH 服务器:等用户核对指纹。 */
+export interface HostKeyPromptState {
+  hostKey: HostKey;
+  resolve(trusted: boolean): void;
 }
 
 interface UiStore {
@@ -34,6 +43,11 @@ interface UiStore {
   selectedKey: string | null;
   connectionDialog: ConnectionDialogState;
   passwordPrompt: PasswordPromptState | null;
+  hostKeyPrompt: HostKeyPromptState | null;
+  /** 弹出指纹确认框,用户点了「信任」返回 true。同时只有一个,后来的会让前一个按取消处理。 */
+  confirmHostKey(hostKey: HostKey): Promise<boolean>;
+  /** 指纹确认框的按钮。 */
+  answerHostKey(trusted: boolean): void;
   pendingDelete: ConnectionConfig | null;
   discardPrompt: DiscardPrompt | null;
   askDiscard(prompt: DiscardPrompt | null): void;
@@ -58,6 +72,19 @@ export const useUi = create<UiStore>((set) => ({
   selectedKey: null,
   connectionDialog: { mode: "closed" },
   passwordPrompt: null,
+  hostKeyPrompt: null,
+  confirmHostKey: (hostKey) =>
+    new Promise<boolean>((resolve) => {
+      set((s) => {
+        s.hostKeyPrompt?.resolve(false);
+        return { hostKeyPrompt: { hostKey, resolve } };
+      });
+    }),
+  answerHostKey: (trusted) =>
+    set((s) => {
+      s.hostKeyPrompt?.resolve(trusted);
+      return { hostKeyPrompt: null };
+    }),
   pendingDelete: null,
   discardPrompt: null,
   askDiscard: (discardPrompt) => set({ discardPrompt }),

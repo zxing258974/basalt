@@ -7,6 +7,7 @@ import { createMockDesigns } from "./mock/tableDesign";
 import { mockTableDetails } from "./mock/tableDetails";
 import { createMockTransfer } from "./mock/transferMock";
 import { createMockLlm } from "./mock/llmMock";
+import { createMockTunnels, mockCredentialFile, validateTransport } from "./mock/tunnelMock";
 import { classifyMockImport, mockImportSources, planMockImport } from "./mockImport";
 import type {
   CommandError,
@@ -17,6 +18,7 @@ import type {
   ConnectionView,
   FieldError,
   ServerInfo,
+  SshTunnel,
   TableInfo,
 } from "./types";
 
@@ -25,6 +27,21 @@ const LATENCY_MS = 120;
 // 单测里不模拟延迟,省得每个用例都要等;浏览器里保留,能看到加载状态。
 const wait = (ms = LATENCY_MS) =>
   import.meta.env.MODE === "test" ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 同一台服务器、同一个用户、同一种登录方式:存着的 SSH 密码 / 口令才还能用。 */
+function sameLogin(a: SshTunnel | null | undefined, b: SshTunnel | null | undefined): boolean {
+  if (!a || !b) return false;
+  const key = (t: SshTunnel) => [t.host.toLowerCase(), t.port, t.username, t.auth, t.privateKeyPath ?? null].join("\n");
+  return key(a) === key(b);
+}
+
+/** 和 Rust 端的相等比较一致:缺省的字段与 null 视为相同,只改「是否保存 SSH 密码」不算换了连法。 */
+function routeKey({ ssh, ssl }: Pick<ConnectionConfig, "ssh" | "ssl">): string {
+  return JSON.stringify([
+    ssh ? [ssh.host, ssh.port, ssh.username, ssh.auth, ssh.privateKeyPath ?? null] : null,
+    [ssl?.mode ?? "preferred", ssl?.caPath ?? null, ssl?.clientCertPath ?? null, ssl?.clientKeyPath ?? null],
+  ]);
+}
 
 function fail(code: string, message: string, fields: FieldError[] = []): never {
   const error: CommandError = { code, message, fields };
@@ -167,12 +184,19 @@ function validate(draft: ConnectionDraft): FieldError[] {
   } else if (!draft.endpoint.path.startsWith("/")) {
     errors.push({ field: "path", message: "请选择数据库文件" });
   }
-  return errors;
+  return [...errors, ...validateTransport(draft)];
 }
 
 export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): Backend {
   let connections = [...seed];
   const passwords = new Map<string, string>([["mock-mysql", "root"]]);
+  const sshSecrets = new Map<string, string>();
+  const tunnels = createMockTunnels();
+  /** 表单里没给 SSH 密码时用存着的(和 Rust 端一样只看 saveSecret)。 */
+  const savedSshSecret = (id: string | null | undefined) => {
+    const config = id ? connections.find((c) => c.id === id) : undefined;
+    return config?.ssh?.saveSecret ? sshSecrets.get(config.id) : undefined;
+  };
   const open = new Set<string>();
   const designs = createMockDesigns();
   const tableData = createMockTables();
@@ -209,6 +233,7 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       const errors = validate(draft);
       if (errors.length) fail("invalid_config", "连接配置有误", errors);
       const id = draft.id ?? crypto.randomUUID();
+      const network = draft.endpoint.kind === "network";
       const config: ConnectionConfig = {
         id,
         name: draft.name.trim(),
@@ -216,18 +241,27 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
         driver: draft.driver,
         endpoint: draft.endpoint,
         savePassword: draft.savePassword,
+        ssh: network ? (draft.ssh ?? null) : null,
+        ssl: network ? (draft.ssl ?? { mode: "preferred" }) : { mode: "preferred" },
       };
       const previous = draft.id ? find(draft.id) : undefined;
       connections = previous ? connections.map((c) => (c.id === id ? config : c)) : [...connections, config];
       const newPassword = draft.savePassword && draft.password != null;
       if (newPassword) passwords.set(id, draft.password!);
       if (!draft.savePassword) passwords.delete(id);
+      const newSshSecret = Boolean(config.ssh?.saveSecret) && draft.sshSecret != null;
+      if (newSshSecret) sshSecrets.set(id, draft.sshSecret!);
+      if (!config.ssh?.saveSecret) sshSecrets.delete(id);
+      // 换了登录又没给新的:存着的是别处的密码或口令,不能留。
+      if (draft.sshSecret == null && !sameLogin(previous?.ssh, config.ssh)) sshSecrets.delete(id);
       // 与后端一致:只有影响「怎么连」的改动才断开会话。
       const reconnect =
         previous !== undefined &&
         (previous.driver !== config.driver ||
           endpointKey(previous.endpoint) !== endpointKey(config.endpoint) ||
-          newPassword);
+          routeKey(previous) !== routeKey(config) ||
+          newPassword ||
+          newSshSecret);
       if (reconnect) open.delete(id);
       return config;
     },
@@ -237,18 +271,34 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       passwords.set(id, password);
       connections = connections.map((c) => (c.id === id ? { ...config, savePassword: true } : c));
     },
+    async rememberSshSecret(id, secret) {
+      await wait();
+      const config = find(id);
+      if (!config.ssh) fail("unsupported", "这个连接没有用 SSH 隧道");
+      sshSecrets.set(id, secret);
+      connections = connections.map((c) =>
+        c.id === id ? { ...config, ssh: { ...config.ssh!, saveSecret: true } } : c,
+      );
+    },
+    async trustHostKey(hostKey) {
+      await wait(60);
+      tunnels.trust(hostKey);
+    },
     async deleteConnection(id) {
       await wait();
       find(id);
       connections = connections.filter((c) => c.id !== id);
       open.delete(id);
       passwords.delete(id);
+      sshSecrets.delete(id);
       return { passwordLeft: false };
     },
     async duplicateConnection(id) {
       await wait();
       const original = find(id);
       const copy = { ...original, id: crypto.randomUUID(), name: `${original.name} 副本` };
+      const secret = sshSecrets.get(id);
+      if (secret !== undefined) sshSecrets.set(copy.id, secret);
       const index = connections.indexOf(original);
       connections = [...connections.slice(0, index + 1), copy, ...connections.slice(index + 1)];
       return copy;
@@ -260,11 +310,13 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       if (draft.endpoint.kind === "network" && draft.endpoint.host === "10.9.9.9") {
         fail("timeout", "连接超时，请检查地址、端口和网络");
       }
+      if (draft.endpoint.kind === "network") tunnels.check(draft.ssh, draft.sshSecret ?? savedSshSecret(draft.id));
       return SERVERS[draft.driver];
     },
-    async openConnection(id, password) {
+    async openConnection(id, password, sshSecret) {
       await wait(300);
       const config = find(id);
+      tunnels.check(config.ssh, sshSecret ?? savedSshSecret(id));
       const saved = passwords.get(id);
       if (config.endpoint.kind === "network" && !config.savePassword && !password && !saved) {
         fail("authentication", "用户名或密码不正确：Access denied");
@@ -350,6 +402,10 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       await wait(60);
       return "/Users/me/Documents/new.db";
     },
+    async pickCredentialFile(kind) {
+      await wait(60);
+      return mockCredentialFile(kind);
+    },
     async scanImportSource(source) {
       await wait();
       return classifyMockImport(mockImportSources(source), connections);
@@ -360,6 +416,7 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       const filled = new Set(filledIds);
       connections = [...connections.map((c) => (filled.has(c.id) ? { ...c, savePassword: true } : c)), ...configs];
       for (const item of report.imported) if (item.passwordSaved) passwords.set(item.id, "mock");
+      for (const item of report.imported) if (item.sshSecretSaved) sshSecrets.set(item.id, "mock");
       for (const id of filledIds) passwords.set(id, "mock");
       return report;
     },

@@ -3,7 +3,7 @@
 对标 Navicat Premium 使用体验的桌面数据库客户端,自用。Tauri 2 + Rust + React。
 设计与里程碑见 [DESIGN.md](DESIGN.md)。
 
-**当前进度:M3**——连接管理(新建 / 编辑 / 复制 / 删除 / 分组 / 测试连接,密码进 macOS 钥匙串)、
+**当前进度:M0–M6**——连接管理(新建 / 编辑 / 复制 / 删除 / 分组 / 测试连接,密码进 macOS 钥匙串)、
 MySQL / MariaDB / PostgreSQL / SQLite 四种驱动、对象树(连接 → 库 → schema → 表 / 视图 / 查询)、对象列表页;
 数据浏览与编辑:在对象树里双击表、或在对象列表里双击一行打开「表数据」标签页,
 分页、点列头排序、WHERE 筛选、行内编辑、新增 / 删除行,未提交的修改高亮,⌘S 先看 SQL 预览再在一个事务里提交;
@@ -15,6 +15,12 @@ SQL 编辑器:工具栏「新建查询」(⌘T)或在库 / schema 上右键「�
 表结构设计(M5):对象树里表节点右键「设计表」、库(PostgreSQL 是 schema)右键「新建表」,
 在字段 / 索引 / 外键 / 选项页里改,「SQL 预览」页实时看将要执行的 DDL,⌘S 确认后执行。
 PostgreSQL、SQLite 在一个事务里执行;SQLite 做不到的改动自动走重建表;MySQL 逐条执行,中途失败会说明哪些已经生效。
+
+SSH 隧道与 SSL(M4):连接对话框分「常规 / SSH / SSL」三页。SSH 隧道支持密码和私钥(可带口令)登录,
+数据库的主机、端口填从 SSH 服务器那边能访问的地址;第一次连接某台 SSH 服务器时弹框核对它的主机密钥指纹,
+信任后记在配置目录的 `known_hosts` 里,以后指纹变了会拒绝连接并说明怎么处理。SSL 有禁用 / 优先 / 必须 /
+校验 CA / 校验主机名五档,可选 CA 证书和客户端证书、私钥。SSH 密码、私钥口令和数据库密码一样存在钥匙串里。
+从 Navicat 导入的 .ncx 连接会带上隧道和 SSL 设置,映射不了的在预览里提醒。
 
 导入导出(M6):表节点右键「导出数据…」「导入数据…」,表数据页和查询结果上也有「导出」按钮。
 导出成 CSV(分隔符、引号、列名行、UTF-8 / 带 BOM / GBK)、Excel、JSON(数组或 JSON Lines)、SQL INSERT,
@@ -39,7 +45,8 @@ pnpm dev                # 只起前端;浏览器里自动使用 mock 后端,方�
 ```
 
 连接配置存放在 `~/Library/Application Support/dev.basalt.app/connections.json`(不含密码),
-密码存在钥匙串的 `dev.basalt.app` 服务下。同一目录下还有执行历史 `history.jsonl`(最近 2000 条)
+密码(含 SSH 密码、私钥口令)存在钥匙串的 `dev.basalt.app` 服务下。信任过的 SSH 服务器主机密钥在同一目录的
+`known_hosts`(OpenSSH 格式;服务器换了密钥、确认无误后删掉对应的那一行)。同一目录下还有执行历史 `history.jsonl`(最近 2000 条)
 和保存的查询 `queries/<连接 id>/<库>/[<schema>/]<名字>.sql`(删除连接不会删它的查询)。
 删除连接不会弹钥匙串授权框:钥匙串条目只归存它的那份程序,每次重新打包签名都会变,
 旧版存的密码新版删不掉,这时密码留在钥匙串里,状态栏会提示,可在「钥匙串访问」里搜 `dev.basalt.app` 手动删。
@@ -70,7 +77,8 @@ pnpm test:visual                            # 截图回归(Playwright + WebKit,�
 pnpm test:visual:update                     # 界面有意改动后重新生成基准图
 ```
 
-截图测试覆盖欢迎页、展开的对象树、对象列表、新建连接对话框(选类型 / MySQL 表单)、
+截图测试覆盖欢迎页、展开的对象树、对象列表、新建连接对话框(选类型 / MySQL 表单 / SSH 页 / SSL 页)、
+核对 SSH 主机密钥、
 SQL 编辑器的结果表格与消息页、导入 Navicat 查询的预览、表结构设计器、导出对话框(选项 / 完成)、
 导入向导(选文件 / 映射列 / 结果),
 每个画面按 960、1280、1440 三种宽度和深浅两套主题各截一张,基准图在 `e2e/__screenshots__/`。
@@ -84,18 +92,26 @@ Rust:
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace                      # Rust 单测 + SQLite 集成测试
-docker compose -f docker-compose.test.yml up -d                   # MySQL 5.7 + PostgreSQL 17
+docker compose -f docker-compose.test.yml up -d --build           # MySQL 5.7 + PostgreSQL 17 + sshd(第一次会构建 sshd 镜像)
 docker compose -f docker-compose.test.yml --profile full up -d    # 再加 MySQL 8.4 + MariaDB 11.4
-BASALT_IT=1 cargo test --workspace          # 连 MySQL 5.7 与 PostgreSQL
-BASALT_IT=all cargo test --workspace        # 连全部四个容器(会在测试库里建 basalt_it / basalt_m2 / basalt_m3 / basalt_m6 / basalt_svc)
+BASALT_IT=1 cargo test --workspace          # 连 MySQL 5.7、PostgreSQL 与 sshd
+BASALT_IT=all cargo test --workspace        # 连全部容器(会在测试库里建 basalt_it / basalt_m2 / basalt_m3 / basalt_m6 / basalt_svc,以及证书登录的 basalt_cert 账号)
 BASALT_IT=all cargo llvm-cov --workspace --fail-under-lines 80    # 覆盖率;不连容器时 MySQL / PG 驱动跑不到
 ```
 
 设了 `BASALT_IT` 时还会跑 `transfer_large`:每种库 10 万行(约 100 MB)导出 CSV / Excel 并量进程内存、
 中途取消、导回再取消,调试构建下要几分钟,`--nocapture` 能看到每一步的用时和内存。
 
-测试容器只监听 127.0.0.1:MySQL 5.7 `23306`、MySQL 8.4 `23307`、MariaDB `23308`、PostgreSQL `25432`,
-账号见 `docker-compose.test.yml`(仅用于本机一次性容器)。
+测试容器只监听 127.0.0.1:MySQL 5.7 `23306`、MySQL 8.4 `23307`、MariaDB `23308`、PostgreSQL `25432`、
+sshd `20022`,账号见 `docker-compose.test.yml`(仅用于本机一次性容器)。
+
+SSH 隧道与 SSL 的测试(`tests/ssh_tunnel.rs`、`tests/ssl.rs`):sshd 是 SSH 跳板机(alpine + OpenSSH,
+用户 basalt 可以密码或 `tests/fixtures/ssh` 里的测试私钥登录并转发,noforward 不许转发),和数据库容器在同一个网络,
+经它连库时地址写容器名 `mysql57`、`postgres`。MySQL 5.7 和 PostgreSQL 挂着 `tests/fixtures/tls` 里测试 CA 签的证书
+开 SSL,PostgreSQL 另用那里的 `pg_hba.conf` 让 `basalt_cert` 只能用客户端证书登录。M4 以前起的这两个容器要重建一次:
+`docker compose -f docker-compose.test.yml up -d --force-recreate mysql57 postgres`(数据卷保留)。
+`BASALT_IT` 的名单里写 `sshd` 选中跳板机,经隧道的测试要同时选中 sshd 和对应的库。
+隧道本身的单元测试不需要容器:在测试进程里用 russh 的服务端起 SSH 服务器。
 
 Windows:
 

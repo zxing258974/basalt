@@ -1,6 +1,7 @@
 // 导入对话框的纯逻辑:勾选、文案。不碰后端,方便单测。
 import type { CandidateStatus, ImportCandidate, ImportReport, PasswordStatus } from "../../lib/importTypes";
-import { endpointSummary } from "../connection/driverMeta";
+import { SSL_MODE_LABELS } from "../connection/connectionForm";
+import { endpointSummary, tunnelSummary } from "../connection/driverMeta";
 
 export function selectableIds(candidates: readonly ImportCandidate[]): string[] {
   return candidates.filter((c) => c.status.kind !== "unsupported").map((c) => c.id);
@@ -59,6 +60,20 @@ export function passwordLabel(password: PasswordStatus): string {
 export function candidateAddress(candidate: ImportCandidate): string {
   const { endpoint } = candidate;
   return endpoint ? endpointSummary({ endpoint }) : "—";
+}
+
+/** 预览里隧道和 SSL 的说明,如「经 jump@bastion:22 的 SSH 隧道，含 SSH 密码」「SSL：校验 CA」。 */
+export function transportNotes(candidate: ImportCandidate): string[] {
+  if (candidate.status.kind === "unsupported") return [];
+  const notes: string[] = [];
+  const tunnel = tunnelSummary(candidate);
+  if (tunnel && candidate.ssh) {
+    const secretName = candidate.ssh.auth === "password" ? " SSH 密码" : "私钥口令";
+    const secret = candidate.sshSecret === "included" ? `，含${secretName}` : "";
+    notes.push(`${tunnel} 的 SSH 隧道${secret}`);
+  }
+  if (candidate.sslMode !== "preferred") notes.push(`SSL：${SSL_MODE_LABELS[candidate.sslMode]}`);
+  return notes;
 }
 
 export function reportHeadline(report: ImportReport): string {

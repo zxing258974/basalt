@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { ConnectionDialog } from "./components/connection/ConnectionDialog";
 import { DeleteConnectionDialog } from "./components/connection/DeleteConnectionDialog";
+import { HostKeyPrompt } from "./components/connection/HostKeyPrompt";
 import { PasswordPrompt } from "./components/connection/PasswordPrompt";
 import { AppShell } from "./components/layout/AppShell";
 import { DiscardChangesDialog } from "./components/data/DiscardChangesDialog";
@@ -62,6 +63,7 @@ export function App({ queryClient }: { queryClient: QueryClient }) {
       <AppShell />
       <ConnectionDialog />
       <PasswordPrompt />
+      <HostKeyPrompt />
       <DeleteConnectionDialog />
       <DiscardChangesDialog />
       <TransferDialogs />

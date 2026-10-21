@@ -70,7 +70,7 @@ describe("open", () => {
     const backend = createMockBackend([remote]);
     vi.spyOn(backend, "openConnection").mockRejectedValue(failure("authentication", "密码错误"));
     const { actions } = setup(backend);
-    expect(await actions().open(remote, "wrong")).toBe(false);
+    expect(await actions().open(remote, { password: "wrong" })).toBe(false);
     expect(useUi.getState().passwordPrompt).toEqual({ connection: remote, error: "密码错误" });
   });
 

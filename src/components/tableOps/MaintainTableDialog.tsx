@@ -14,7 +14,15 @@ import { formatBytes } from "../transfer/exportModel";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { ChoiceList } from "./ChoiceList";
-import { MAINTENANCE, formatDuration, levelLabel, maintenanceNotice, qualifiedName } from "./tableOpsModel";
+import {
+  MAINTENANCE,
+  formatDuration,
+  levelLabel,
+  maintenanceNotice,
+  maintenanceTitle,
+  messageTone,
+  qualifiedName,
+} from "./tableOpsModel";
 import { useDetachable } from "./useDetachable";
 
 interface MaintainTableDialogProps {
@@ -64,11 +72,10 @@ export function MaintainTableDialog({ connection, table, onClose }: MaintainTabl
   };
 
   if (outcome) {
-    const label = labelOf(operation);
     return (
       <Dialog
         open
-        title={`${label}完成`}
+        title={maintenanceTitle(labelOf(operation), outcome)}
         subtitle={subtitle}
         width={520}
         onClose={onClose}
@@ -137,7 +144,7 @@ function MaintenanceResult({ outcome, wholeFile }: { outcome: MaintenanceOutcome
         <ul className="maintenance-messages" aria-label="数据库返回的消息">
           {outcome.messages.map((message, index) => (
             <li key={index} className="maintenance-message">
-              <span className={`maintenance-level is-${message.level}`}>{levelLabel(message.level)}</span>
+              <span className={`maintenance-level is-${messageTone(message)}`}>{levelLabel(message.level)}</span>
               <span className="maintenance-text selectable">{message.text}</span>
             </li>
           ))}

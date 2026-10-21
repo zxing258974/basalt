@@ -261,8 +261,8 @@ function ObjectGroups({
                           copyNameItem(table.name),
                           maintainTableItem(connection, ref),
                           "separator" as const,
-                          clearTableItem(connection, ref),
-                          truncateTableItem(connection, ref),
+                          clearTableItem(connection, ref, table.rows),
+                          truncateTableItem(connection, ref, table.rows),
                           dropTableItem(connection, ref),
                         ]
                       : ["separator" as const, copyNameItem(table.name, "复制视图名")]),

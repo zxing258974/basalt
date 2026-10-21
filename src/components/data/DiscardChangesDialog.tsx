@@ -2,12 +2,16 @@ import { useUi } from "../../stores/ui";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 
-/** 确认框的标题和正文:表格修改、没保存的查询、没保存的表结构,有哪几样就说哪几样;退出应用时说「退出」。 */
+/**
+ * 确认框的标题和正文:表格修改、没保存的查询、没保存的表结构,有哪几样就说哪几样;
+ * 退出应用时说「退出」,清空、改名表这类操作说它自己(`action`)。
+ */
 export function discardText(
   count: number,
   queries: number,
   designs: number,
   quit = false,
+  action?: string,
 ): { title: string; message: string } {
   const parts = [
     count > 0 ? `${count} 行修改还没有提交` : null,
@@ -17,7 +21,11 @@ export function discardText(
   const onlyRows = queries === 0 && designs === 0;
   const onlyQueries = count === 0 && designs === 0;
   const title = onlyRows ? "放弃未提交的修改？" : onlyQueries ? "放弃未保存的查询？" : "放弃未保存的修改？";
-  return { title, message: `有 ${parts.join("、")}，${quit ? "退出" : "关闭"}后就没有了。` };
+  return { title, message: `有 ${parts.join("、")}，${verbOf(quit, action)}后就没有了。` };
+}
+
+function verbOf(quit: boolean | undefined, action: string | undefined): string {
+  return quit ? "退出" : (action ?? "关闭");
 }
 
 /** 关闭标签页、连接或退出应用会丢掉未提交的表格修改、没保存的查询或表结构时的确认框。 */
@@ -30,7 +38,7 @@ export function DiscardChangesDialog() {
     askDiscard(null);
     prompt.onCancel?.();
   };
-  const text = discardText(prompt.count, prompt.queries, prompt.designs, prompt.quit);
+  const text = discardText(prompt.count, prompt.queries, prompt.designs, prompt.quit, prompt.action);
   return (
     <Dialog
       open
@@ -50,7 +58,7 @@ export function DiscardChangesDialog() {
               prompt.onConfirm();
             }}
           >
-            {prompt.quit ? "放弃修改并退出" : "放弃修改并关闭"}
+            放弃修改并{verbOf(prompt.quit, prompt.action)}
           </Button>
         </>
       }

@@ -20,7 +20,15 @@ export function TableOpsDialogs() {
   const close = useTableOps((s) => s.close);
   if (!dialog) return null;
   if (dialog.kind === "clear") {
-    return <ClearTableDialog connection={dialog.connection} table={dialog.table} mode={dialog.mode} onClose={close} />;
+    return (
+      <ClearTableDialog
+        connection={dialog.connection}
+        table={dialog.table}
+        mode={dialog.mode}
+        rows={dialog.rows}
+        onClose={close}
+      />
+    );
   }
   const Component = DIALOGS[dialog.kind];
   return <Component connection={dialog.connection} table={dialog.table} onClose={close} />;

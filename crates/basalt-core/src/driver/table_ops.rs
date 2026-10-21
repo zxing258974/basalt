@@ -13,6 +13,52 @@ use crate::sql::{Dialect, quote_ident};
 use crate::table::TableRef;
 use crate::table_ops::maintenance::MaintenanceMessage;
 
+/// 表级操作等锁最多等几秒。别的会话(比如查询页里没提交的事务)占着这张表时,MySQL 的 RENAME / DROP
+/// 默认要等一年(lock_wait_timeout)、PostgreSQL 一直等下去,对话框就一直卡着。
+pub(crate) const LOCK_WAIT_SECONDS: u64 = 5;
+
+/// 等锁超时:MySQL 是 1205(元数据锁、行锁都是它),PostgreSQL 是 55P03。
+fn lock_busy(error: &sqlx::Error) -> bool {
+    let Some(database) = error.as_database_error() else {
+        return false;
+    };
+    if let Some(mysql) = database.try_downcast_ref::<sqlx::mysql::MySqlDatabaseError>() {
+        return mysql.number() == 1205;
+    }
+    database.code().as_deref() == Some("55P03")
+}
+
+pub(crate) fn table_busy() -> CoreError {
+    CoreError::Database(format!(
+        "这张表正被别的会话占用（比如查询页里没提交的事务），等了 {LOCK_WAIT_SECONDS} 秒还没轮到。\
+         请先提交或回滚那边的事务再试。"
+    ))
+}
+
+fn exec_error(error: sqlx::Error) -> CoreError {
+    if lock_busy(&error) {
+        table_busy()
+    } else {
+        error.into()
+    }
+}
+
+/// MySQL 连接上临时缩短等锁时间,用完换回默认值;换不回去就让这条连接关掉,不把设置留给连接池里的别人。
+fn mysql_short_locks() -> String {
+    format!(
+        "SET SESSION lock_wait_timeout = {LOCK_WAIT_SECONDS}, innodb_lock_wait_timeout = {LOCK_WAIT_SECONDS}"
+    )
+}
+const MYSQL_DEFAULT_LOCKS: &str =
+    "SET SESSION lock_wait_timeout = DEFAULT, innodb_lock_wait_timeout = DEFAULT";
+
+async fn restore_mysql_locks(connection: &mut sqlx::pool::PoolConnection<sqlx::MySql>) {
+    if let Err(error) = (&mut **connection).execute(MYSQL_DEFAULT_LOCKS).await {
+        log::warn!("恢复 MySQL 的等锁时间失败，这条连接不再放回连接池：{error}");
+        connection.close_on_drop();
+    }
+}
+
 /// 一个文本格:列是二进制排序规则时 MySQL 以字节返回。
 fn text_at(row: &sqlx::mysql::MySqlRow, index: usize) -> Result<String, sqlx::Error> {
     match row.try_get::<Option<String>, _>(index) {
@@ -31,16 +77,27 @@ impl MysqlSession {
         statements: &[String],
     ) -> Result<Vec<u64>, (usize, CoreError)> {
         let mut connection = self.pool.acquire().await.map_err(|e| (0, e.into()))?;
+        (&mut *connection)
+            .execute(mysql_short_locks().as_str())
+            .await
+            .map_err(|e| (0, e.into()))?;
         let mut counts = Vec::with_capacity(statements.len());
+        let mut result = Ok(());
         for (index, sql) in statements.iter().enumerate() {
-            let done = sqlx::query(sql)
+            match sqlx::query(sql)
                 .persistent(false)
                 .execute(&mut *connection)
                 .await
-                .map_err(|error| (index, CoreError::from(error)))?;
-            counts.push(done.rows_affected());
+            {
+                Ok(done) => counts.push(done.rows_affected()),
+                Err(error) => {
+                    result = Err((index, exec_error(error)));
+                    break;
+                }
+            }
         }
-        Ok(counts)
+        restore_mysql_locks(&mut connection).await;
+        result.map(|()| counts)
     }
 
     /// ANALYZE / CHECK / OPTIMIZE / REPAIR TABLE 返回的消息(Table、Op、Msg_type、Msg_text 四列)。
@@ -50,7 +107,12 @@ impl MysqlSession {
         sql: &str,
     ) -> CoreResult<Vec<MaintenanceMessage>> {
         let mut connection = self.pool.acquire().await?;
-        let rows = (&mut *connection).fetch_all(sql).await?;
+        (&mut *connection)
+            .execute(mysql_short_locks().as_str())
+            .await?;
+        let fetched = (&mut *connection).fetch_all(sql).await;
+        restore_mysql_locks(&mut connection).await;
+        let rows = fetched.map_err(exec_error)?;
         let messages = rows
             .iter()
             .map(|row| {
@@ -75,12 +137,18 @@ impl PgSession {
         let mut transaction = pool.begin().await?;
         let mut counts = Vec::with_capacity(statements.len());
         let result = async {
+            sqlx::query(&format!("SET LOCAL lock_timeout = '{LOCK_WAIT_SECONDS}s'"))
+                .execute(&mut *transaction)
+                .await?;
             for (index, sql) in statements.iter().enumerate() {
                 let done = sqlx::query(sql)
                     .persistent(false)
                     .execute(&mut *transaction)
                     .await
-                    .map_err(|error| statement_failed(index, error))?;
+                    .map_err(|error| match lock_busy(&error) {
+                        true => table_busy(),
+                        false => statement_failed(index, error),
+                    })?;
                 counts.push(done.rows_affected());
             }
             Ok(0)
@@ -134,7 +202,7 @@ impl PgSession {
         allowed.ok_or_else(|| table_not_found(&table.table))
     }
 
-    /// VACUUM 不能在事务块里执行:单独一条、走简单查询协议。
+    /// VACUUM 不能在事务块里执行:单独一条、走简单查询协议。等锁时间在这条连接上临时缩短,用完复原。
     pub(crate) async fn execute_outside_transaction(
         &self,
         database: &str,
@@ -142,7 +210,14 @@ impl PgSession {
     ) -> CoreResult<()> {
         let pool = self.pool(database).await?;
         let mut connection = pool.acquire().await?;
-        (&mut *connection).execute(sql).await?;
+        let limit = format!("SET lock_timeout = '{LOCK_WAIT_SECONDS}s'");
+        (&mut *connection).execute(limit.as_str()).await?;
+        let done = (&mut *connection).execute(sql).await;
+        if let Err(error) = (&mut *connection).execute("RESET lock_timeout").await {
+            log::warn!("恢复 PostgreSQL 的等锁时间失败，这条连接不再放回连接池：{error}");
+            connection.close_on_drop();
+        }
+        done.map_err(exec_error)?;
         Ok(())
     }
 

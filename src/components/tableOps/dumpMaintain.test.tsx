@@ -157,6 +157,26 @@ describe("maintain table", { timeout: 15_000 }, () => {
     await waitFor(() => expect(status()).toHaveTextContent("「customers」分析失败：Lock wait timeout exceeded"));
   });
 
+  it("colours messages by what they say and does not call a failed check finished", async () => {
+    const backend = createMockBackend();
+    vi.spyOn(backend, "maintainTable").mockResolvedValue({
+      sql: "CHECK TABLE `shop`.`customers`",
+      messages: [
+        { level: "error", text: "Table 'shop.customers' is marked as crashed" },
+        { level: "status", text: "Corrupt" },
+      ],
+      size: null,
+      elapsedMs: 5,
+    });
+    const { user } = await openTableMenu("维护…", MYSQL_CUSTOMERS, backend);
+    const dialog = within(screen.getByRole("dialog", { name: "维护表" }));
+    await user.click(dialog.getByRole("radio", { name: /^检查/ }));
+    await user.click(dialog.getByRole("button", { name: "执行" }));
+    const result = await screen.findByRole("dialog", { name: "检查发现问题" });
+    const levels = [...result.querySelectorAll(".maintenance-level")].map((l) => l.className);
+    expect(levels).toEqual(["maintenance-level is-bad", "maintenance-level is-bad"]);
+  });
+
   it("keeps the choices open when the database refuses", async () => {
     const backend = createMockBackend();
     vi.spyOn(backend, "maintainTable").mockRejectedValueOnce({

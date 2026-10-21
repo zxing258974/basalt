@@ -1,17 +1,18 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { catalogKeys } from "../../hooks/useCatalog";
-import { tableDataKeys } from "../../hooks/useTableData";
-import { designKeys } from "../../hooks/useTableDesign";
 import { getBackend } from "../../lib/api";
 import { errorMessage, type ConnectionView, type TableRef } from "../../lib/types";
-import { useTabs } from "../../stores/tabs";
+import { guardDiscard } from "../../stores/discard";
+import { useTabs, type Tab } from "../../stores/tabs";
 import { useUi } from "../../stores/ui";
 import { tableKey } from "../sidebar/treeKeys";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Field } from "../ui/Field";
-import { RENAME_NOTES, pendingWarning, pendingWork, qualifiedName, renamedTab } from "./tableOpsModel";
+import { forgetTable } from "./tableCaches";
+import { RENAME_NOTES, qualifiedName, renamedTab, tabsOfTable } from "./tableOpsModel";
+import { useDetachable } from "./useDetachable";
 
 interface RenameTableDialogProps {
   connection: ConnectionView;
@@ -32,31 +33,29 @@ function followRename(connectionId: string, table: TableRef, name: string) {
   }
 }
 
-/** 重命名表:留在同一个库(schema)里。 */
+/**
+ * 重命名表:留在同一个库(schema)里。表被别的会话占着(比如查询页里没提交的事务)时要等锁:
+ * 后端几秒就放弃,这期间也可以「在后台继续」,回去把那边的事务提交了。
+ */
 export function RenameTableDialog({ connection, table, onClose }: RenameTableDialogProps) {
   const queryClient = useQueryClient();
   const [name, setName] = useState(table.table);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const warning = useTabs((s) => pendingWarning(pendingWork(s, connection.id, table), "改名"));
+  const { detach, isDetached } = useDetachable(onClose);
   const trimmed = name.trim();
   const ready = trimmed !== "" && trimmed !== table.table && !busy;
+  const belongs = (tab: Tab) => tabsOfTable(tab, connection.id, table);
 
-  const submit = async () => {
+  const run = async () => {
     setBusy(true);
     setError(undefined);
     try {
       const renamed = await (await getBackend()).renameTable(connection.id, table, trimmed);
+      // 先清掉新名字可能留着的旧缓存(那个名字以前的表删了),标签页换过去才不会显示旧内容。
+      forgetTable(queryClient, connection.id, renamed);
       followRename(connection.id, table, renamed.table);
-      // 数据页、设计器的缓存不会自己过期:旧名字的快照留着,以后再有同名表(比如又改回来)会先显示旧内容。
-      for (const queryKey of [
-        tableDataKeys.table(connection.id, table),
-        designKeys.table(connection.id, table),
-        catalogKeys.details(connection.id, table.database, table.schema, table.table),
-        catalogKeys.columns(connection.id, table.database, table.schema, table.table),
-      ]) {
-        queryClient.removeQueries({ queryKey });
-      }
+      forgetTable(queryClient, connection.id, table);
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: catalogKeys.tables(connection.id, table.database, table.schema),
@@ -66,13 +65,18 @@ export function RenameTableDialog({ connection, table, onClose }: RenameTableDia
         }),
       ]);
       useUi.getState().notify(`已把「${table.table}」改名为「${renamed.table}」。`);
-      onClose();
+      if (!isDetached()) onClose();
     } catch (e) {
-      setError(errorMessage(e));
+      const message = errorMessage(e);
+      if (isDetached()) useUi.getState().notify(`把「${table.table}」改名失败：${message}`);
+      else setError(message);
     } finally {
       setBusy(false);
     }
   };
+
+  // 开着的数据页、设计器会换成新名字的标签页:里面没提交、没保存的修改先问一声。
+  const submit = () => guardDiscard(belongs, () => void run(), undefined, "改名");
 
   return (
     <Dialog
@@ -80,14 +84,14 @@ export function RenameTableDialog({ connection, table, onClose }: RenameTableDia
       title="重命名表"
       subtitle={`${connection.name} · ${qualifiedName(table)}`}
       width={440}
-      onClose={busy ? () => undefined : onClose}
+      onClose={busy ? detach : onClose}
       footer={
         <>
           <span className="footer-spacer" />
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
-            取消
+          <Button variant="ghost" onClick={busy ? detach : onClose}>
+            {busy ? "在后台继续" : "取消"}
           </Button>
-          <Button variant="primary" busy={busy} disabled={!ready} onClick={() => void submit()}>
+          <Button variant="primary" busy={busy} disabled={!ready} onClick={submit}>
             重命名
           </Button>
         </>
@@ -97,7 +101,7 @@ export function RenameTableDialog({ connection, table, onClose }: RenameTableDia
         className="table-ops-form"
         onSubmit={(event) => {
           event.preventDefault();
-          if (ready) void submit();
+          if (ready) submit();
         }}
       >
         <Field
@@ -111,7 +115,6 @@ export function RenameTableDialog({ connection, table, onClose }: RenameTableDia
         <p className="dialog-text is-muted">
           {RENAME_NOTES[connection.driver]}程序里写死的表名也要自己改。开着的数据页和设计器会换成新名字。
         </p>
-        {warning && <p className="transfer-warning">{warning}</p>}
       </form>
       {error && (
         <p className="field-error" role="alert">

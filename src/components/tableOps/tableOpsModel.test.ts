@@ -6,15 +6,16 @@ import {
   DUMP_NOTES,
   MAINTENANCE,
   clearChoices,
+  clearRefusal,
   clearedNotice,
   formatDuration,
   levelLabel,
   maintenanceNotice,
-  pendingWarning,
-  pendingWork,
+  maintenanceTitle,
+  messageTone,
   referenceNotes,
   renamedTab,
-  truncateRefusal,
+  rowsEstimate,
 } from "./tableOpsModel";
 
 const users = { database: "FOLIO", schema: "public", table: "users" };
@@ -33,23 +34,6 @@ describe("tableOpsModel", () => {
     expect(renamedTab(data, "c2", users, "members")).toBeNull();
   });
 
-  it("counts the work that would be lost and words it", () => {
-    const data = tableDataTab("c1", "FOLIO", "public", "users");
-    const design = tableDesignTab("c1", "FOLIO", "public", "users");
-    const other = tableDataTab("c1", "FOLIO", "public", "orders");
-    const state = {
-      tabs: [data, design, other],
-      pending: { [data.id]: 2, [other.id]: 9 },
-      unsaved: { [design.id]: true as const },
-    };
-    const work = pendingWork(state, "c1", users);
-    expect(work).toEqual({ rows: 2, designs: 1 });
-    expect(pendingWarning(work, "改名")).toBe(
-      "这张表还有 2 行修改没有提交、设计器里的结构修改没有保存，改名后就没有了。",
-    );
-    expect(pendingWarning({ rows: 0, designs: 0 }, "清空")).toBeNull();
-  });
-
   it("explains clearing per database and words the outcome", () => {
     expect(clearChoices("sqlite")[1]).toMatchObject({ mode: "truncate", sql: "DELETE FROM + 计数归零" });
     expect(clearChoices("postgres")[1]!.detail).toMatch(/RESTART IDENTITY/);
@@ -57,11 +41,23 @@ describe("tableOpsModel", () => {
     expect(clearedNotice(users, "delete", { rows: 12345 })).toBe("已清空表「users」，删除了 12,345 行。");
     expect(clearedNotice(users, "truncate", { rows: null })).toBe("已截断表「users」。");
     const refused = "cannot truncate a table referenced in a foreign key constraint";
-    expect(truncateRefusal("permission denied", users, [])).toBe("permission denied");
-    expect(truncateRefusal(refused, users, [])).toBe(`${refused}\n被别的表的外键引用时不能截断，可以改用「清空」。`);
-    expect(truncateRefusal(refused, users, [key("orders", "cascade"), key("audit", "restrict")])).toBe(
+    const both = [key("orders", "cascade"), key("audit", "restrict")];
+    expect(clearRefusal("permission denied", "truncate", "postgres", users, [])).toBe("permission denied");
+    expect(clearRefusal(refused, "truncate", "postgres", users, [])).toBe(
+      `${refused}\n被别的表的外键引用时不能截断，可以改用「清空」。`,
+    );
+    expect(clearRefusal(refused, "truncate", "mysql", users, both)).toBe(
       `${refused}\n被别的表的外键引用时不能截断。改用「清空」会按外键连带改动 orders 里的行。`,
     );
+    // 清空、SQLite 的截断被挡住:换哪种做法都一样,得先处理引用它的行。
+    const failed = "FOREIGN KEY constraint failed";
+    expect(clearRefusal(failed, "truncate", "sqlite", users, both)).toBe(
+      `${failed}\naudit 里还有引用它的行，外键不让删：先删掉或改掉那些行再试。`,
+    );
+    expect(clearRefusal(failed, "delete", "mysql", users, [])).toBe(
+      `${failed}\n别的表里还有引用它的行，外键不让删：先删掉或改掉那些行再试。`,
+    );
+    expect(rowsEstimate(18204)).toBe("约 18,204 行，估算");
   });
 
   it("says which other tables a clear would change or be blocked by", () => {
@@ -98,5 +94,19 @@ describe("tableOpsModel", () => {
     expect(formatDuration(12_340)).toBe("12.3 秒");
     const outcome = { sql: "VACUUM", messages: [], size: null, elapsedMs: 1 };
     expect(maintenanceNotice(users, "清理", outcome)).toBe("「users」清理完成：数据库没有返回消息。");
+    const message = (level: string, text: string) => ({ level, text });
+    expect(messageTone(message("status", "OK"))).toBe("ok");
+    expect(messageTone(message("status", "Table is already up to date"))).toBe("ok");
+    expect(messageTone(message("status", "Operation failed"))).toBe("bad");
+    expect(messageTone(message("error", "Table doesn't exist"))).toBe("bad");
+    expect(messageTone(message("warning", "x"))).toBe("warn");
+    expect(messageTone(message("note", "x"))).toBe("info");
+    const crashed = {
+      ...outcome,
+      messages: [message("note", "checking"), message("error", "marked as crashed"), message("status", "Corrupt")],
+    };
+    expect(maintenanceTitle("检查", crashed)).toBe("检查发现问题");
+    expect(maintenanceNotice(users, "检查", crashed)).toBe("「users」检查发现问题：错误 marked as crashed。");
+    expect(maintenanceTitle("检查", { ...outcome, messages: [message("status", "OK")] })).toBe("检查完成");
   });
 });

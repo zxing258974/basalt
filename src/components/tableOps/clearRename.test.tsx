@@ -26,7 +26,8 @@ describe("clear and truncate", { timeout: 15_000 }, () => {
     const dialog = within(screen.getByRole("dialog", { name: "清空表「customers」？" }));
     expect(dialog.getByRole("radio", { name: /^清空DELETE FROM/ })).toHaveAttribute("aria-checked", "true");
     expect(dialog.getByRole("radio", { name: /^截断TRUNCATE.*不能回滚.*外键/ })).toBeInTheDocument();
-    expect(dialog.getByText(/不能撤销；表结构、索引都留着。开着的数据页会重新读取/)).toBeInTheDocument();
+    expect(dialog.getByText("表里的全部行（约 18,204 行，估算）都会删掉，不能撤销。")).toBeInTheDocument();
+    expect(dialog.getByText("表结构、索引都留着；开着的数据页会重新读取。")).toBeInTheDocument();
     await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
 
     await user.click(dialog.getByRole("button", { name: "清空" }));
@@ -38,24 +39,30 @@ describe("clear and truncate", { timeout: 15_000 }, () => {
     expect(page.rows).toEqual([]);
   });
 
-  it("truncates without a row count and switching the choice changes the wording", async () => {
-    const { user } = await openTableMenu("截断表…");
-    const dialog = within(screen.getByRole("dialog", { name: "截断表「customers」？" }));
+  it("truncates without a row count, switches wording and shows 0 rows afterwards", async () => {
+    const backend = createMockBackend();
+    const { user } = await openTableMenu("截断表…", { ...MYSQL_CUSTOMERS, table: "orders" }, backend);
+    const dialog = within(screen.getByRole("dialog", { name: "截断表「orders」？" }));
     await user.click(dialog.getByRole("radio", { name: /^清空/ }));
-    expect(screen.getByRole("dialog", { name: "清空表「customers」？" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "清空表「orders」？" })).toBeInTheDocument();
     await user.click(dialog.getByRole("radio", { name: /^截断/ }));
     await user.click(dialog.getByRole("button", { name: "截断" }));
-    await waitFor(() => expect(notice()).toHaveTextContent("已截断表「customers」。"));
+    await waitFor(() => expect(notice()).toHaveTextContent("已截断表「orders」。"));
+    // 和真库一样:对象列表里的行数、之后导出报的行数都是 0。
+    const orders = (await backend.listTables("mock-mysql", "shop")).find((t) => t.name === "orders");
+    expect(orders?.rows).toBe(0);
+    const exported = await backend.exportData("job", {
+      connectionId: "mock-mysql",
+      source: { kind: "table", table: { database: "shop", schema: null, table: "orders" }, filter: null, sort: null },
+      options: { format: { kind: "xlsx" }, binary: "hex" },
+      path: "/tmp/orders.xlsx",
+    });
+    expect(exported.rows).toBe(0);
   });
 
   it("explains a foreign key refusal and clears the error when switching to delete", async () => {
-    const backend = createMockBackend();
-    vi.spyOn(backend, "clearTable").mockRejectedValueOnce({
-      code: "database",
-      message: "Cannot truncate a table referenced in a foreign key constraint",
-      fields: [],
-    });
-    const { user } = await openTableMenu("截断表…", MYSQL_CUSTOMERS, backend);
+    // mock 和真库一样:customers 被 orders 引用,截断被拒绝。
+    const { user } = await openTableMenu("截断表…");
     const dialog = within(screen.getByRole("dialog", { name: "截断表「customers」？" }));
     // mock 里 orders 以 ON DELETE CASCADE 引用 customers。
     expect(await dialog.findByLabelText("外键")).toHaveTextContent("被 orders 的外键引用：截断会被数据库拒绝。");
@@ -86,21 +93,64 @@ describe("clear and truncate", { timeout: 15_000 }, () => {
     ).toBeInTheDocument();
   });
 
-  it("warns that uncommitted edits on the data page will be lost", async () => {
+  it("asks before throwing away uncommitted edits on the data page, like closing it would", async () => {
     const backend = createMockBackend();
-    vi.spyOn(backend, "clearTable").mockRejectedValueOnce({ code: "database", message: "busy", fields: [] });
+    const clear = vi.spyOn(backend, "clearTable");
     const { user } = renderApp(backend);
     const tab = tableDataTab("mock-mysql", "shop", null, "customers");
     const connection = (await backend.listConnections()).find((c) => c.id === "mock-mysql")!;
     // 分开 act:数据页挂上时会先把自己的未提交行数(0)报上去。
     act(() => useTabs.getState().open(tab));
     act(() => useTabs.getState().setPending(tab.id, 3));
-    act(() => useTableOps.getState().open({ kind: "clear", mode: "delete", connection, table: CUSTOMERS }));
+    act(() => useTableOps.getState().open({ kind: "clear", mode: "delete", rows: null, connection, table: CUSTOMERS }));
     const dialog = within(screen.getByRole("dialog", { name: "清空表「customers」？" }));
-    expect(dialog.getByText("这张表还有 3 行修改没有提交，清空后就没有了。")).toBeInTheDocument();
+    expect(dialog.getByText(/^表里的全部行都会删掉/)).toBeInTheDocument();
     await user.click(dialog.getByRole("button", { name: "清空" }));
-    expect(await dialog.findByRole("alert")).toHaveTextContent("busy");
-    expect(dialog.getByRole("alert")).not.toHaveTextContent("外键");
+    const ask = within(await screen.findByRole("dialog", { name: "放弃未提交的修改？" }));
+    expect(ask.getByText("有 3 行修改还没有提交，清空后就没有了。")).toBeInTheDocument();
+    await user.click(ask.getByRole("button", { name: "取消" }));
+    expect(clear).not.toHaveBeenCalled();
+
+    await user.click(dialog.getByRole("button", { name: "清空" }));
+    await user.click(
+      within(await screen.findByRole("dialog", { name: "放弃未提交的修改？" })).getByRole("button", {
+        name: "放弃修改并清空",
+      }),
+    );
+    await waitFor(() => expect(clear).toHaveBeenCalledTimes(1));
+  });
+
+  it("says a SQLite truncate blocked by foreign keys needs those rows handled first", async () => {
+    const backend = createMockBackend();
+    vi.spyOn(backend, "clearTable").mockRejectedValueOnce({
+      code: "database",
+      message: "FOREIGN KEY constraint failed",
+      fields: [],
+    });
+    const { user } = await openTableMenu("截断表…", SQLITE_NOTES, backend);
+    const dialog = within(screen.getByRole("dialog", { name: "截断表「notes」？" }));
+    await user.click(dialog.getByRole("button", { name: "截断" }));
+    // SQLite 的截断就是 DELETE:换成「清空」也一样会失败,不能这么建议。
+    const alert = await dialog.findByRole("alert");
+    expect(alert).toHaveTextContent("别的表里还有引用它的行，外键不让删：先删掉或改掉那些行再试。");
+    expect(alert).not.toHaveTextContent("改用「清空」");
+  });
+
+  it("keeps the hint when a refused truncate finishes in the background", async () => {
+    const backend = createMockBackend();
+    let fail: (error: unknown) => void = () => undefined;
+    vi.spyOn(backend, "clearTable").mockImplementationOnce(() => new Promise((_, reject) => (fail = reject)));
+    const { user } = await openTableMenu("截断表…", MYSQL_CUSTOMERS, backend);
+    const dialog = within(screen.getByRole("dialog", { name: "截断表「customers」？" }));
+    await dialog.findByLabelText("外键");
+    await user.click(dialog.getByRole("button", { name: "截断" }));
+    await user.click(dialog.getByRole("button", { name: "在后台继续" }));
+    act(() =>
+      fail({ code: "database", message: "Cannot truncate a table referenced in a foreign key constraint", fields: [] }),
+    );
+    await waitFor(() =>
+      expect(notice()).toHaveTextContent(/截断表「customers」失败：.*改用「清空」会按外键连带改动 orders 里的行/),
+    );
   });
 
   it("can keep running in the background and reports the outcome in the status bar", async () => {
@@ -185,16 +235,90 @@ describe("rename", { timeout: 15_000 }, () => {
     expect(tree().getByRole("treeitem", { name: "customers" })).toBeInTheDocument();
   });
 
-  it("warns about unsaved work in the tabs it will replace", async () => {
+  it("asks before replacing tabs that hold unsaved work", async () => {
     const backend = createMockBackend();
-    renderApp(backend);
+    const rename = vi.spyOn(backend, "renameTable");
+    const { user } = renderApp(backend);
     const design = tableDesignTab("mock-mysql", "shop", null, "customers");
     const connection = (await backend.listConnections()).find((c) => c.id === "mock-mysql")!;
     act(() => useTabs.getState().open(design));
     act(() => useTabs.getState().setUnsaved(design.id, true));
     act(() => useTableOps.getState().open({ kind: "rename", connection, table: CUSTOMERS }));
     const dialog = within(screen.getByRole("dialog", { name: "重命名表" }));
-    expect(dialog.getByText("这张表还有设计器里的结构修改没有保存，改名后就没有了。")).toBeInTheDocument();
+    const name = dialog.getByLabelText("新表名");
+    await user.clear(name);
+    await user.type(name, "customers_old");
+    await user.click(dialog.getByRole("button", { name: "重命名" }));
+    const ask = within(await screen.findByRole("dialog", { name: "放弃未保存的修改？" }));
+    expect(ask.getByText("有 1 张表的结构修改还没有保存，改名后就没有了。")).toBeInTheDocument();
+    await user.click(ask.getByRole("button", { name: "放弃修改并改名" }));
+    await waitFor(() => expect(rename).toHaveBeenCalledWith("mock-mysql", CUSTOMERS, "customers_old"));
+  });
+
+  it("can keep renaming in the background and still follows the new name", async () => {
+    const backend = createMockBackend();
+    let finish: () => void = () => undefined;
+    const real = backend.renameTable.bind(backend);
+    vi.spyOn(backend, "renameTable").mockImplementationOnce(
+      (id, table, name) => new Promise((resolve) => (finish = () => resolve(real(id, table, name)))),
+    );
+    const { user } = await openTableMenu("重命名…", MYSQL_CUSTOMERS, backend, () =>
+      useTabs.getState().open(tableDataTab("mock-mysql", "shop", null, "customers")),
+    );
+    const dialog = within(screen.getByRole("dialog", { name: "重命名表" }));
+    const name = dialog.getByLabelText("新表名");
+    await user.clear(name);
+    await user.type(name, "clients{Enter}");
+    // 表被别的会话占着、正在等锁:先关掉对话框回去提交那边的事务。
+    fireEvent(screen.getByRole("dialog"), new Event("cancel", { cancelable: true }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    act(() => finish());
+    await waitFor(() => expect(notice()).toHaveTextContent("已把「customers」改名为「clients」。"));
+    expect(useTabs.getState().tabs.map((t) => t.title)).toEqual(["clients"]);
+  });
+
+  it("reports a busy table when renaming in the background fails", async () => {
+    const backend = createMockBackend();
+    let fail: (error: unknown) => void = () => undefined;
+    vi.spyOn(backend, "renameTable").mockImplementationOnce(() => new Promise((_, reject) => (fail = reject)));
+    const { user } = await openTableMenu("重命名…", MYSQL_CUSTOMERS, backend);
+    const dialog = within(screen.getByRole("dialog", { name: "重命名表" }));
+    await user.type(dialog.getByLabelText("新表名"), "2");
+    await user.click(dialog.getByRole("button", { name: "重命名" }));
+    await user.click(dialog.getByRole("button", { name: "在后台继续" }));
+    act(() => fail({ code: "database", message: "这张表正被别的会话占用", fields: [] }));
+    await waitFor(() => expect(notice()).toHaveTextContent("把「customers」改名失败：这张表正被别的会话占用"));
+  });
+
+  it("forgets stale caches under the old and the new name", async () => {
+    const backend = createMockBackend();
+    const { user, queryClient } = await openTableMenu("重命名…", { ...MYSQL_CUSTOMERS, table: "products" }, backend);
+    // 假装 orders 这个名字以前的表在内存里还留着一页数据、一份表结构。
+    const stale = { database: "shop", schema: null, table: "orders" };
+    queryClient.setQueryData(["tableData", "mock-mysql", "shop", "", "orders", { offset: 0 }], { rows: ["旧"] });
+    queryClient.setQueryData(["tableDesign", "mock-mysql", "shop", "", "orders"], { columns: ["旧"] });
+    await backend.dropTable("mock-mysql", stale);
+    const dialog = within(screen.getByRole("dialog", { name: "重命名表" }));
+    const name = dialog.getByLabelText("新表名");
+    await user.clear(name);
+    await user.type(name, "orders{Enter}");
+    await waitFor(() => expect(notice()).toHaveTextContent("已把「products」改名为「orders」。"));
+    const cached = (key: unknown[]) => queryClient.getQueryCache().findAll({ queryKey: key });
+    expect(cached(["tableData", "mock-mysql", "shop", "", "orders"])).toEqual([]);
+    expect(cached(["tableDesign", "mock-mysql", "shop", "", "orders"])).toEqual([]);
+    // 改名后的表沿用原来的行数、引擎(和真库一样)。
+    const renamed = (await backend.listTables("mock-mysql", "shop")).find((t) => t.name === "orders");
+    expect(renamed).toMatchObject({ engine: "InnoDB", rows: 1_204, comment: "商品" });
+  });
+
+  it("refuses PostgreSQL names longer than 63 bytes", async () => {
+    const backend = createMockBackend();
+    await backend.openConnection("mock-pg", "secret");
+    const users = { database: "folio", schema: "diku_mod_users", table: "users" };
+    await expect(backend.renameTable("mock-pg", users, "表".repeat(22))).rejects.toMatchObject({
+      code: "invalid_data",
+      message: expect.stringContaining("66 字节") as string,
+    });
   });
 });
 

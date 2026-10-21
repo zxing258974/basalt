@@ -15,21 +15,22 @@ export function renameTableItem(connection: ConnectionView, table: TableRef): Me
   return { label: "重命名…", icon: <PenLine />, onSelect: open({ kind: "rename", connection, table }) };
 }
 
-export function clearTableItem(connection: ConnectionView, table: TableRef): MenuItem {
+/** `rows`:对象列表里的行数(估算),确认框里写出来。 */
+export function clearTableItem(connection: ConnectionView, table: TableRef, rows: number | null): MenuItem {
   return {
     label: "清空表…",
     icon: <Eraser />,
     danger: true,
-    onSelect: open({ kind: "clear", mode: "delete", connection, table }),
+    onSelect: open({ kind: "clear", mode: "delete", rows, connection, table }),
   };
 }
 
-export function truncateTableItem(connection: ConnectionView, table: TableRef): MenuItem {
+export function truncateTableItem(connection: ConnectionView, table: TableRef, rows: number | null): MenuItem {
   return {
     label: "截断表…",
     icon: <Scissors />,
     danger: true,
-    onSelect: open({ kind: "clear", mode: "truncate", connection, table }),
+    onSelect: open({ kind: "clear", mode: "truncate", rows, connection, table }),
   };
 }
 

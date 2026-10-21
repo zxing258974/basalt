@@ -24,7 +24,10 @@ export function hasUnsavedWork(state: TabsSnapshot): boolean {
   return !nothingLost(lostWork(state, () => true));
 }
 
-function ask(affects: (tab: Tab) => boolean, request: Pick<DiscardPrompt, "onConfirm" | "onCancel" | "quit">): void {
+function ask(
+  affects: (tab: Tab) => boolean,
+  request: Pick<DiscardPrompt, "onConfirm" | "onCancel" | "quit" | "action">,
+): void {
   const lost = lostWork(useTabs.getState(), affects);
   if (nothingLost(lost)) {
     request.onConfirm();
@@ -38,10 +41,15 @@ function ask(affects: (tab: Tab) => boolean, request: Pick<DiscardPrompt, "onCon
 
 /**
  * `affects` 选出要被关掉的标签页:它们都没有未提交的修改就直接执行 `action`,
- * 否则弹出确认框,用户确认放弃后才执行。
+ * 否则弹出确认框,用户确认放弃后才执行。`verb` 是让修改没了的那个操作(默认「关闭」),确认框照它说。
  */
-export function guardDiscard(affects: (tab: Tab) => boolean, action: () => void, onCancel?: () => void): void {
-  ask(affects, { onConfirm: action, onCancel });
+export function guardDiscard(
+  affects: (tab: Tab) => boolean,
+  action: () => void,
+  onCancel?: () => void,
+  verb?: string,
+): void {
+  ask(affects, { onConfirm: action, onCancel, action: verb });
 }
 
 /** 退出应用之前:所有标签页一起算,确认框说「退出」而不是「关闭」。 */

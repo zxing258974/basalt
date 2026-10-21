@@ -9,6 +9,7 @@ import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Field } from "../ui/Field";
 import { ChoiceList, type Choice } from "./ChoiceList";
+import { forgetTable } from "./tableCaches";
 import { COPY_LIMITS, copiedNotice, copyName, qualifiedName } from "./tableOpsModel";
 
 interface CopyTableDialogProps {
@@ -41,6 +42,8 @@ export function CopyTableDialog({ connection, table, onClose }: CopyTableDialogP
     setError(undefined);
     try {
       const outcome = await (await getBackend()).copyTable(connection.id, table, name.trim(), withData);
+      // 新表的名字以前可能有过一张表(删了):别让它的旧缓存冒出来。
+      forgetTable(queryClient, connection.id, outcome.table);
       await queryClient.invalidateQueries({ queryKey: tablesKey });
       const { select, notify } = useUi.getState();
       select(tableKey(connection.id, table.database, table.schema, outcome.table.table));

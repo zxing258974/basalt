@@ -1,11 +1,12 @@
 // 表操作的纯逻辑:新表的默认名字、哪些标签页属于这张表、改名后换成什么标签页、各家的说法、结果的说法。
-import { tableDataTab, tableDesignTab, type Tab, type TabsState } from "../../stores/tabs";
+import { tableDataTab, tableDesignTab, type Tab } from "../../stores/tabs";
 import type {
   ClearMode,
   ClearTableOutcome,
   CopyTableOutcome,
   DriverKind,
   Maintenance,
+  MaintenanceMessage,
   MaintenanceOutcome,
   ReferencingKey,
   TableRef,
@@ -61,33 +62,6 @@ export function renamedTab(tab: Tab, connectionId: string, table: TableRef, name
   return tab.kind === "tableData"
     ? tableDataTab(connectionId, table.database, table.schema, name)
     : tableDesignTab(connectionId, table.database, table.schema ?? null, name);
-}
-
-type TabsSnapshot = Pick<TabsState, "tabs"> & {
-  pending: Readonly<Record<string, number>>;
-  unsaved: Readonly<Record<string, true>>;
-};
-
-/** 这张表开着的标签页里还没提交的表格修改行数、没保存的设计器个数。 */
-export function pendingWork(
-  state: TabsSnapshot,
-  connectionId: string,
-  table: TableRef,
-): { rows: number; designs: number } {
-  const mine = state.tabs.filter((tab) => tabsOfTable(tab, connectionId, table));
-  return {
-    rows: mine.reduce((sum, tab) => sum + (state.pending[tab.id] ?? 0), 0),
-    designs: mine.filter((tab) => tab.kind === "tableDesign" && state.unsaved[tab.id]).length,
-  };
-}
-
-/** 操作会丢掉的修改,写进确认框;没有就是 null。`action` 如「清空」「改名」。 */
-export function pendingWarning(work: { rows: number; designs: number }, action: string): string | null {
-  const parts = [
-    work.rows > 0 ? ` ${work.rows} 行修改没有提交` : null,
-    work.designs > 0 ? "设计器里的结构修改没有保存" : null,
-  ].filter((part) => part !== null);
-  return parts.length > 0 ? `这张表还有${parts.join("、")}，${action}后就没有了。` : null;
 }
 
 export interface ClearChoice {
@@ -182,13 +156,35 @@ export function referenceNotes(
   };
 }
 
-/** 截断被外键挡住时,在数据库的原话后面补一句怎么办;改用清空会连带改动别的表时也说清楚。 */
-export function truncateRefusal(message: string, table: TableRef, keys: readonly ReferencingKey[]): string {
+/**
+ * 清空、截断被外键挡住时,在数据库的原话后面补一句怎么办。MySQL、PostgreSQL 的截断只要有引用就被拒绝,
+ * 可以改用清空(连带改动别的表时说清楚);清空和 SQLite 的截断(它也是 DELETE)被挡住,是别的表里还有
+ * RESTRICT / NO ACTION 引用它的行,换哪种做法都一样,得先处理那些行。
+ */
+export function clearRefusal(
+  message: string,
+  mode: ClearMode,
+  driver: DriverKind,
+  table: TableRef,
+  keys: readonly ReferencingKey[],
+): string {
   if (!/foreign key/i.test(message)) return message;
-  const owners = changedOwners(table, keys);
-  return owners.length > 0
-    ? `${message}\n被别的表的外键引用时不能截断。改用「清空」会按外键连带改动 ${owners.join("、")} 里的行。`
-    : `${message}\n被别的表的外键引用时不能截断，可以改用「清空」。`;
+  if (mode === "truncate" && driver !== "sqlite") {
+    const owners = changedOwners(table, keys);
+    return owners.length > 0
+      ? `${message}\n被别的表的外键引用时不能截断。改用「清空」会按外键连带改动 ${owners.join("、")} 里的行。`
+      : `${message}\n被别的表的外键引用时不能截断，可以改用「清空」。`;
+  }
+  const blocking = unique(
+    keys.filter((k) => k.onDelete === "restrict" || k.onDelete === "noAction").map((k) => ownerName(table, k)),
+  );
+  const where = blocking.length > 0 ? `${blocking.join("、")} 里` : "别的表里";
+  return `${message}\n${where}还有引用它的行，外键不让删：先删掉或改掉那些行再试。`;
+}
+
+/** 对象列表给的行数:MySQL、PostgreSQL 都是估算。 */
+export function rowsEstimate(rows: number): string {
+  return `约 ${rows.toLocaleString("zh-CN")} 行，估算`;
 }
 
 /** 改名之后,引用这张表的东西各家跟不跟着改。 */
@@ -286,11 +282,34 @@ export function levelLabel(level: string): string {
   return LEVELS[level] ?? level;
 }
 
-/** 对话框已经先关掉时,维护的结果改用状态栏的一句话:数据库最后一条消息。 */
+/** MySQL 正常结束时 status 行的说法;别的(Corrupt、Operation failed……)都是出了问题。 */
+const OK_STATUSES = ["ok", "table is already up to date"];
+
+/** 一条消息该怎么着色:好、坏、提醒、普通。 */
+export type MessageTone = "ok" | "bad" | "warn" | "info";
+
+export function messageTone(message: MaintenanceMessage): MessageTone {
+  if (message.level === "error") return "bad";
+  if (message.level === "warning") return "warn";
+  if (message.level === "status") return OK_STATUSES.includes(message.text.trim().toLowerCase()) ? "ok" : "bad";
+  return "info";
+}
+
+/** 有 error 行或者 status 不是 OK:这次维护发现了问题(表坏了、表不存在、没做成)。 */
+export function maintenanceProblem(outcome: MaintenanceOutcome): MaintenanceMessage | null {
+  return outcome.messages.find((m) => messageTone(m) === "bad") ?? null;
+}
+
+/** 结果对话框的标题:发现问题时不说「完成」。 */
+export function maintenanceTitle(label: string, outcome: MaintenanceOutcome): string {
+  return maintenanceProblem(outcome) ? `${label}发现问题` : `${label}完成`;
+}
+
+/** 对话框已经先关掉时,维护的结果改用状态栏的一句话:有问题说问题,否则说数据库最后一条消息。 */
 export function maintenanceNotice(table: TableRef, label: string, outcome: MaintenanceOutcome): string {
-  const last = outcome.messages.at(-1);
-  const detail = last ? `${levelLabel(last.level)} ${last.text}` : "数据库没有返回消息";
-  return `「${table.table}」${label}完成：${detail}。`;
+  const shown = maintenanceProblem(outcome) ?? outcome.messages.at(-1);
+  const detail = shown ? `${levelLabel(shown.level)} ${shown.text}` : "数据库没有返回消息";
+  return `「${table.table}」${maintenanceTitle(label, outcome)}：${detail}。`;
 }
 
 /** 用时:不到 1 秒写毫秒,否则写到小数点后一位。 */

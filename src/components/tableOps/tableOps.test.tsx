@@ -1,5 +1,5 @@
 // 复制表、删除表(mock 后端):默认名字、只复制结构、重名报错、删表前关掉相关的标签页。
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Backend } from "../../lib/api";
 import { createMockBackend } from "../../lib/mockBackend";
@@ -71,6 +71,48 @@ describe("table operations", { timeout: 15_000 }, () => {
     await user.click(dialog.getByRole("button", { name: "删除表" }));
     expect(await dialog.findByRole("alert")).toHaveTextContent("foreign key constraint");
     expect(tree().getByRole("treeitem", { name: "customers" })).toBeInTheDocument();
+  });
+});
+
+describe("drop and copy keep the caches honest", { timeout: 15_000 }, () => {
+  it("can finish dropping in the background and forgets the dropped table's caches", async () => {
+    const backend = createMockBackend();
+    let finish: () => void = () => undefined;
+    const real = backend.dropTable.bind(backend);
+    vi.spyOn(backend, "dropTable").mockImplementationOnce(
+      (id, table) => new Promise((resolve) => (finish = () => resolve(real(id, table)))),
+    );
+    const { user, queryClient } = await tableMenu("删除表…", "customers", backend, () =>
+      useTabs.getState().open(tableDataTab("mock-mysql", "shop", null, "customers")),
+    );
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryCache().findAll({ queryKey: ["tableData", "mock-mysql", "shop", "", "customers"] }),
+      ).not.toEqual([]),
+    );
+    const dialog = within(screen.getByRole("dialog", { name: "删除表「customers」？" }));
+    await user.click(dialog.getByRole("button", { name: "删除表" }));
+    await user.click(dialog.getByRole("button", { name: "在后台继续" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    act(() => finish());
+    await waitFor(() =>
+      expect(within(document.querySelector<HTMLElement>(".statusbar")!).getByRole("alert")).toHaveTextContent(
+        "已删除表「customers」。",
+      ),
+    );
+    expect(useTabs.getState().tabs).toEqual([]);
+    expect(
+      queryClient.getQueryCache().findAll({ queryKey: ["tableData", "mock-mysql", "shop", "", "customers"] }),
+    ).toEqual([]);
+  });
+
+  it("forgets whatever was cached under the copy's name", async () => {
+    const { user, queryClient } = await tableMenu("复制表…");
+    queryClient.setQueryData(["tableDesign", "mock-mysql", "shop", "", "customers_copy1"], { columns: ["旧"] });
+    const dialog = within(screen.getByRole("dialog", { name: "复制表" }));
+    await user.click(dialog.getByRole("button", { name: "复制" }));
+    expect(await tree().findByRole("treeitem", { name: "customers_copy1" })).toBeInTheDocument();
+    expect(queryClient.getQueryData(["tableDesign", "mock-mysql", "shop", "", "customers_copy1"])).toBeUndefined();
   });
 });
 

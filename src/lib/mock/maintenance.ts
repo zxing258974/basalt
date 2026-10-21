@@ -1,6 +1,14 @@
 // mock 后端的表维护:语句、消息、前后大小都照各家真实的样子给,方便在浏览器里看结果对话框。
 // 也给出示例库里外键的引用关系,清空、截断的确认框据此提醒会波及哪些表。
-import type { CommandError, DriverKind, Maintenance, MaintenanceOutcome, ReferencingKey, TableRef } from "../types";
+import type {
+  ClearMode,
+  CommandError,
+  DriverKind,
+  Maintenance,
+  MaintenanceOutcome,
+  ReferencingKey,
+  TableRef,
+} from "../types";
 
 const AVAILABLE: Record<DriverKind, Maintenance[]> = {
   mysql: ["analyze", "check", "optimize", "repair"],
@@ -70,4 +78,32 @@ export function mockReferences(table: TableRef): ReferencingKey[] {
   if (table.table === "customers") return [from("orders", "fk_orders_customer", "cascade")];
   if (table.table === "products") return [from("order_items", "fk_items_product", "restrict")];
   return [];
+}
+
+/**
+ * 像真库那样按外键拒绝:MySQL、PostgreSQL 的截断只要被引用就拒绝;清空(以及 SQLite 的截断,它也是 DELETE)
+ * 碰上 RESTRICT / NO ACTION 的引用就失败(示例数据里那边总有引用它的行)。
+ */
+export function refuseByForeignKeys(driver: DriverKind, table: TableRef, mode: ClearMode): void {
+  const keys = mockReferences(table);
+  const fail = (message: string): never => {
+    const error: CommandError = { code: "database", message, fields: [] };
+    throw error;
+  };
+  if (mode === "truncate" && driver !== "sqlite") {
+    const key = keys[0];
+    if (!key) return;
+    fail(
+      isMysql(driver)
+        ? `Cannot truncate a table referenced in a foreign key constraint (\`${key.table.database}\`.\`${key.table.table}\`, CONSTRAINT \`${key.name ?? ""}\`)`
+        : `cannot truncate a table referenced in a foreign key constraint`,
+    );
+  }
+  const blocking = keys.find((k) => k.onDelete === "restrict" || k.onDelete === "noAction");
+  if (!blocking) return;
+  fail(
+    driver === "sqlite"
+      ? "FOREIGN KEY constraint failed"
+      : `Cannot delete or update a parent row: a foreign key constraint fails (\`${blocking.table.table}\`)`,
+  );
 }

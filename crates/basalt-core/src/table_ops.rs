@@ -17,7 +17,6 @@ mod sqlite_copy;
 
 use serde::{Deserialize, Serialize};
 
-use crate::design::DdlStatement;
 use crate::driver::table_not_found;
 use crate::error::{CoreError, CoreResult};
 use crate::session::Session;
@@ -149,10 +148,19 @@ pub(crate) fn check_target(dialect: Dialect, table: &TableRef) -> CoreResult<()>
     Ok(())
 }
 
-fn check_name(source: &TableRef, name: &str) -> CoreResult<TableRef> {
+/// PostgreSQL 的名字最长 63 字节,再长会被悄悄截短,建出来的表和界面上以为的不是一个名字。
+const POSTGRES_NAME_BYTES: usize = 63;
+
+fn check_name(dialect: Dialect, source: &TableRef, name: &str) -> CoreResult<TableRef> {
     let name = name.trim();
     if name.is_empty() {
         return Err(CoreError::InvalidData("新表名不能为空。".into()));
+    }
+    if dialect == Dialect::Postgres && name.len() > POSTGRES_NAME_BYTES {
+        return Err(CoreError::InvalidData(format!(
+            "PostgreSQL 的表名最长 {POSTGRES_NAME_BYTES} 字节（约 21 个汉字），这个名字有 {} 字节，会被数据库截短。",
+            name.len()
+        )));
     }
     if name == source.table {
         return Err(CoreError::InvalidData("新表名不能和原表一样。".into()));
@@ -183,12 +191,9 @@ impl Session {
 
     pub async fn drop_table(&self, table: &TableRef) -> CoreResult<()> {
         self.check_table(table)?;
-        let statement = [DdlStatement::execute(drop_table_sql(self.dialect(), table))];
-        match self {
-            Self::Mysql(s) => s.execute_ddl(&statement).await?,
-            Self::Postgres(s) => s.execute_ddl(&table.database, &statement).await?,
-            Self::Sqlite(s) => s.execute_ddl(&statement, false).await?,
-        };
+        // 和清空、改名走同一条路:等锁有时限,表被别的会话占着时不会一直卡住。
+        self.execute_changes(table, &[drop_table_sql(self.dialect(), table)])
+            .await?;
         Ok(())
     }
 
@@ -212,7 +217,7 @@ impl Session {
     /// 改名为 `name`,返回新表。
     pub async fn rename_table(&self, table: &TableRef, name: &str) -> CoreResult<TableRef> {
         self.check_table(table)?;
-        let target = check_name(table, name)?;
+        let target = check_name(self.dialect(), table, name)?;
         let sql = rename_table_sql(self.dialect(), table, &target.table);
         self.execute_changes(table, &[sql]).await?;
         Ok(target)
@@ -226,7 +231,7 @@ impl Session {
         with_data: bool,
     ) -> CoreResult<CopyOutcome> {
         self.check_table(source)?;
-        let target = check_name(source, name)?;
+        let target = check_name(self.dialect(), source, name)?;
         let dialect = self.dialect();
         // 生成列由数据库算,写不进去。
         let columns: Vec<String> = self
@@ -417,20 +422,28 @@ mod tests {
     fn new_names_are_checked() {
         let users = table(Dialect::Mysql, "users");
         assert!(
-            check_name(&users, "  ")
+            check_name(Dialect::Mysql, &users, "  ")
                 .unwrap_err()
                 .to_string()
                 .contains("不能为空")
         );
         assert!(
-            check_name(&users, "users")
+            check_name(Dialect::Mysql, &users, "users")
                 .unwrap_err()
                 .to_string()
                 .contains("不能和原表一样")
         );
         assert_eq!(
-            check_name(&users, " users_copy1 ").unwrap().table,
+            check_name(Dialect::Mysql, &users, " users_copy1 ")
+                .unwrap()
+                .table,
             "users_copy1"
         );
+        // PostgreSQL 63 字节:21 个汉字正好,22 个就超了;MySQL 不在这里管(超长它自己报错)。
+        let pg = table(Dialect::Postgres, "users");
+        assert!(check_name(Dialect::Postgres, &pg, &"表".repeat(21)).is_ok());
+        let error = check_name(Dialect::Postgres, &pg, &"表".repeat(22)).unwrap_err();
+        assert!(error.to_string().contains("66 字节"), "{error}");
+        assert!(check_name(Dialect::Mysql, &users, &"表".repeat(22)).is_ok());
     }
 }

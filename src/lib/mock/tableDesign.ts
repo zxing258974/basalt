@@ -206,6 +206,8 @@ export function createMockDesigns() {
   /** 每个库(schema)里新建、改名、删掉的表,对象列表据此调整。 */
   const added = new Map<string, string[]>();
   const removed = new Map<string, string[]>();
+  /** 改名后的表沿用原来的行数、引擎、注释。 */
+  const carried = new Map<string, TableInfo>();
 
   const read = (id: string, driver: DriverKind, table: TableRef): TableDesign => {
     const design = structuredClone(designs.get(keyOf(id, table)) ?? fromSeed(driver, table));
@@ -230,6 +232,7 @@ export function createMockDesigns() {
   const drop = (id: string, table: TableRef) => {
     const scope = scopeOf(id, table.database, table.schema);
     designs.delete(keyOf(id, table));
+    carried.delete(keyOf(id, table));
     removed.set(scope, [...(removed.get(scope) ?? []), table.table]);
     added.set(
       scope,
@@ -295,19 +298,34 @@ export function createMockDesigns() {
     drop,
     copy,
     /** 改名:结构跟着新名字走,对象列表里换成新名字。 */
-    rename(id: string, driver: DriverKind, table: TableRef, name: string) {
+    rename(id: string, driver: DriverKind, table: TableRef, name: string, info?: TableInfo) {
       copy(id, driver, table, name);
       drop(id, table);
+      // 真库改名后行数、引擎、注释都还在。
+      if (info) carried.set(keyOf(id, { ...table, table: name }), { ...info, name });
     },
     /** 对象列表叠加建表、改名的结果。 */
     tables(id: string, database: string, schema: string | null, base: TableInfo[]): TableInfo[] {
       const scope = scopeOf(id, database, schema);
       const gone = new Set(removed.get(scope) ?? []);
-      const kept = base.filter((t) => !gone.has(t.name));
+      const kept = base
+        .filter((t) => !gone.has(t.name))
+        .map((t) => carried.get(keyOf(id, { database, schema, table: t.name })) ?? t);
       const extra = (added.get(scope) ?? []).filter((name) => !kept.some((t) => t.name === name));
       const blank = { engine: null, rows: 0, dataBytes: null, indexBytes: null, createdAt: null, updatedAt: null };
       const extras = [...extra].sort((a, b) => a.localeCompare(b));
-      return [...kept, ...extras.map((name): TableInfo => ({ ...blank, name, kind: "table", comment: null }))];
+      return [
+        ...kept,
+        ...extras.map(
+          (name): TableInfo =>
+            carried.get(keyOf(id, { database, schema, table: name })) ?? {
+              ...blank,
+              name,
+              kind: "table",
+              comment: null,
+            },
+        ),
+      ];
     },
   };
 }

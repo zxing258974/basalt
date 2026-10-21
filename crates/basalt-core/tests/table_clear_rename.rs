@@ -12,6 +12,7 @@ use basalt_core::table_ops::ClearMode;
 use basalt_core::table_ops::references::OnDelete;
 use basalt_core::value::CellValue;
 use common::*;
+use sqlx::Connection;
 
 const CONNECTION: &str = "c1";
 
@@ -284,6 +285,35 @@ async fn delete_follows_the_foreign_keys(f: &Fixture<'_>) {
     assert_eq!(rows, ["1"], "{}：置空", f.label);
 }
 
+/// 别的会话开着事务读过这张表(比如查询页里 BEGIN; SELECT … 没提交):改名、删表等几秒就报「正被占用」,不一直卡着。
+async fn busy_table_times_out(f: &Fixture<'_>) {
+    let session = f.session().await;
+    let items = f.table("more_items");
+    let started = std::time::Instant::now();
+    let renamed = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        session.rename_table(&items, "more_items_busy"),
+    )
+    .await
+    .expect("改名没有在等锁超时后返回");
+    let dropped = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        session.drop_table(&items),
+    )
+    .await
+    .expect("删表没有在等锁超时后返回");
+    for result in [renamed.map(|_| ()), dropped] {
+        let error = result.unwrap_err();
+        assert!(
+            error.to_string().contains("正被别的会话占用"),
+            "{}：{error}",
+            f.label
+        );
+    }
+    assert!(started.elapsed().as_secs() < 25, "{}", f.label);
+    assert_eq!(f.count("more_items").await, "1", "{}：表还在", f.label);
+}
+
 /// 库名、schema 是空的:各种操作都拒绝,不会落到会话的当前库上。
 async fn blank_qualifiers_are_refused(f: &Fixture<'_>, dialect_is_postgres: bool) {
     let session = f.session().await;
@@ -362,6 +392,17 @@ async fn mysql_family_clears_truncates_and_renames() {
         references_are_listed(&fixture).await;
         blank_qualifiers_are_refused(&fixture, false).await;
         referenced_table(&fixture).await;
+        let mut holder =
+            sqlx::MySqlConnection::connect(&format!("{}basalt_ops_more", mysql_url(target)))
+                .await
+                .unwrap();
+        let (hold, release) = (
+            sqlx::raw_sql("BEGIN; SELECT * FROM more_items;"),
+            sqlx::raw_sql("ROLLBACK"),
+        );
+        hold.execute(&mut holder).await.unwrap();
+        busy_table_times_out(&fixture).await;
+        release.execute(&mut holder).await.unwrap();
     }
 }
 
@@ -396,6 +437,18 @@ async fn postgres_clears_truncates_and_renames() {
     references_are_listed(&fixture).await;
     blank_qualifiers_are_refused(&fixture, true).await;
     referenced_table(&fixture).await;
+    let mut holder = sqlx::PgConnection::connect(&postgres_url(FIXTURE_DB))
+        .await
+        .unwrap();
+    sqlx::raw_sql("BEGIN; SELECT * FROM public.more_items;")
+        .execute(&mut holder)
+        .await
+        .unwrap();
+    busy_table_times_out(&fixture).await;
+    sqlx::raw_sql("ROLLBACK")
+        .execute(&mut holder)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

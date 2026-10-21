@@ -9,8 +9,8 @@ interface DialogTarget {
 
 export type TableOpsDialog =
   | ({ kind: "drop" | "copy" | "rename" | "dump" | "maintain" } & DialogTarget)
-  /** 清空、截断是同一个对话框,`mode` 是打开时选中的做法。 */
-  | ({ kind: "clear"; mode: ClearMode } & DialogTarget);
+  /** 清空、截断是同一个对话框,`mode` 是打开时选中的做法;`rows` 是对象列表里的行数(估算)。 */
+  | ({ kind: "clear"; mode: ClearMode; rows: number | null } & DialogTarget);
 
 interface TableOpsStore {
   dialog: TableOpsDialog | null;

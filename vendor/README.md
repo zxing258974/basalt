@@ -32,6 +32,9 @@ cargo test -p sqlx-core --lib net::tls::util
 ```
 
 去掉补丁(换回原来的 `poll_ready`)时 `writable_is_enough_when_both_directions_blocked`、
-`readable_is_enough_when_both_directions_blocked` 两条会失败。
+`readable_is_enough_when_both_directions_blocked` 两条会失败;`ready_direction_stops_being_waited_on`
+守住「就绪的方向要清掉标志」,不然调用方会原地空转。
 
-**什么时候删**:升级到 sqlx 0.9 以后,删掉整个 `vendor/sqlx-core` 和根目录 `Cargo.toml` 末尾的 `[patch.crates-io]`。
+**什么时候删**:升级到 sqlx 0.9 以后,删掉整个 `vendor/sqlx-core`;根目录 `Cargo.toml` 末尾的 `[patch.crates-io]`、
+`sqlx` 的 `=0.8.6` 钉版本(连同那行注释)。`vendor/` 下没有别的 crate 时,再删掉 `[workspace]` 的 `exclude`、
+`.prettierignore` 里的 `vendor/`、README「测试」「目录」两处和 DESIGN 技术选型表里的说明。

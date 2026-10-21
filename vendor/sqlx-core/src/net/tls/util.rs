@@ -145,6 +145,15 @@ mod tests {
     }
 
     #[test]
+    fn ready_direction_stops_being_waited_on() {
+        // 就绪的方向要清掉标志,否则下一次还会因为它返回 Ready,调用方原地空转。
+        let mut socket = both_blocked(false, true);
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(socket.poll_ready(&mut cx).is_ready());
+        assert!(socket.poll_ready(&mut cx).is_pending());
+    }
+
+    #[test]
     fn waits_while_neither_direction_is_ready() {
         let mut socket = both_blocked(false, false);
         let mut cx = Context::from_waker(Waker::noop());

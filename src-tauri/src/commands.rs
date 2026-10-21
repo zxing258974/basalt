@@ -6,6 +6,10 @@ use basalt_core::driver::{ServerInfo, TableInfo};
 use basalt_core::import::ImportCandidate;
 use basalt_core::import::navicat::NavicatLocation;
 use basalt_core::import::navicat::queries::{QueryImportCandidate, QueryImportReport};
+use basalt_core::llm::ChatRequest;
+use basalt_core::llm::client::TestReply;
+use basalt_core::llm::config::{LlmModel, LlmModelDraft, LlmSettings};
+use basalt_core::llm::outline::OutlineTable;
 use basalt_core::query::history::HistoryEntry;
 use basalt_core::query::saved::{SavedQueryInfo, SavedQueryRef};
 use basalt_core::query::{QueryScope, StatementOutcome};
@@ -196,6 +200,91 @@ pub async fn table_details(
     table: TableRef,
 ) -> CommandResult<TableDetails> {
     service::table_details(&state, &id, &table).await
+}
+
+#[tauri::command]
+pub async fn list_llm_models(state: State<'_, AppState>) -> CommandResult<LlmSettings> {
+    service::llm::list_llm_models(&state).await
+}
+
+#[tauri::command]
+pub async fn save_llm_model(
+    state: State<'_, AppState>,
+    draft: LlmModelDraft,
+) -> CommandResult<LlmModel> {
+    service::llm::save_llm_model(&state, draft).await
+}
+
+#[tauri::command]
+pub async fn delete_llm_model(
+    state: State<'_, AppState>,
+    id: String,
+) -> CommandResult<LlmSettings> {
+    service::llm::delete_llm_model(&state, &id).await
+}
+
+#[tauri::command]
+pub async fn set_active_llm_model(
+    state: State<'_, AppState>,
+    id: String,
+) -> CommandResult<LlmSettings> {
+    service::llm::set_active_llm_model(&state, &id).await
+}
+
+#[tauri::command]
+pub async fn test_llm_model(
+    state: State<'_, AppState>,
+    draft: LlmModelDraft,
+) -> CommandResult<TestReply> {
+    service::llm::test_llm_model(&state, draft).await
+}
+
+/// 助手回答的流式片段,事件名和前端 api.ts 一致。
+const LLM_CHAT_EVENT: &str = "llm-chat";
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ChatDelta<'a> {
+    request_id: &'a str,
+    text: &'a str,
+}
+
+#[tauri::command]
+pub async fn llm_chat(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request_id: String,
+    request: ChatRequest,
+) -> CommandResult<service::llm::ChatOutcome> {
+    let id = request_id.clone();
+    let on_text = move |text: &str| {
+        let payload = ChatDelta {
+            request_id: &id,
+            text,
+        };
+        if let Err(error) = app.emit(LLM_CHAT_EVENT, payload) {
+            log::warn!("发送助手回答失败：{error}");
+        }
+    };
+    service::llm::llm_chat(&state, &request_id, request, on_text).await
+}
+
+#[tauri::command]
+pub async fn cancel_llm_chat(
+    state: State<'_, AppState>,
+    request_id: String,
+) -> CommandResult<bool> {
+    Ok(service::llm::cancel_llm_chat(&state, &request_id))
+}
+
+#[tauri::command]
+pub async fn schema_outline(
+    state: State<'_, AppState>,
+    id: String,
+    database: String,
+    schema: Option<String>,
+) -> CommandResult<Vec<OutlineTable>> {
+    service::llm::schema_outline(&state, &id, &database, schema.as_deref()).await
 }
 
 /// 本机 Navicat 的配置在用户主目录下;找不到主目录只影响本机来源,不妨碍导入 .ncx。

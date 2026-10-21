@@ -70,6 +70,9 @@ pub enum CoreError {
     /// 用户取消了导入导出。
     #[error("已取消")]
     Cancelled,
+    /// SQL 助手请求大模型失败(地址不通、密钥不对、模型报错……)。
+    #[error("模型请求失败：{0}")]
+    Llm(String),
 }
 
 impl CoreError {
@@ -98,6 +101,7 @@ impl CoreError {
             Self::File(_) => "file",
             Self::InvalidData(_) => "invalid_data",
             Self::Cancelled => "cancelled",
+            Self::Llm(_) => "llm",
         }
     }
 

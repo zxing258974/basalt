@@ -3,6 +3,7 @@
 
 mod common;
 
+use basalt_core::llm::outline::OutlineTable;
 use basalt_core::session::SessionManager;
 use basalt_core::table::TableRef;
 use basalt_core::table_info::{PropertyValue, TableDetails};
@@ -246,4 +247,115 @@ async fn sqlite_counts_rows_only_up_to_a_limit() {
     )
     .await;
     assert_eq!(text(&big, "行"), "超过 10 万");
+}
+
+/// SQL 助手的表结构概要:表和视图都在,主键、可空、类型对得上。
+fn check_outline(outline: &[OutlineTable], table: &str, view: &str, label: &str) {
+    let people = outline
+        .iter()
+        .find(|t| t.name == table)
+        .unwrap_or_else(|| panic!("{label}：没有 {table}：{outline:?}"));
+    assert!(!people.is_view, "{label}");
+    let names: Vec<(&str, bool, bool)> = people
+        .columns
+        .iter()
+        .map(|c| (c.name.as_str(), c.primary_key, c.nullable))
+        .collect();
+    assert_eq!(
+        names,
+        [("id", true, false), ("name", false, false)],
+        "{label}"
+    );
+    assert!(
+        people.columns[1].data_type.to_lowercase().contains("var")
+            || people.columns[1].data_type.eq_ignore_ascii_case("TEXT"),
+        "{label}：{:?}",
+        people.columns[1]
+    );
+    assert!(
+        outline.iter().any(|t| t.name == view && t.is_view),
+        "{label}：{outline:?}"
+    );
+}
+
+#[tokio::test]
+async fn outlines_list_tables_views_and_columns() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = sqlite_file(dir.path(), "outline.db", SQLITE_FIXTURE).await;
+    let sessions = SessionManager::default();
+    sessions
+        .open(CONNECTION, &sqlite_params(&path))
+        .await
+        .unwrap();
+    let outline = sessions
+        .get(CONNECTION)
+        .await
+        .unwrap()
+        .schema_outline("main", None)
+        .await
+        .unwrap();
+    check_outline(&outline, "people", "people_view", "SQLite");
+
+    for target in MYSQL_FAMILY.into_iter().filter(|t| selected(*t)) {
+        let pool = sqlx::MySqlPool::connect(&mysql_url(target)).await.unwrap();
+        sqlx::raw_sql(&MYSQL_FIXTURE.replace("basalt_info", "basalt_outline"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+        let sessions = SessionManager::default();
+        sessions
+            .open(CONNECTION, &params(target, TEST_PASSWORD, None))
+            .await
+            .unwrap();
+        let session = sessions.get(CONNECTION).await.unwrap();
+        let outline = session
+            .schema_outline("basalt_outline", None)
+            .await
+            .unwrap();
+        check_outline(&outline, "people", "people_view", target.name);
+        assert_eq!(
+            outline
+                .iter()
+                .find(|t| t.name == "people")
+                .unwrap()
+                .comment
+                .as_deref(),
+            Some("人员")
+        );
+    }
+
+    if selected(POSTGRES) {
+        let pool = sqlx::PgPool::connect(&postgres_url(FIXTURE_DB))
+            .await
+            .unwrap();
+        sqlx::raw_sql(&PG_FIXTURE.replace("info_people", "outline_people"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+        let sessions = SessionManager::default();
+        sessions
+            .open(
+                CONNECTION,
+                &params(POSTGRES, TEST_PASSWORD, Some(FIXTURE_DB)),
+            )
+            .await
+            .unwrap();
+        let session = sessions.get(CONNECTION).await.unwrap();
+        let outline = session
+            .schema_outline(FIXTURE_DB, Some("public"))
+            .await
+            .unwrap();
+        check_outline(
+            &outline,
+            "outline_people",
+            "outline_people_view",
+            "PostgreSQL",
+        );
+        assert!(
+            session.schema_outline(FIXTURE_DB, None).await.is_err(),
+            "PostgreSQL 要指定 schema"
+        );
+    }
 }

@@ -139,6 +139,37 @@ test("query: result grid", async ({ page }) => {
   await snapshot(page, "query-results");
 });
 
+/** 在 shop 上新建查询,打开 SQL 助手,问一句等它答完。 */
+async function askAssistant(page: Page) {
+  await openWelcome(page);
+  await row(page, "开发").dblclick();
+  await row(page, "本地 MySQL").dblclick();
+  await row(page, "shop").click({ button: "right" });
+  await page.getByRole("menuitem", { name: /新建查询/ }).click();
+  await page.getByRole("button", { name: "助手", exact: true }).click();
+  const panel = page.getByRole("complementary", { name: "SQL 助手" });
+  await expect(panel.getByText(/会附带「shop」里 \d+ 张表的结构/)).toBeVisible();
+  return panel;
+}
+
+test("assistant: generated SQL", async ({ page }) => {
+  const panel = await askAssistant(page);
+  await panel.getByRole("textbox", { name: "问助手" }).fill("查最近 30 天的订单，带上客户名");
+  await panel.getByRole("button", { name: "生成 SQL" }).click();
+  await expect(panel.getByRole("button", { name: "插入到编辑器" })).toBeVisible();
+  await expect(panel.getByRole("button", { name: "生成 SQL" })).toBeVisible();
+  await snapshot(page, "assistant-answer");
+});
+
+test("assistant: model settings", async ({ page }) => {
+  const panel = await askAssistant(page);
+  await panel.getByRole("button", { name: "模型设置" }).click();
+  const dialog = page.getByRole("dialog", { name: "模型设置" });
+  await dialog.getByRole("button", { name: /DeepSeek/ }).click();
+  await expect(dialog.getByLabel("模型名称")).toHaveValue("deepseek-chat");
+  await snapshot(page, "assistant-settings");
+});
+
 test("import: Navicat saved queries", async ({ page }) => {
   await openWelcome(page);
   await page.getByRole("banner").getByRole("button", { name: "导入" }).click();

@@ -1,4 +1,5 @@
 // 整个应用的交互测试:用 mock 后端渲染 <App />,每次从干净的界面状态开始。
+import { useAssistant } from "../stores/assistant";
 import { useInspector } from "../stores/inspector";
 import { useTableOps } from "../stores/tableOps";
 import { render } from "@testing-library/react";
@@ -13,6 +14,7 @@ import { useUi } from "../stores/ui";
 export function resetStores(): void {
   useUi.setState(useUi.getInitialState(), true);
   useTabs.setState(useTabs.getInitialState(), true);
+  useAssistant.setState(useAssistant.getInitialState(), true);
   useInspector.setState(useInspector.getInitialState(), true);
   useTableOps.setState(useTableOps.getInitialState(), true);
 }

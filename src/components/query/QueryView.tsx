@@ -6,10 +6,13 @@ import { savedQueryKeys } from "../../hooks/useSavedQueries";
 import { getBackend } from "../../lib/api";
 import type { QueryScope, SavedQueryRef } from "../../lib/queryTypes";
 import { errorMessage } from "../../lib/types";
+import { useAssistant } from "../../stores/assistant";
 import { useTabs, type QueryTab } from "../../stores/tabs";
 import { useTransfer } from "../../stores/transfer";
 import { guessTableName } from "../transfer/exportModel";
 import { useUi } from "../../stores/ui";
+import { AssistantPanel } from "../assistant/AssistantPanel";
+import { cancelStreaming } from "../assistant/useAssistantChat";
 import { Button } from "../ui/Button";
 import { HistoryPanel } from "./HistoryPanel";
 import { QueryHeader } from "./QueryHeader";
@@ -37,7 +40,9 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
   const [activeResult, setActiveResult] = useState<string | null>(null);
   /** 执行过程中用户自己点了结果标签:执行完就不再替他切换。 */
   const pickedDuringRun = useRef(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  /** 右侧开着哪个面板:执行历史和 SQL 助手二选一,窄窗口里不至于挤掉编辑器。 */
+  const [side, setSide] = useState<"history" | "assistant" | null>(null);
+  const toggleSide = (panel: "history" | "assistant") => setSide((open) => (open === panel ? null : panel));
   const [saveAs, setSaveAs] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
   const { run, execute, cancel } = useQueryRunner(tab);
@@ -56,10 +61,12 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
     [markDirty, tab.saved],
   );
 
-  // 标签页关了:放掉它的专用连接,也不再算「没保存」。
+  // 标签页关了:放掉它的专用连接,也不再算「没保存」,助手的对话也丢掉。
   useEffect(
     () => () => {
       useTabs.getState().setUnsaved(tab.id, false);
+      // 正在生成的回答也停掉:标签页没了,回答没地方放,再生成下去只是白白消耗额度。
+      void cancelStreaming(tab.id).finally(() => useAssistant.getState().forget(tab.id));
       void getBackend()
         .then((backend) => backend.closeEditor(tab.id))
         .catch((error: unknown) => console.warn("断开查询标签页的连接失败", error));
@@ -163,13 +170,15 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
         dirty={dirty}
         running={run.running}
         cancelling={run.cancelRequested}
-        historyOpen={historyOpen}
+        historyOpen={side === "history"}
+        assistantOpen={side === "assistant"}
         onScopeChange={changeScope}
         onRun={() => runStatements("current")}
         onRunAll={() => runStatements("all")}
         onCancel={() => void cancel()}
         onSave={() => void save(false)}
-        onToggleHistory={() => setHistoryOpen((open) => !open)}
+        onToggleHistory={() => toggleSide("history")}
+        onToggleAssistant={() => toggleSide("assistant")}
       />
       {!connection && (
         <p className="data-notice">这个连接已经删除了。查询内容还在，可以复制出去；没法再执行或保存到原处。</p>
@@ -187,7 +196,11 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
           {hint}
         </p>
       )}
-      <div className={historyOpen ? "query-body has-history" : "query-body"}>
+      <div
+        className={
+          side === "assistant" ? "query-body has-history has-assistant" : side ? "query-body has-history" : "query-body"
+        }
+      >
         <div className="query-main" style={{ "--editor-height": `${height}px` } as React.CSSProperties}>
           <SqlEditor
             ref={editor}
@@ -227,11 +240,30 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
             }
           />
         </div>
-        {historyOpen && (
+        {side === "history" && (
           <HistoryPanel
             connectionId={tab.connectionId}
             onPick={(sql) => editor.current?.insert(sql)}
-            onClose={() => setHistoryOpen(false)}
+            onClose={() => setSide(null)}
+          />
+        )}
+        {side === "assistant" && (
+          <AssistantPanel
+            tabId={tab.id}
+            connection={connection}
+            scope={tab.scope}
+            readSql={() => {
+              const handle = editor.current;
+              if (!handle) return "";
+              const text = handle.getText();
+              const { from, to } = handle.getSelection();
+              return from === to ? text : text.slice(from, to);
+            }}
+            onInsert={(sql) => {
+              editor.current?.insert(sql);
+              editor.current?.focus();
+            }}
+            onClose={() => setSide(null)}
           />
         )}
       </div>

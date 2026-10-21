@@ -6,6 +6,7 @@ import { createMockTables } from "./mock/tableData";
 import { createMockDesigns } from "./mock/tableDesign";
 import { mockTableDetails } from "./mock/tableDetails";
 import { createMockTransfer } from "./mock/transferMock";
+import { createMockLlm } from "./mock/llmMock";
 import { classifyMockImport, mockImportSources, planMockImport } from "./mockImport";
 import type {
   CommandError,
@@ -177,6 +178,7 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
   const tableData = createMockTables();
   const queries = createMockQueries(() => connections, wait);
   const transfer = createMockTransfer(wait);
+  const llm = createMockLlm(wait);
 
   const find = (id: string) =>
     connections.find((c) => c.id === id) ?? fail("connection_not_found", `找不到连接：${id}`);
@@ -389,6 +391,22 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
     onQuitRequested: () => Promise.resolve(() => undefined),
     quitApp: () => Promise.resolve(),
     ...transfer,
+    ...llm,
+    async schemaOutline(id, database, schema) {
+      await wait();
+      return tablesOf(id, database, schema).map((info) => ({
+        name: info.name,
+        isView: info.kind !== "table",
+        comment: info.comment,
+        columns: seedTable(info.name).columns.map((c) => ({
+          name: c.name,
+          dataType: c.dataType,
+          primaryKey: c.isPrimaryKey,
+          nullable: c.nullable,
+          comment: null,
+        })),
+      }));
+    },
     async exportData(jobId, request) {
       requireOpen(request.connectionId);
       return transfer.exportData(jobId, request);

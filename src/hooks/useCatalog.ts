@@ -11,6 +11,9 @@ export const catalogKeys = {
   schemas: (id: string, database: string) => ["catalog", id, "schemas", database] as const,
   tables: (id: string, database: string, schema: string | null) =>
     ["catalog", id, "tables", database, schema ?? ""] as const,
+  /** SQL 助手:一个库(schema)的表结构概要。 */
+  outline: (id: string, database: string, schema: string | null) =>
+    ["catalog", id, "outline", database, schema ?? ""] as const,
   /** 信息面板:一张表的属性和建表语句。 */
   details: (id: string, database: string, schema: string | null, table: string) =>
     ["catalog", id, "details", database, schema ?? "", table] as const,
@@ -70,5 +73,14 @@ export function useTableDetails(id: string | null, table: TableRef | null) {
   return useQuery({
     queryKey: catalogKeys.details(id ?? "", table?.database ?? "", table?.schema ?? null, table?.table ?? ""),
     queryFn: id && table ? async () => (await getBackend()).tableDetails(id, table) : skipToken,
+  });
+}
+
+/** SQL 助手要的表结构概要;没选库或连接没开时不取。刷新连接时随 catalog 一起失效。 */
+export function useSchemaOutline(id: string, database: string | null, schema: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: catalogKeys.outline(id, database ?? "", schema),
+    queryFn: enabled && database ? async () => (await getBackend()).schemaOutline(id, database, schema) : skipToken,
+    staleTime: 60_000,
   });
 }

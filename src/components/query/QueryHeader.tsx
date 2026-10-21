@@ -1,4 +1,4 @@
-import { CircleStop, FastForward, History, Play, Save } from "lucide-react";
+import { CircleStop, FastForward, History, Play, Save, Sparkles } from "lucide-react";
 import type { QueryScope } from "../../lib/queryTypes";
 import type { ConnectionView } from "../../lib/types";
 import { DriverBadge } from "../connection/DriverBadge";
@@ -13,12 +13,14 @@ interface QueryHeaderProps {
   running: boolean;
   cancelling: boolean;
   historyOpen: boolean;
+  assistantOpen: boolean;
   onScopeChange(scope: QueryScope): void;
   onRun(): void;
   onRunAll(): void;
   onCancel(): void;
   onSave(): void;
   onToggleHistory(): void;
+  onToggleAssistant(): void;
 }
 
 /** 查询标签页的顶栏:在哪个连接、哪个库,执行、取消、保存、历史。 */
@@ -93,6 +95,16 @@ export function QueryHeader(props: QueryHeaderProps) {
           onClick={props.onToggleHistory}
         >
           历史
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          icon={<Sparkles />}
+          aria-pressed={props.assistantOpen}
+          title="SQL 助手：按问题生成 SQL、优化当前 SQL（不会执行）"
+          onClick={props.onToggleAssistant}
+        >
+          助手
         </Button>
       </div>
     </header>

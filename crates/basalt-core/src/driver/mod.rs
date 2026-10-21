@@ -6,6 +6,7 @@ pub(crate) mod mysql;
 mod mysql_data;
 mod mysql_design;
 mod mysql_query;
+mod outline;
 mod pg_binary;
 pub(crate) mod postgres;
 mod postgres_data;

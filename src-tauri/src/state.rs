@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use basalt_core::config::{ConnectionConfig, ConnectionList, ConnectionRepository};
+use basalt_core::llm::config::LlmRepository;
 use basalt_core::query::history::HistoryStore;
 use basalt_core::query::saved::SavedQueryStore;
 use basalt_core::secret::{SecretStore, password_key};
@@ -9,6 +10,7 @@ use basalt_core::session::SessionManager;
 use basalt_core::{CoreError, CoreResult};
 use tokio::sync::{Mutex, MutexGuard};
 
+use crate::service::llm::LlmChats;
 use crate::service::transfer::TransferJobs;
 
 pub struct AppState {
@@ -23,6 +25,11 @@ pub struct AppState {
     pub saved_queries: SavedQueryStore,
     /// 正在进行的导入导出,取消时按任务 id 找。
     pub transfers: TransferJobs,
+    /// SQL 助手的模型配置(llm-models.json,不含 API Key)和它的写锁。
+    pub llm: LlmRepository,
+    pub llm_lock: Mutex<()>,
+    /// 正在进行的助手对话,取消时按请求 id 找。
+    pub chats: LlmChats,
 }
 
 /// 持有写锁期间对配置文件的读写。锁随它一起释放。
@@ -55,6 +62,9 @@ impl AppState {
             history: HistoryStore::new(dir.join("history.jsonl")),
             saved_queries: SavedQueryStore::new(dir.join("queries")),
             transfers: TransferJobs::default(),
+            llm: LlmRepository::new(dir.join("llm-models.json")),
+            llm_lock: Mutex::new(()),
+            chats: LlmChats::default(),
         }
     }
 

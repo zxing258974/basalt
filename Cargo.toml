@@ -29,6 +29,8 @@ chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 keyring = { version = "3", features = ["apple-native"] }
+# SQL 助手:请求用户自己配置的大模型(OpenAI / Claude 格式,流式)。rustls + 系统根证书,读 macOS 系统代理
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "stream", "http2", "macos-system-configuration"] }
 # 删连接时不弹框地删钥匙串条目:keyring 删除前会先读出密码,读密码就要授权
 core-foundation = "0.10"
 security-framework-sys = "2.17"

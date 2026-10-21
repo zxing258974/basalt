@@ -1,6 +1,16 @@
 import type { DdlOutcome, DdlPreview, TableDesign } from "./designTypes";
 import type { ImportCandidate, ImportReport, ImportSource } from "./importTypes";
 import type {
+  ChatDelta,
+  ChatOutcome,
+  ChatRequest,
+  LlmModel,
+  LlmModelDraft,
+  LlmSettings,
+  OutlineTable,
+  TestReply,
+} from "./llmTypes";
+import type {
   ExportOutcome,
   ExportRequest,
   ImportFailure,
@@ -58,6 +68,19 @@ export interface Backend {
   copyTable(id: string, table: TableRef, name: string, withData: boolean): Promise<CopyTableOutcome>;
   /** 信息面板:表或视图的属性和建表语句。 */
   tableDetails(id: string, table: TableRef): Promise<TableDetails>;
+  /** SQL 助手:模型配置。API Key 在钥匙串里,不随列表返回。 */
+  listLlmModels(): Promise<LlmSettings>;
+  saveLlmModel(draft: LlmModelDraft): Promise<LlmModel>;
+  deleteLlmModel(id: string): Promise<LlmSettings>;
+  setActiveLlmModel(id: string): Promise<LlmSettings>;
+  /** 用表单里的设置(没保存也行)发一句很短的话。 */
+  testLlmModel(draft: LlmModelDraft): Promise<TestReply>;
+  /** 流式对话:回答一段段经 onLlmChat 推来;返回时已经完整。被取消时以 cancelled 错误结束。 */
+  llmChat(requestId: string, request: ChatRequest): Promise<ChatOutcome>;
+  cancelLlmChat(requestId: string): Promise<boolean>;
+  onLlmChat(handler: (delta: ChatDelta) => void): Promise<() => void>;
+  /** 给助手的表结构概要(表名、列名、类型),不含数据。 */
+  schemaOutline(id: string, database: string, schema: string | null): Promise<OutlineTable[]>;
   /** 将要执行的语句(参数内联成字面量),提交前给用户确认。 */
   previewTableChanges(id: string, table: TableRef, changes: RowChange[]): Promise<string[]>;
   /** 一个事务里提交,任何一条失败都整体回滚。`expected` 是用户确认过的预览,后端生成的不一样就拒绝。 */
@@ -122,6 +145,9 @@ export interface FileFilter {
   extensions: string[];
 }
 
+/** 助手回答的流式片段,和 src-tauri/src/commands.rs 一致。 */
+export const LLM_CHAT_EVENT = "llm-chat";
+
 /** 后端拦下退出时发给前端的事件,和 src-tauri/src/quit.rs 一致。 */
 const QUIT_REQUESTED_EVENT = "quit-requested";
 /** 导入导出的进度事件,和 src-tauri/src/commands.rs 一致。 */
@@ -148,6 +174,18 @@ function createTauriBackend(): Backend {
     dropTable: (id, table) => call("drop_table", { id, table }),
     copyTable: (id, table, name, withData) => call("copy_table", { id, table, name, withData }),
     tableDetails: (id, table) => call("table_details", { id, table }),
+    listLlmModels: () => call("list_llm_models"),
+    saveLlmModel: (draft) => call("save_llm_model", { draft }),
+    deleteLlmModel: (id) => call("delete_llm_model", { id }),
+    setActiveLlmModel: (id) => call("set_active_llm_model", { id }),
+    testLlmModel: (draft) => call("test_llm_model", { draft }),
+    llmChat: (requestId, request) => call("llm_chat", { requestId, request }),
+    cancelLlmChat: (requestId) => call("cancel_llm_chat", { requestId }),
+    onLlmChat: async (handler) => {
+      const { listen } = await import("@tauri-apps/api/event");
+      return listen<ChatDelta>(LLM_CHAT_EVENT, (event) => handler(event.payload));
+    },
+    schemaOutline: (id, database, schema) => call("schema_outline", { id, database, schema }),
     readTablePage: (id, table, request) => call("read_table_page", { id, table, request }),
     previewTableChanges: (id, table, changes) => call("preview_table_changes", { id, table, changes }),
     applyTableChanges: (id, table, changes, expected) => call("apply_table_changes", { id, table, changes, expected }),

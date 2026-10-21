@@ -11,7 +11,7 @@ mod webview_windows;
 
 use std::sync::Arc;
 
-use basalt_core::secret::KeychainStore;
+use basalt_core::secret::{CachedSecretStore, KeychainStore};
 use tauri::Manager;
 
 /// 钥匙串里的服务名。
@@ -44,7 +44,8 @@ pub fn run() {
             let config_path = app.path().app_config_dir()?.join("connections.json");
             app.manage(state::AppState::new(
                 config_path,
-                Arc::new(KeychainStore::new(KEYCHAIN_SERVICE)),
+                // 同一条密码 / API Key 一次运行里只读一次钥匙串,免得每发一句话都弹授权框。
+                Arc::new(CachedSecretStore::new(KeychainStore::new(KEYCHAIN_SERVICE))),
             ));
             Ok(())
         })

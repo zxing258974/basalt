@@ -5,8 +5,11 @@ use std::sync::Mutex;
 
 use crate::error::{CoreError, CoreResult};
 
+mod cached;
 #[cfg(target_os = "macos")]
 mod macos;
+
+pub use cached::CachedSecretStore;
 
 /// [`SecretStore::delete_quietly`] 的结果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -21,6 +21,18 @@ use crate::config::{self, ConnectionDraft, DriverKind, Endpoint};
 use crate::error::{CoreError, CoreResult};
 
 pub const TUNNEL_SSL_WARNING: &str = "隧道 / SSL 设置未迁移（M4 支持）";
+
+/// 读不了本机 Navicat 时的说明。macOS 上只会是找不到用户主目录;Windows 版 Navicat 把连接存在注册表里,
+/// 格式没有核实过,先不读,请用户导出 .ncx。
+pub fn local_unavailable() -> CoreError {
+    if cfg!(target_os = "macos") {
+        CoreError::Storage("找不到用户主目录，无法定位本机 Navicat".into())
+    } else {
+        CoreError::Unsupported(
+            "Windows 版 Navicat 的连接和查询存在注册表和它自己的目录里，Basalt 还读不了。请在 Navicat 里「导出连接」成 .ncx（勾上「导出密码」），再从这里导入 .ncx 文件。".into(),
+        )
+    }
+}
 const SUPPORTED_LIST: &str = "MySQL、MariaDB、PostgreSQL 和 SQLite";
 /// 连接文件不会有这么大,超过就当选错了文件,不整个读进内存。
 const MAX_SOURCE_BYTES: u64 = 16 * 1024 * 1024;

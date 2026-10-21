@@ -1,4 +1,4 @@
-//! 退出前确认:⌘Q 或点主窗口的关闭按钮时,前端有未提交的表格修改、没保存的查询就先问一句。
+//! 退出前确认:⌘Q(macOS)或点主窗口的关闭按钮、Alt+F4(Windows)时,前端有未提交的表格修改、没保存的查询就先问一句。
 //!
 //! 前端一有变化就用 [`set_unsaved_work`] 报告有没有这样的东西。没有就照常退出,不等前端
 //! (前端卡住、没加载出来也退得掉);有就拦下来,发 [`QUIT_REQUESTED`] 给前端,
@@ -6,12 +6,14 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(target_os = "macos")]
 use tauri::menu::{Menu, MenuEvent};
 use tauri::{AppHandle, Emitter, Manager, Runtime, State, Window, WindowEvent};
 
 /// 拦下退出时发给前端的事件,和 src/lib/api.ts 一致。
 pub const QUIT_REQUESTED: &str = "quit-requested";
 /// 自己的「Quit」菜单项。
+#[cfg(target_os = "macos")]
 const QUIT_MENU_ID: &str = "basalt-quit";
 /// tauri.conf.json 里主窗口的 label。
 const MAIN_WINDOW: &str = "main";
@@ -48,6 +50,7 @@ fn hand_to_frontend<R: Runtime>(app: &AppHandle<R>) -> bool {
 }
 
 /// 菜单里的「Quit」(⌘Q)。
+#[cfg(target_os = "macos")]
 pub fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     if event.id() == QUIT_MENU_ID && !hand_to_frontend(app) {
         app.exit(0);
@@ -77,13 +80,11 @@ pub fn quit_app(app: AppHandle) {
 
 /// Tauri 的默认菜单,只把 macOS 应用菜单里的「Quit」换成自己的:
 /// 系统那个直接走 `terminate:`,不经过 Tauri 的任何事件,拦不住。
+#[cfg(target_os = "macos")]
 pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let menu = Menu::default(app)?;
-    #[cfg(target_os = "macos")]
-    {
-        menu.remove_at(0)?;
-        menu.insert(&macos::app_submenu(app)?, 0)?;
-    }
+    menu.remove_at(0)?;
+    menu.insert(&macos::app_submenu(app)?, 0)?;
     Ok(menu)
 }
 
@@ -136,6 +137,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::mpsc::{Receiver, channel};
 
+    #[cfg(target_os = "macos")]
     use tauri::menu::{MenuEvent, MenuId};
     use tauri::test::{MockRuntime, mock_builder, mock_context, noop_assets};
     use tauri::{App, Listener, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -145,8 +147,10 @@ mod tests {
     /// 和 lib.rs 一样接上退出前确认的 mock 应用,开着主窗口;返回值里的计数是前端收到的退出请求。
     /// mock 运行时的 `app.exit` 是 `unimplemented!()`:该拦下却直接退出时测试会 panic。
     fn app(unsaved: bool) -> (App<MockRuntime>, Arc<AtomicUsize>) {
-        let app = mock_builder()
-            .on_menu_event(on_menu_event)
+        let builder = mock_builder();
+        #[cfg(target_os = "macos")]
+        let builder = builder.on_menu_event(on_menu_event);
+        let app = builder
             .on_window_event(on_window_event)
             .manage(QuitGuard::default())
             .build(mock_context(noop_assets()))
@@ -174,6 +178,7 @@ mod tests {
         signal_rx
     }
 
+    #[cfg(target_os = "macos")]
     fn menu_event(id: &str) -> MenuEvent {
         MenuEvent {
             id: MenuId::new(id),
@@ -218,6 +223,7 @@ mod tests {
         assert_eq!(requests.load(Ordering::SeqCst), 0);
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn quit_menu_asks_the_frontend_instead_of_quitting_when_work_is_unsaved() {
         let (app, requests) = app(true);
@@ -225,6 +231,7 @@ mod tests {
         assert_eq!(requests.load(Ordering::SeqCst), 1);
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn other_menu_items_are_left_alone() {
         let (app, requests) = app(false);

@@ -263,7 +263,8 @@ export function createMockQueries(connections: () => ConnectionConfig[], wait: (
       await wait(40);
       const name = ref.name.trim();
       if (!name) fail("invalid_name", "请给查询起个名字");
-      if (/[/\\:]/.test(name) || name.startsWith(".")) fail("invalid_name", "名字里不能有 /、\\、: 或换行这类控制字符");
+      if (/[/\\:*?"<>|]/.test(name) || name.startsWith("."))
+        fail("invalid_name", '名字里不能有 / \\ : * ? " < > | 或换行这类控制字符');
       if (!overwrite && find(ref)) fail("already_exists", `这个库下已经有叫「${name}」的查询了`);
       const modifiedAt = new Date().toISOString();
       saved.set(savedKey(ref, name), { sql, modifiedAt });

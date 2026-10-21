@@ -6,6 +6,8 @@ mod service_table_tests;
 #[cfg(test)]
 mod service_tests;
 mod state;
+#[cfg(windows)]
+mod webview_windows;
 
 use std::sync::Arc;
 
@@ -17,10 +19,11 @@ const KEYCHAIN_SERVICE: &str = "dev.basalt.app";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        .menu(quit::menu)
-        .on_menu_event(quit::on_menu_event)
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    // 菜单只在 macOS 上装:Windows 上它会变成窗口里的一条 File/Edit 菜单栏,系统自带的「Quit」还会绕过退出确认。
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(quit::menu).on_menu_event(quit::on_menu_event);
+    builder
         .on_window_event(quit::on_window_event)
         .manage(quit::QuitGuard::default())
         .setup(|app| {
@@ -30,6 +33,13 @@ pub fn run() {
                         .level(log::LevelFilter::Info)
                         .build(),
                 )?;
+            }
+            // 开发时留着 F5 刷新,打出来的包才关。
+            #[cfg(windows)]
+            if !cfg!(debug_assertions)
+                && let Some(window) = app.get_webview_window("main")
+            {
+                webview_windows::disable_browser_shortcuts(&window);
             }
             let config_path = app.path().app_config_dir()?.join("connections.json");
             app.manage(state::AppState::new(

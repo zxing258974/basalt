@@ -2,15 +2,17 @@ import { Plus } from "lucide-react";
 import { useConnections } from "../../hooks/useCatalog";
 import { useUi } from "../../stores/ui";
 import { Button } from "../ui/Button";
+import { keyLabel, secretStoreName, shortcut } from "../../lib/platform";
 
-const SHORTCUTS = [
-  ["⌘N", "新建连接"],
-  ["⌘T", "在选中的库上新建查询"],
-  ["⌘↩", "执行光标所在的语句（⇧⌘↩ 全部执行）"],
-  ["⌘W", "关闭标签页"],
+/** 快捷键按平台写:macOS 是 ⌘,Windows 是 Ctrl。 */
+const shortcuts = (): [string, string][] => [
+  [shortcut("N"), "新建连接"],
+  [shortcut("T"), "在选中的库上新建查询"],
+  [shortcut("Enter"), `执行光标所在的语句（${shortcut("Enter", { shift: true })} 全部执行）`],
+  [shortcut("W"), "关闭标签页"],
   ["↑ ↓ ← →", "在对象树里移动、展开、收起"],
-  ["↩", "打开选中的库或 schema"],
-] as const;
+  [keyLabel("Enter"), "打开选中的库或 schema"],
+];
 
 /** 没有打开任何标签页时的首页。连接清单只在左侧侧栏里,这里不重复。 */
 export function WelcomeView() {
@@ -29,7 +31,7 @@ export function WelcomeView() {
         </h1>
         <p className="welcome-lede">
           {isEmpty
-            ? "还没有连接。先新建一个，或者点工具栏的「导入」把 Navicat 里的连接搬过来；配置只保存在本机，密码进钥匙串。"
+            ? `还没有连接。先新建一个，或者点工具栏的「导入」把 Navicat 里的连接搬过来；配置只保存在本机，密码进${secretStoreName()}。`
             : "MySQL、MariaDB、PostgreSQL、SQLite。在左侧展开连接，双击库或 schema 打开它的对象列表。"}
         </p>
         <Button
@@ -40,7 +42,7 @@ export function WelcomeView() {
           新建连接
         </Button>
         <dl className="welcome-shortcuts">
-          {SHORTCUTS.map(([keys, label]) => (
+          {shortcuts().map(([keys, label]) => (
             <div key={keys} className="welcome-shortcut">
               <dt>
                 <kbd>{keys}</kbd>

@@ -12,7 +12,10 @@ fn query(database: &str, schema: Option<&str>, name: &str) -> SavedQueryRef {
 #[test]
 fn names_must_work_as_file_names() {
     assert_eq!(validate_name("  客户统计  ").unwrap(), "客户统计");
-    for bad in ["", "   ", ".hidden", "a/b", "a\\b", "a:b", "a\nb"] {
+    for bad in [
+        "", "   ", ".hidden", "a/b", "a\\b", "a:b", "a\nb", "a?b", "a*b", "a|b", "<a>", "\"a\"",
+        "con", "NUL.txt", "com1", "Lpt9",
+    ] {
         let error = validate_name(bad).unwrap_err();
         assert_eq!(error.code(), "invalid_name", "{bad:?}");
     }
@@ -30,6 +33,23 @@ fn sanitize_replaces_what_validate_rejects() {
     assert_eq!(sanitize_name("..secret"), "secret");
     assert_eq!(sanitize_name("  "), "未命名查询");
     assert!(validate_name(&sanitize_name(".\n/")).is_ok());
+    assert_eq!(sanitize_name("几点?|全部*"), "几点__全部_");
+    assert_eq!(sanitize_name("aux"), "_aux");
+    assert!(validate_name(&sanitize_name("aux")).is_ok());
+    for fine in ["console", "com0", "com10", "nul 统计", "lpt"] {
+        assert!(validate_name(fine).is_ok(), "{fine}");
+    }
+}
+
+#[test]
+fn windows_segments_also_avoid_what_windows_rejects() {
+    assert_eq!(encode_segment_for("a?b*c", false), "a?b*c");
+    assert_eq!(encode_segment_for("a?b*c", true), "a%3Fb%2Ac");
+    assert_eq!(encode_segment_for("db.", true), "db%2E");
+    assert_eq!(encode_segment_for("db ", true), "db%20");
+    assert_eq!(encode_segment_for("con", true), "%63on");
+    assert_eq!(encode_segment_for("con", false), "con");
+    assert_eq!(encode_segment_for("shop", true), "shop");
 }
 
 #[test]

@@ -19,6 +19,7 @@ import * as editing from "./editState";
 import { nextSort } from "./GridHeader";
 import { fitSelection, gridRows, type GridSelection } from "./gridModel";
 import { PreviewDialog, type PreviewState } from "./PreviewDialog";
+import { hasPrimaryModifier } from "../../lib/platform";
 
 const DEFAULT_LIMIT = 1000;
 
@@ -149,7 +150,7 @@ export function TableDataView({ tab, active }: { tab: TableDataTab; active: bool
   useEffect(() => {
     if (!active) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "s") {
+      if (hasPrimaryModifier(event) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "s") {
         event.preventDefault();
         window.setTimeout(() => void openPreview(), 0);
       }

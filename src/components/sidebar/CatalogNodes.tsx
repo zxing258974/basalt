@@ -13,6 +13,7 @@ import { TreeRow, TreeStatusRow } from "./TreeRow";
 import { designTableItem, newTableItem } from "../design/designMenu";
 import { exportTableItem, importTableItem } from "../transfer/transferMenu";
 import { copyTableItem, dropTableItem } from "../tableOps/tableOpsMenu";
+import { keyLabel, shortcut } from "../../lib/platform";
 
 interface QueryLike<T> {
   data?: T;
@@ -103,7 +104,7 @@ function DatabaseNode({
           {
             label: "新建查询",
             icon: <FilePlus2 />,
-            shortcut: "⌘T",
+            shortcut: shortcut("T"),
             onSelect: () => void openNewQuery(connection, { database }),
           },
           ...(isPostgres
@@ -155,7 +156,7 @@ function SchemaList({ connection, database, depth }: { connection: ConnectionVie
                   {
                     label: "新建查询",
                     icon: <FilePlus2 />,
-                    shortcut: "⌘T",
+                    shortcut: shortcut("T"),
                     onSelect: () => void openNewQuery(connection, { database, schema }),
                   },
                   { label: "打开对象列表", icon: <TableProperties />, onSelect: () => openObjects(database, schema) },
@@ -229,7 +230,12 @@ function ObjectGroups({
                 onContextMenu={(event) => {
                   const ref = { database, schema, table: table.name };
                   openMenu(event, [
-                    { label: "打开数据", icon: <Rows3 />, shortcut: "↩", onSelect: () => openData(table.name) },
+                    {
+                      label: "打开数据",
+                      icon: <Rows3 />,
+                      shortcut: keyLabel("Enter"),
+                      onSelect: () => openData(table.name),
+                    },
                     { label: "打开对象列表", icon: <TableProperties />, onSelect: () => openObjects(database, schema) },
                     ...(table.kind === "table"
                       ? ["separator" as const, designTableItem(connection.id, database, schema, table.name)]

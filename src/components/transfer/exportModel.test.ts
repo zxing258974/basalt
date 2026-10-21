@@ -7,7 +7,6 @@ import {
   defaultRange,
   extensionOf,
   fileFilter,
-  fileName,
   formatBytes,
   formatCount,
   formatElapsed,
@@ -58,7 +57,6 @@ describe("exportModel", () => {
     expect(fileFilter({ kind: "sql", table: "t", rowsPerStatement: 1 }).extensions).toEqual(["sql"]);
     expect(safeFileName("a/b:c*?")).toBe("a_b_c__");
     expect(safeFileName("  ")).toBe("export");
-    expect(fileName("/Users/me/a.csv")).toBe("a.csv");
   });
 
   it("table exports carry the filter only when chosen", () => {

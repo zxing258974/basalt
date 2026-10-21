@@ -56,11 +56,23 @@ impl OutputFile {
 
     /// 改名成目标文件(覆盖同名文件),返回文件大小。
     pub fn commit(mut self) -> CoreResult<u64> {
-        std::fs::rename(&self.temp, &self.target).map_err(file_error)?;
+        std::fs::rename(&self.temp, &self.target)
+            .map_err(|error| replace_error(error, &self.target))?;
         self.committed = true;
         let size = std::fs::metadata(&self.target).map_err(file_error)?.len();
         Ok(size)
     }
+}
+
+/// 覆盖不了目标文件:Windows 上多半是它正在 Excel 之类的程序里开着。
+fn replace_error(error: std::io::Error, target: &Path) -> CoreError {
+    if error.kind() == std::io::ErrorKind::PermissionDenied {
+        return CoreError::File(format!(
+            "没能写入 {}：文件可能正被别的程序（比如 Excel）打开，或者没有写权限。关掉它或换个文件名再试。",
+            target.display()
+        ));
+    }
+    file_error(error)
 }
 
 impl Drop for OutputFile {
@@ -175,5 +187,18 @@ mod tests {
             let size = write_all(&dir.path().join(name), &options).unwrap();
             assert!(size > 0, "{name}");
         }
+    }
+
+    #[test]
+    fn explains_a_target_that_is_open_elsewhere() {
+        let target = Path::new("订单.xlsx");
+        let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        let message = replace_error(denied, target).to_string();
+        assert!(
+            message.contains("订单.xlsx") && message.contains("Excel"),
+            "{message}"
+        );
+        let missing = std::io::Error::from(std::io::ErrorKind::NotFound);
+        assert!(!replace_error(missing, target).to_string().contains("Excel"));
     }
 }

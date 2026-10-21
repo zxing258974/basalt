@@ -12,6 +12,7 @@ import { AssistantMessages } from "./AssistantMessages";
 import { optimizeMessage, systemPrompt } from "./assistantModel";
 import { LLM_SETTINGS_KEY, LlmSettingsDialog, useLlmSettings } from "./LlmSettingsDialog";
 import { useAssistantChat } from "./useAssistantChat";
+import { hasPrimaryModifier, shortcut } from "../../lib/platform";
 
 /** 给读屏软件的一句:只在开始、结束时变,不逐字念。 */
 function announcement(turn: Turn | undefined): string {
@@ -113,7 +114,7 @@ export function AssistantPanel({ tabId, connection, scope, readSql, onInsert, on
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // ⌘↩ 在这里是「发送」:preventDefault 让查询页不再把它当成「执行 SQL」。
-    if (event.metaKey && event.key === "Enter") {
+    if (hasPrimaryModifier(event) && event.key === "Enter") {
       event.preventDefault();
       if (!streaming) ask("generate");
     }
@@ -198,7 +199,7 @@ export function AssistantPanel({ tabId, connection, scope, readSql, onInsert, on
           ref={input}
           className="assistant-input"
           aria-label="问助手"
-          placeholder="如：查最近 30 天每天的订单数和金额（⌘↩ 发送）"
+          placeholder={`如：查最近 30 天每天的订单数和金额（${shortcut("Enter")} 发送）`}
           value={draft}
           rows={3}
           onChange={(event) => {
@@ -217,7 +218,7 @@ export function AssistantPanel({ tabId, connection, scope, readSql, onInsert, on
             variant="primary"
             size="sm"
             icon={<Sparkles />}
-            title="⌘↩"
+            title={shortcut("Enter")}
             disabled={streaming}
             onClick={() => ask("generate")}
           >

@@ -11,6 +11,7 @@ import { connectionKey } from "../sidebar/treeKeys";
 import { defaultName, emptyForm, formFromConfig, toDraft, withDriver, type ConnectionForm } from "./connectionForm";
 import { driverMeta, DRIVERS } from "./driverMeta";
 import { DriverPicker } from "./DriverPicker";
+import { platform, secretStoreName } from "../../lib/platform";
 
 type TestResult = { ok: true; message: string } | { ok: false; message: string } | null;
 
@@ -142,7 +143,7 @@ function ConnectionFormBody({ initial, onBack, onDone }: BodyProps) {
             className="span-full"
             label="数据库文件"
             value={form.path}
-            placeholder="/path/to/database.db"
+            placeholder={platform() === "windows" ? "C:\\data\\database.db" : "/path/to/database.db"}
             error={errorFor("path")}
             onValueChange={(path) => update({ path })}
             trailing={
@@ -177,7 +178,7 @@ function ConnectionFormBody({ initial, onBack, onDone }: BodyProps) {
               label="密码"
               type="password"
               value={form.password}
-              placeholder={form.hadSavedPassword && !form.passwordTouched ? "已保存在钥匙串" : ""}
+              placeholder={form.hadSavedPassword && !form.passwordTouched ? `已保存在${secretStoreName()}` : ""}
               onValueChange={(password) => update({ password, passwordTouched: true })}
             />
             <Field
@@ -188,7 +189,7 @@ function ConnectionFormBody({ initial, onBack, onDone }: BodyProps) {
             />
             <div className="span-full">
               <Checkbox
-                label="把密码保存到钥匙串"
+                label={`把密码保存到${secretStoreName()}`}
                 checked={form.savePassword}
                 onCheckedChange={(savePassword) => update({ savePassword })}
               />

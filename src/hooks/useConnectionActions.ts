@@ -9,10 +9,14 @@ import { guardDiscard } from "../stores/discard";
 import { useTabs } from "../stores/tabs";
 import { useUi } from "../stores/ui";
 import { catalogKeys, connectionsQuery } from "./useCatalog";
+import { platform } from "../lib/platform";
 
 /** 删连接不弹钥匙串授权框;密码删不掉时如实说一声。 */
-export const PASSWORD_LEFT_NOTICE =
-  "连接已删除，但密码还留在钥匙串里（多半是旧版 Basalt 存的，删除要授权）；可在「钥匙串访问」里搜索 dev.basalt.app 手动删。";
+export function passwordLeftNotice(): string {
+  return platform() === "mac"
+    ? "连接已删除，但密码还留在钥匙串里（多半是旧版 Basalt 存的，删除要授权）；可在「钥匙串访问」里搜索 dev.basalt.app 手动删。"
+    : "连接已删除，但密码没能从 Windows 凭据管理器里删掉；可在「控制面板 → 凭据管理器 → Windows 凭据」里找 dev.basalt.app 手动删。";
+}
 
 export function useConnectionActions() {
   const queryClient = useQueryClient();
@@ -139,7 +143,7 @@ export function useConnectionActions() {
       const { passwordLeft } = await (await getBackend()).deleteConnection(id);
       forget(id, true);
       await refreshConnections();
-      if (passwordLeft) notify(PASSWORD_LEFT_NOTICE);
+      if (passwordLeft) notify(passwordLeftNotice());
     },
     [forget, refreshConnections, notify],
   );

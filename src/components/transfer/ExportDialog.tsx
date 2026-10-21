@@ -15,7 +15,6 @@ import {
   defaultRange,
   extensionOf,
   fileFilter,
-  fileName,
   formatBytes,
   formatCount,
   querySummary,
@@ -26,6 +25,7 @@ import {
 } from "./exportModel";
 import { TransferProgressView } from "./TransferProgressView";
 import { useTransferJob } from "./useTransferJob";
+import { fileManagerName, fileName } from "../../lib/platform";
 
 /** 选项页下方的一行话:取消是平常事,出错才用警示色。 */
 type Message = { tone: "error" | "note"; text: string } | null;
@@ -82,7 +82,7 @@ export function ExportDialog({ target, onClose }: { target: ExportTarget; onClos
     try {
       await (await getBackend()).revealInFinder(path);
     } catch (error) {
-      useUi.getState().notify(`没能在访达中显示：${errorMessage(error)}`);
+      useUi.getState().notify(`没能在${fileManagerName()}中显示：${errorMessage(error)}`);
     }
   };
 
@@ -97,7 +97,7 @@ export function ExportDialog({ target, onClose }: { target: ExportTarget; onClos
         footer={
           <>
             <Button variant="secondary" icon={<FolderOpen />} onClick={() => void reveal(outcome.path)}>
-              在访达中显示
+              在{fileManagerName()}中显示
             </Button>
             <span className="footer-spacer" />
             <Button variant="primary" autoFocus onClick={onClose}>

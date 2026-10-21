@@ -3,7 +3,7 @@ import type { ImportPreview, SourceFormat, SourceSpec, TextEncoding } from "../.
 import { Button } from "../ui/Button";
 import { Checkbox } from "../ui/Field";
 import { Choice } from "./ExportOptionsForm";
-import { fileName } from "./exportModel";
+import { fileName } from "../../lib/platform";
 import { AUTO, DELIMITER_CHOICES, ENCODING_CHOICES, describeFormat, needsSheetChoice } from "./importModel";
 import { PreviewTable } from "./PreviewTable";
 

@@ -322,7 +322,8 @@ async fn keychain_failure_on_delete_still_removes_the_connection() {
         dir.path().join("connections.json"),
         Arc::new(LockedKeychain),
     );
-    let saved = service::save_connection(&state, sqlite_draft("/tmp/basalt-none.db"))
+    let path = dir.path().join("none.db").display().to_string();
+    let saved = service::save_connection(&state, sqlite_draft(&path))
         .await
         .unwrap();
 
@@ -365,6 +366,8 @@ async fn deleting_never_prompts_and_reports_a_password_it_could_not_remove() {
     assert!(service::list_connections(&state).await.unwrap().is_empty());
 }
 
+// 用只读目录造写入失败:Windows 的只读属性挡不住在目录里建文件,只在 Unix 上跑。
+#[cfg(unix)]
 #[tokio::test]
 async fn config_write_failure_rolls_back_the_new_password() {
     use std::os::unix::fs::PermissionsExt;

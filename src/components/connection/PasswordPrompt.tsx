@@ -6,6 +6,7 @@ import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Checkbox, Field } from "../ui/Field";
 import { endpointSummary } from "./driverMeta";
+import { secretStoreName } from "../../lib/platform";
 
 export function PasswordPrompt() {
   const prompt = useUi((s) => s.passwordPrompt);
@@ -68,7 +69,11 @@ function PasswordPromptDialog({ prompt }: { prompt: PasswordPromptState }) {
           onValueChange={setPassword}
           autoFocus
         />
-        <Checkbox label="连接成功后把密码保存到钥匙串" checked={remember} onCheckedChange={setRemember} />
+        <Checkbox
+          label={`连接成功后把密码保存到${secretStoreName()}`}
+          checked={remember}
+          onCheckedChange={setRemember}
+        />
         <footer className="connection-form-footer">
           <span className="footer-spacer" />
           <Button variant="ghost" onClick={() => askPassword(null)}>

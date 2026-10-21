@@ -32,6 +32,8 @@ describe("defaultName", () => {
     expect(defaultName(emptyForm("mysql"))).toBe("本地 MySQL");
     expect(defaultName({ ...emptyForm("postgres"), host: "10.0.8.21" })).toBe("10.0.8.21:5432");
     expect(defaultName({ ...emptyForm("sqlite"), path: "/Users/me/notes.sqlite3" })).toBe("notes");
+    expect(defaultName({ ...emptyForm("sqlite"), path: "C:\\Users\\me\\账本.db" })).toBe("账本");
+    expect(defaultName(emptyForm("sqlite"))).toBe("SQLite");
   });
 
   it("falls back to the product name while the host is still blank", () => {

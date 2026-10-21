@@ -1,0 +1,2 @@
+# 文本文件在任何平台上都按 LF 检出:测试夹具和快照按字节比对,Windows 上 Git 默认的 autocrlf 会把它们改成 CRLF。
+* text=auto eol=lf

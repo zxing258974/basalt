@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "../ui/Button";
+import { shortcut } from "../../lib/platform";
 
 export const PAGE_SIZES = [100, 500, 1000] as const;
 
@@ -61,7 +62,7 @@ export function DataFooter(props: DataFooterProps) {
       </div>
       {pending > 0 ? (
         <span className="data-footer-pending">
-          {pending} 行有未提交的修改 · <kbd>⌘S</kbd> 预览并提交
+          {pending} 行有未提交的修改 · <kbd>{shortcut("S")}</kbd> 预览并提交
         </span>
       ) : props.message ? (
         <span className="data-footer-message" role="status">

@@ -68,7 +68,8 @@ impl AppState {
         }
     }
 
-    #[cfg(test)]
+    /// 只有用只读目录造写入失败的测试用,那些测试只在 Unix 上跑。
+    #[cfg(all(test, unix))]
     pub fn config_dir(&self) -> &std::path::Path {
         self.repo
             .path()

@@ -90,15 +90,22 @@ fn maps_network_connections_and_decrypts_their_passwords() {
 #[test]
 fn sqlite_is_imported_only_with_a_file_path() {
     let sources = parse_ncx(FIXTURE).unwrap();
-    assert_eq!(
-        sources[3].target,
-        SourceTarget::Supported {
-            driver: DriverKind::Sqlite,
-            endpoint: Endpoint::File {
-                path: "/Users/example/notes.db".into()
-            },
-        }
-    );
+    if cfg!(windows) {
+        // 夹具是 macOS 上导出的:/Users/... 在 Windows 上没有盘符,不算绝对路径。
+        assert!(
+            matches!(&sources[3].target, SourceTarget::Unsupported(reason) if reason.contains("绝对路径"))
+        );
+    } else {
+        assert_eq!(
+            sources[3].target,
+            SourceTarget::Supported {
+                driver: DriverKind::Sqlite,
+                endpoint: Endpoint::File {
+                    path: "/Users/example/notes.db".into()
+                },
+            }
+        );
+    }
     assert!(
         matches!(&sources[7].target, SourceTarget::Unsupported(reason) if reason.contains("路径"))
     );

@@ -14,6 +14,7 @@ import { EmptyState } from "../ui/EmptyState";
 import { DdlPreviewDialog, type DdlPreviewState } from "./DdlPreviewDialog";
 import { DesignEditors, DesignTabs, useSectionPrefix, type DesignSection } from "./DesignSections";
 import * as model from "./designModel";
+import { hasPrimaryModifier, shortcut } from "../../lib/platform";
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -148,7 +149,7 @@ export function TableDesignView({ tab, active }: { tab: TableDesignTab; active: 
   useEffect(() => {
     if (!active) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "s") {
+      if (hasPrimaryModifier(event) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "s") {
         event.preventDefault();
         window.setTimeout(() => void openPreview(), 0);
       }
@@ -260,7 +261,7 @@ export function TableDesignView({ tab, active }: { tab: TableDesignTab; active: 
       <footer className="data-footer designer-footer">
         {changes > 0 ? (
           <span className="data-footer-pending">
-            {ref ? `${changes} 处修改未保存` : "新表还没有创建"} · <kbd>⌘S</kbd> 预览并保存
+            {ref ? `${changes} 处修改未保存` : "新表还没有创建"} · <kbd>{shortcut("S")}</kbd> 预览并保存
           </span>
         ) : (
           message && <span className="data-footer-message">{message}</span>

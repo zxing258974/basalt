@@ -1,13 +1,12 @@
 //! 导入 Navicat 保存的查询:扫描本机 Navicat 的查询文件,对照 Basalt 的连接给出预览,
 //! 再把勾选的写进保存的查询。扫描和导入各自重新读一遍来源,不沿用扫描时的结果。
 
-use basalt_core::CoreError;
 use basalt_core::import::SourceConnection;
-use basalt_core::import::navicat::NavicatLocation;
 use basalt_core::import::navicat::queries::{
     PlannedQuery, QueryImportCandidate, QueryImportReport, import_planned, plan_queries,
     scan_queries,
 };
+use basalt_core::import::navicat::{self, NavicatLocation};
 
 use super::CommandResult;
 use crate::state::AppState;
@@ -21,8 +20,7 @@ fn navicat_connections(local: &NavicatLocation) -> Vec<SourceConnection> {
 }
 
 fn plan(state: &AppState, local: Option<&NavicatLocation>) -> CommandResult<Vec<PlannedQuery>> {
-    let local =
-        local.ok_or_else(|| CoreError::Storage("找不到用户主目录，无法定位本机 Navicat".into()))?;
+    let local = local.ok_or_else(navicat::local_unavailable)?;
     let queries = scan_queries(&local.settings)?;
     let connections = state.load()?.connections;
     Ok(plan_queries(

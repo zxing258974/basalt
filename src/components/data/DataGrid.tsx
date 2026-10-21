@@ -18,6 +18,7 @@ import { GridHeader } from "./GridHeader";
 import { GridInput } from "./GridInput";
 import { cellId, GridRowView, type EditingCell } from "./GridRowView";
 import { cellView, gridRows, initialWidth, type GridRow, type GridSelection } from "./gridModel";
+import { keyLabel, shortcut } from "../../lib/platform";
 
 /** 行高、表头高度、行号槽宽度:虚拟滚动按这些数字算位置,同时作为 CSS 变量下发。 */
 const ROW_HEIGHT = 26;
@@ -196,14 +197,25 @@ export function DataGrid(props: DataGridProps) {
   };
 
   const menuItems = (row: number, col: number): MenuEntry[] => {
-    const copyItem: MenuEntry = { label: "复制", icon: <Copy />, shortcut: "⌘C", onSelect: () => copy(row, col) };
+    const copyItem: MenuEntry = {
+      label: "复制",
+      icon: <Copy />,
+      shortcut: shortcut("C"),
+      onSelect: () => copy(row, col),
+    };
     if (props.copyOnlyMenu) return [copyItem];
     const view = viewOf(row, col);
     const target = rows[row]!;
     const column = page.columns[col]!;
     const writable = editable && view.editable;
     return [
-      { label: "编辑", icon: <Pencil />, shortcut: "↩", disabled: !writable, onSelect: () => startEditing(row, col) },
+      {
+        label: "编辑",
+        icon: <Pencil />,
+        shortcut: keyLabel("Enter"),
+        disabled: !writable,
+        onSelect: () => startEditing(row, col),
+      },
       {
         label: "设为 NULL",
         icon: <Ban />,
@@ -230,7 +242,7 @@ export function DataGrid(props: DataGridProps) {
         : {
             label: target.status === "new" ? "移除新行" : "删除这一行",
             icon: <Trash2 />,
-            shortcut: "⌘⌫",
+            shortcut: shortcut("Backspace"),
             danger: true,
             disabled: !editable,
             onSelect: () => actions.deleteRow(target),

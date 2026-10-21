@@ -26,9 +26,12 @@ sqlx = { version = "0.8", default-features = false, features = [
   "json",
 ] }
 chrono = { version = "0.4", features = ["serde"] }
+# 本机的 IANA 时区名(PG 会话按本机时区显示);macOS 读系统设置,Windows 从系统时区换算
+iana-time-zone = "0.1"
 rust_decimal = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
-keyring = { version = "3", features = ["apple-native"] }
+# 密码存储:macOS 钥匙串,Windows 凭据管理器(各自只在对应平台上编译)
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
 # SQL 助手:请求用户自己配置的大模型(OpenAI / Claude 格式,流式)。rustls + 系统根证书,读 macOS 系统代理
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "stream", "http2", "macos-system-configuration"] }
 # 删连接时不弹框地删钥匙串条目:keyring 删除前会先读出密码,读密码就要授权

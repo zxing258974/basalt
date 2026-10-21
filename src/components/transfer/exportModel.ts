@@ -172,10 +172,6 @@ export function phaseLabel(phase: TransferPhase | null): string {
   }
 }
 
-export function fileName(path: string): string {
-  return path.split("/").at(-1) ?? path;
-}
-
 export const BINARY_CHOICES: { value: BinaryEncoding; label: string }[] = [
   { value: "hex", label: "十六进制（0x 开头）" },
   { value: "base64", label: "Base64" },

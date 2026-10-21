@@ -1,6 +1,7 @@
 import { CircleCheck, KeyRound, TriangleAlert } from "lucide-react";
 import type { ImportedConnection, ImportReport, ImportSource } from "../../lib/importTypes";
 import { reportHeadline } from "./importModel";
+import { secretStoreName } from "../../lib/platform";
 
 interface ImportReportViewProps {
   report: ImportReport;
@@ -9,7 +10,7 @@ interface ImportReportViewProps {
 
 function passwordNote(item: ImportedConnection): string {
   if (item.driver === "sqlite") return "无需密码";
-  return item.passwordSaved ? "密码已存入钥匙串" : "首次打开时输入密码";
+  return item.passwordSaved ? `密码已存入${secretStoreName()}` : "首次打开时输入密码";
 }
 
 export function ImportReportView({ report, source }: ImportReportViewProps) {
@@ -41,7 +42,7 @@ export function ImportReportView({ report, source }: ImportReportViewProps) {
                 <span className="import-report-name">{item.name}</span>
                 <span className="import-report-meta is-saved">
                   <KeyRound aria-hidden />
-                  密码已存入钥匙串
+                  密码已存入{secretStoreName()}
                 </span>
               </li>
             ))}

@@ -4,6 +4,7 @@ import type { DdlPreview, TableDesign } from "../../lib/designTypes";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { DdlStatements, modeDescription } from "./DdlStatements";
+import { hasPrimaryModifier, shortcut } from "../../lib/platform";
 
 export type DdlPreviewState =
   | { phase: "closed" }
@@ -35,7 +36,7 @@ export function DdlPreviewDialog({ state, onCancel, onSubmit }: DdlPreviewDialog
   useEffect(() => {
     if (!canSubmit) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Enter" && event.metaKey) {
+      if (event.key === "Enter" && hasPrimaryModifier(event)) {
         event.preventDefault();
         onSubmit();
       }
@@ -65,7 +66,7 @@ export function DdlPreviewDialog({ state, onCancel, onSubmit }: DdlPreviewDialog
       }}
       footer={
         <>
-          <span className="dialog-footer-hint">{canSubmit && "⌘↩ 执行"}</span>
+          <span className="dialog-footer-hint">{canSubmit && `${shortcut("Enter")} 执行`}</span>
           <Button variant="secondary" disabled={applying} onClick={onCancel}>
             {state.phase === "invalid" ? "返回修改" : ready?.partial ? "关闭" : "取消"}
           </Button>

@@ -410,9 +410,14 @@ mod tests {
         assert_eq!(fields(&validate(&draft)), ["name"]);
     }
 
+    /// 两个平台上都是绝对路径(Windows 的绝对路径要带盘符,/tmp 那种不算)。
+    fn absolute(name: &str) -> String {
+        std::env::temp_dir().join(name).display().to_string()
+    }
+
     #[test]
     fn sqlite_requires_absolute_file_path() {
-        assert!(validate(&sqlite_draft("/tmp/notes.db")).is_empty());
+        assert!(validate(&sqlite_draft(&absolute("notes.db"))).is_empty());
         assert_eq!(fields(&validate(&sqlite_draft("notes.db"))), ["path"]);
         assert_eq!(fields(&validate(&sqlite_draft(""))), ["path"]);
     }
@@ -427,7 +432,7 @@ mod tests {
 
         let mysql_with_file = ConnectionDraft {
             driver: DriverKind::Mysql,
-            ..sqlite_draft("/tmp/a.db")
+            ..sqlite_draft(&absolute("a.db"))
         };
         assert_eq!(fields(&validate(&mysql_with_file)), ["endpoint"]);
     }

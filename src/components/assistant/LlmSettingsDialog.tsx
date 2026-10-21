@@ -7,6 +7,7 @@ import { errorMessage, type CommandError } from "../../lib/types";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Checkbox, Field } from "../ui/Field";
+import { secretStoreName } from "../../lib/platform";
 
 export const LLM_SETTINGS_KEY = ["llm", "settings"] as const;
 
@@ -286,7 +287,9 @@ export function LlmSettingsDialog({ onClose }: { onClose(): void }) {
             label="API Key"
             type="password"
             value={draft.apiKey ?? ""}
-            placeholder={editing?.hasApiKey ? "已存在钥匙串里，留空不改" : "本地模型（如 Ollama）可以不填"}
+            placeholder={
+              editing?.hasApiKey ? `已存在${secretStoreName()}里，留空不改` : "本地模型（如 Ollama）可以不填"
+            }
             autoComplete="off"
             error={errors.apiKey || undefined}
             onValueChange={(v) => update("apiKey", v)}
@@ -329,8 +332,8 @@ export function LlmSettingsDialog({ onClose }: { onClose(): void }) {
             </p>
           )}
           <p className="llm-note">
-            API Key 存在 macOS
-            钥匙串里，不写进配置文件。请求只发往上面填的地址，内容是表结构（表名、列名、类型）和你的问题或
+            API Key 存在{secretStoreName()}
+            里，不写进配置文件。请求只发往上面填的地址，内容是表结构（表名、列名、类型）和你的问题或
             SQL，不含表里的数据。
           </p>
         </form>

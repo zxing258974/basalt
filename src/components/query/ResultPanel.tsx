@@ -3,6 +3,7 @@ import { Button } from "../ui/Button";
 import { MessagesView } from "./MessagesView";
 import { ResultGrid } from "./ResultGrid";
 import { resultTabs, type ResultTab, type RunState } from "./runModel";
+import { shortcut } from "../../lib/platform";
 
 export const MESSAGES = "messages";
 
@@ -23,7 +24,9 @@ export function ResultPanel({ title, run, active, onActiveChange, onExport }: Re
     return (
       <section className="query-results is-empty" aria-label="执行结果">
         <p className="query-results-placeholder">
-          {run.running ? "正在执行…" : "执行的结果会显示在这里。⌘↩ 执行光标所在的语句，⇧⌘↩ 全部执行。"}
+          {run.running
+            ? "正在执行…"
+            : `执行的结果会显示在这里。${shortcut("Enter")} 执行光标所在的语句，${shortcut("Enter", { shift: true })} 全部执行。`}
         </p>
       </section>
     );

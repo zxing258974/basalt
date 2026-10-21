@@ -62,9 +62,11 @@
   --db-postgres: oklch(52% 0.12 255);
   --db-sqlite: oklch(55% 0.07 130);
 
-  /* 字体:界面跟系统走以贴近原生,数据与 SQL 用等宽 */
-  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
-  --font-mono: "SF Mono", ui-monospace, Menlo, "PingFang SC", monospace;
+  /* 字体:界面跟系统走以贴近原生,数据与 SQL 用等宽。Segoe UI / Cascadia 没有中文,汉字落到后面的苹方或微软雅黑 */
+  --font-ui:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei UI", sans-serif;
+  --font-mono:
+    "SF Mono", ui-monospace, Menlo, "Cascadia Mono", Consolas, "PingFang SC", "Microsoft YaHei UI", monospace;
 
   --text-2xs: 10px;
   --text-xs: 11px;
@@ -108,6 +110,11 @@
   --duration-fast: 120ms;
   --duration-normal: 220ms;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Windows:标题栏是系统自己的,工具栏左边不用给红绿灯让位,只留和右边一样的边距 */
+:root[data-platform="windows"] {
+  --traffic-light-inset: var(--space-4);
 }
 
 @media (prefers-color-scheme: dark) {

@@ -4,6 +4,7 @@ import type { ConnectionView } from "../../lib/types";
 import { DriverBadge } from "../connection/DriverBadge";
 import { Button } from "../ui/Button";
 import { ScopePicker } from "./ScopePicker";
+import { shortcut } from "../../lib/platform";
 
 interface QueryHeaderProps {
   connection: ConnectionView | undefined;
@@ -57,7 +58,7 @@ export function QueryHeader(props: QueryHeaderProps) {
           size="sm"
           icon={<Play />}
           disabled={!ready || running}
-          title="执行光标所在的语句；有选中文字时执行选中的部分（⌘↩）"
+          title={`执行光标所在的语句；有选中文字时执行选中的部分（${shortcut("Enter")}）`}
           onClick={props.onRun}
         >
           执行
@@ -66,7 +67,7 @@ export function QueryHeader(props: QueryHeaderProps) {
           size="sm"
           icon={<FastForward />}
           disabled={!ready || running}
-          title="按顺序执行全部语句，出错就停（⇧⌘↩）"
+          title={`按顺序执行全部语句，出错就停（${shortcut("Enter", { shift: true })}）`}
           onClick={props.onRunAll}
         >
           全部执行
@@ -77,13 +78,13 @@ export function QueryHeader(props: QueryHeaderProps) {
           icon={<CircleStop />}
           disabled={!running || props.cancelling}
           busy={props.cancelling && running}
-          title="中止正在执行的语句（⌘.）"
+          title={`中止正在执行的语句（${shortcut(".")}）`}
           onClick={props.onCancel}
         >
           取消
         </Button>
         <span className="toolbar-divider" aria-hidden />
-        <Button variant="ghost" size="sm" icon={<Save />} title="保存查询（⌘S）" onClick={props.onSave}>
+        <Button variant="ghost" size="sm" icon={<Save />} title={`保存查询（${shortcut("S")}）`} onClick={props.onSave}>
           保存
         </Button>
         <Button

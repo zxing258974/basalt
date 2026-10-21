@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createQueryClient } from "../../App";
 import { setBackendForTesting, type Backend } from "../../lib/api";
+import { setPlatformForTesting } from "../../lib/platform";
 import { createMockBackend } from "../../lib/mockBackend";
 import type { ImportReport } from "../../lib/importTypes";
 import type { CommandError, ConnectionConfig } from "../../lib/types";
@@ -138,6 +139,25 @@ describe("import dialog", () => {
 
     await user.click(screen.getByRole("radio", { name: /Navicat 导出文件/ }));
     expect(await screen.findByRole("checkbox", { name: "选择「订单库」" })).toBeChecked();
+  });
+
+  it("says plainly that Windows can only import .ncx files", async () => {
+    setPlatformForTesting("windows");
+    const unavailable: CommandError = {
+      code: "unsupported",
+      message: "Windows 版 Navicat 的连接和查询存在注册表和它自己的目录里，Basalt 还读不了。请导出 .ncx 再导入。",
+      fields: [],
+    };
+    const base = createMockBackend();
+    setup({
+      scanImportSource: vi.fn<Backend["scanImportSource"]>(async (source) => {
+        if (source.kind === "localNavicat") throw unavailable;
+        return base.scanImportSource(source);
+      }),
+    });
+    expect(await screen.findByRole("radio", { name: /本机 Navicat.*Windows 上读不了，请用 \.ncx/ })).toBeDisabled();
+    expect(await screen.findByText(/再导入。选择一个来源/)).toBeInTheDocument();
+    setPlatformForTesting("mac");
   });
 
   it("select all checks existing connections too but never unsupported ones", async () => {

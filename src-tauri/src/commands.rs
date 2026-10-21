@@ -288,7 +288,11 @@ pub async fn schema_outline(
 }
 
 /// 本机 Navicat 的配置在用户主目录下;找不到主目录只影响本机来源,不妨碍导入 .ncx。
+/// 只认 macOS 版的位置:Windows 版存在注册表里,见 `navicat::local_unavailable`。
 fn local_navicat(app: &AppHandle) -> Option<NavicatLocation> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
     let home = app.path().home_dir().ok()?;
     Some(NavicatLocation::under_home(&home))
 }

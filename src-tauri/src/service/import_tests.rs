@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use basalt_core::CoreError;
 use basalt_core::config::{ConnectionDraft, DriverKind, Endpoint};
 use basalt_core::import::CandidateStatus;
 use basalt_core::import::navicat::NavicatLocation;
@@ -274,12 +275,14 @@ async fn keychain_failure_leaves_no_imported_connections() {
 }
 
 /// 记下写过哪些账户,用来检查回滚后一个都不剩。
+#[cfg(unix)]
 #[derive(Default)]
 struct RecordingKeychain {
     inner: MemorySecretStore,
     written: std::sync::Mutex<Vec<String>>,
 }
 
+#[cfg(unix)]
 impl SecretStore for RecordingKeychain {
     fn get(&self, key: &str) -> basalt_core::CoreResult<Option<String>> {
         self.inner.get(key)
@@ -293,6 +296,8 @@ impl SecretStore for RecordingKeychain {
     }
 }
 
+// 用只读目录造写入失败:Windows 的只读属性挡不住在目录里建文件,只在 Unix 上跑。
+#[cfg(unix)]
 #[tokio::test]
 async fn config_write_failure_removes_the_passwords_just_written() {
     use std::os::unix::fs::PermissionsExt;
@@ -430,6 +435,8 @@ async fn ncx_fills_the_password_of_a_connection_imported_without_one() {
     }
 }
 
+// 用只读目录造写入失败:Windows 的只读属性挡不住在目录里建文件,只在 Unix 上跑。
+#[cfg(unix)]
 #[tokio::test]
 async fn config_write_failure_while_filling_restores_the_keychain() {
     use std::os::unix::fs::PermissionsExt;

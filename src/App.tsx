@@ -12,6 +12,7 @@ import { useQuitGuard } from "./hooks/useQuitGuard";
 import { closeTabGuarded } from "./stores/discard";
 import { useTabs } from "./stores/tabs";
 import { useUi } from "./stores/ui";
+import { hasPrimaryModifier } from "./lib/platform";
 
 /** 数据库报错重试也不会变好,元数据也不会频繁变化。 */
 export function createQueryClient() {
@@ -26,7 +27,7 @@ function useGlobalShortcuts() {
   const newQuery = useNewQueryFromSelection();
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!event.metaKey || event.altKey || event.ctrlKey) return;
+      if (!hasPrimaryModifier(event) || event.altKey) return;
       const key = event.key.toLowerCase();
       if (key === "n" && !event.shiftKey) {
         event.preventDefault();

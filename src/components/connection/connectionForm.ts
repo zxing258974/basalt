@@ -1,4 +1,5 @@
 // 连接对话框的表单状态与「表单 → 提交内容」的转换。全部是纯函数,便于测试。
+import { fileName } from "../../lib/platform";
 import type { ConnectionConfig, ConnectionDraft, DriverKind } from "../../lib/types";
 import { driverMeta } from "./driverMeta";
 
@@ -87,7 +88,7 @@ export function withDriver(form: ConnectionForm, driver: DriverKind): Connection
 
 export function defaultName(form: ConnectionForm): string {
   if (form.driver === "sqlite") {
-    const file = form.path.split("/").pop() ?? "";
+    const file = fileName(form.path);
     return file.replace(/\.[^.]+$/, "") || "SQLite";
   }
   const host = form.host.trim();

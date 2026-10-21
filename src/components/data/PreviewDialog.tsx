@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import type { RowChange } from "../../lib/types";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
+import { hasPrimaryModifier, shortcut } from "../../lib/platform";
 
 export type PreviewState =
   | { phase: "closed" }
@@ -39,7 +40,7 @@ export function PreviewDialog({ state, onCancel, onSubmit }: PreviewDialogProps)
   useEffect(() => {
     if (!canSubmit) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Enter" && event.metaKey) {
+      if (event.key === "Enter" && hasPrimaryModifier(event)) {
         event.preventDefault();
         onSubmit();
       }
@@ -67,7 +68,7 @@ export function PreviewDialog({ state, onCancel, onSubmit }: PreviewDialogProps)
       }}
       footer={
         <>
-          <span className="dialog-footer-hint">{ready && !applying && "⌘↩ 提交"}</span>
+          <span className="dialog-footer-hint">{ready && !applying && `${shortcut("Enter")} 提交`}</span>
           <Button variant="secondary" disabled={applying} onClick={onCancel}>
             {state.phase === "invalid" ? "返回修改" : "取消"}
           </Button>

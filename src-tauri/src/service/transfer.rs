@@ -121,22 +121,49 @@ pub fn save_import_failures(path: &str, failures: &[ImportFailure]) -> CommandRe
     Ok(write_failures_csv(Path::new(path), failures)?)
 }
 
-/// 在访达里选中导出的文件。
+/// 在系统的文件管理器里选中导出的文件:macOS 是访达,Windows 是资源管理器。
 pub fn reveal_in_finder(path: &str) -> CommandResult<()> {
     let path = Path::new(path);
     if !path.is_absolute() || !path.exists() {
         return Err(CoreError::NotFound(format!("找不到文件：{}", path.display())).into());
     }
-    let status = std::process::Command::new("open")
-        .arg("-R")
-        .arg(path)
+    let mut command = reveal_command(path);
+    let status = command
         .status()
         .map_err(|error| CoreError::File(error.to_string()))?;
-    if status.success() {
+    // explorer.exe 选中文件后退出码也是 1,不能当失败。
+    if status.success() || cfg!(windows) {
         Ok(())
     } else {
         Err(CoreError::File("没能在访达里打开".into()).into())
     }
+}
+
+#[cfg(target_os = "macos")]
+fn reveal_command(path: &Path) -> std::process::Command {
+    let mut command = std::process::Command::new("open");
+    command.arg("-R").arg(path);
+    command
+}
+
+#[cfg(windows)]
+fn reveal_command(path: &Path) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    // 写成 /select,"路径" 原样传过去:用 arg() 的话,路径带空格时整个参数会被加上引号,
+    // explorer 认不出被引起来的开关,只会打开默认文件夹。Windows 路径里不会有双引号。
+    let mut argument = std::ffi::OsString::from("/select,\"");
+    argument.push(path.as_os_str());
+    argument.push("\"");
+    let mut command = std::process::Command::new("explorer.exe");
+    command.raw_arg(argument);
+    command
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn reveal_command(path: &Path) -> std::process::Command {
+    let mut command = std::process::Command::new("xdg-open");
+    command.arg(path.parent().unwrap_or(path));
+    command
 }
 
 #[cfg(test)]

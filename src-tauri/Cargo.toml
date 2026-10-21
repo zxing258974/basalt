@@ -30,3 +30,8 @@ log.workspace = true
 tauri = { version = "2.12.4", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
+
+# Windows:启动时关掉 WebView2 的浏览器快捷键(见 src/webview_windows.rs);版本跟 tauri / wry 用的一致
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows-core = "0.62"

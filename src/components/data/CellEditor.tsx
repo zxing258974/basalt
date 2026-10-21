@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { EditInput } from "../../lib/types";
+import { hasPrimaryModifier } from "../../lib/platform";
 
 /** 提交后选区往哪移。 */
 export type EditMove = "stay" | "right" | "left";
@@ -44,7 +45,7 @@ export function CellEditor({ initial, seed, label, onCommit, onCancel }: CellEdi
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // ⌘S:先提交这一格,事件继续冒泡,由表格页打开提交预览。
-    if (event.metaKey && event.key.toLowerCase() === "s") {
+    if (hasPrimaryModifier(event) && event.key.toLowerCase() === "s") {
       finish("stay");
       return;
     }

@@ -12,6 +12,9 @@ import { ImportReportView } from "./ImportReportView";
 import { ImportSourcePicker } from "./ImportSourcePicker";
 import { defaultSelection, selectionSummary } from "./importModel";
 
+/** 接在后面的话之前补一个句号;原文已经带句号就不重复。 */
+const sentence = (text: string) => (/[。！？.!?]$/.test(text) ? text : `${text}。`);
+
 const LOCAL: ImportSource = { kind: "localNavicat" };
 
 /** 预览不缓存:导入后再打开要重新判定「已存在」。 */
@@ -165,7 +168,7 @@ export function ImportDialog({ onClose }: ImportDialogProps) {
         {preview.data && <ImportPreview candidates={candidates} selection={selection} onSelectionChange={setPicked} />}
         {!source && !local.isPending && (
           <p className="import-placeholder">
-            {local.error ? `${errorMessage(local.error)}。` : ""}选择一个来源，预览要导入的连接。
+            {local.error ? sentence(errorMessage(local.error)) : ""}选择一个来源，预览要导入的连接。
           </p>
         )}
         {error && <p className="test-result is-error">{error}</p>}

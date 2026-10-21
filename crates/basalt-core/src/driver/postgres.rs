@@ -92,7 +92,7 @@ async fn connect_pool(options: PgConnectOptions) -> CoreResult<(PgPool, String)>
     Ok((pool, version))
 }
 
-/// 本机的 IANA 时区名:优先 TZ 环境变量,其次 /etc/localtime 指向的 zoneinfo 文件。
+/// 本机的 IANA 时区名:优先 TZ 环境变量,其次系统设置(Windows 上由系统时区换算成 IANA 名)。
 fn local_time_zone() -> Option<String> {
     if let Ok(zone) = std::env::var("TZ") {
         let zone = zone.trim_start_matches(':').trim();
@@ -100,11 +100,8 @@ fn local_time_zone() -> Option<String> {
             return Some(zone.to_owned());
         }
     }
-    let target = std::fs::read_link("/etc/localtime").ok()?;
-    let target = target.to_string_lossy();
-    target
-        .split_once("zoneinfo/")
-        .map(|(_, zone)| zone.to_owned())
+    iana_time_zone::get_timezone()
+        .ok()
         .filter(|zone| !zone.is_empty())
 }
 
@@ -294,5 +291,12 @@ mod tests {
         assert_eq!(known_row_estimate(Some(-1)), None);
         assert_eq!(known_row_estimate(Some(0)), Some(0));
         assert_eq!(known_row_estimate(None), None);
+    }
+
+    /// 不设 TZ 也要从系统设置里拿到时区名(Windows 上原来只看 /etc/localtime,拿不到)。
+    #[test]
+    fn finds_the_local_time_zone() {
+        let zone = local_time_zone().expect("本机时区");
+        assert!(zone == "UTC" || zone.contains('/'), "{zone}");
     }
 }

@@ -1,6 +1,7 @@
 import { FileCode2, FileUp, HardDrive } from "lucide-react";
 import type { ReactNode } from "react";
 import type { ImportSource } from "../../lib/importTypes";
+import { fileName, platform } from "../../lib/platform";
 
 interface LocalDetection {
   pending: boolean;
@@ -20,16 +21,14 @@ interface ImportSourcePickerProps {
 }
 
 function detected({ pending, count, error }: LocalDetection, unit: string): string {
+  // Windows 版 Navicat 的配置在注册表里,读不了:直接说明,别让人以为是没装。
+  if (platform() === "windows") return "Windows 上读不了，请用 .ncx";
   if (pending) return "正在检测…";
   if (error || count === undefined) return "未检测到";
   return `检测到 ${count} ${unit}`;
 }
 
 const isDetected = (detection: LocalDetection) => !detection.pending && !detection.error && (detection.count ?? 0) > 0;
-
-function fileName(path: string): string {
-  return path.split("/").pop() ?? path;
-}
 
 /** 来源三选一:两种连接来源、Navicat 保存的查询。选 .ncx 时每次点击都重新打开文件选择框。 */
 export function ImportSourcePicker(props: ImportSourcePickerProps) {

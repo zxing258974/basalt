@@ -7,6 +7,7 @@ import { useInspector } from "../../stores/inspector";
 import { useUi } from "../../stores/ui";
 import { ImportDialog } from "../import/ImportDialog";
 import { connectionIdFromKey } from "../sidebar/treeKeys";
+import { shortcut } from "../../lib/platform";
 
 function ToolbarButton({
   icon,
@@ -54,7 +55,7 @@ export function Toolbar() {
         <ToolbarButton
           icon={<Plus />}
           label="新建连接"
-          shortcut="⌘N"
+          shortcut={shortcut("N")}
           onClick={() => openConnectionDialog({ mode: "create", driver: null })}
         />
         {connection?.isOpen ? (
@@ -80,7 +81,7 @@ export function Toolbar() {
         <ToolbarButton
           icon={<FilePlus2 />}
           label="新建查询"
-          shortcut="⌘T"
+          shortcut={shortcut("T")}
           disabled={!connection}
           onClick={() => void newQuery()}
         />

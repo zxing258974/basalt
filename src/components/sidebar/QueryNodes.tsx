@@ -13,6 +13,7 @@ import { Dialog } from "../ui/Dialog";
 import { groupKey, savedQueryKey } from "./treeKeys";
 import { useTreeMenu } from "./treeMenu";
 import { TreeRow, TreeStatusRow } from "./TreeRow";
+import { keyLabel, shortcut } from "../../lib/platform";
 
 interface QueryGroupProps {
   connection: ConnectionView;
@@ -44,7 +45,7 @@ export function SavedQueryGroup({ connection, database, schema, depth }: QueryGr
         onActivate={items.length > 0 || query.error ? undefined : newHere}
         onContextMenu={(event) =>
           openMenu(event, [
-            { label: "新建查询", icon: <FilePlus2 />, shortcut: "⌘T", onSelect: newHere },
+            { label: "新建查询", icon: <FilePlus2 />, shortcut: shortcut("T"), onSelect: newHere },
             { label: "刷新", icon: <RefreshCw />, onSelect: refresh },
           ])
         }
@@ -66,7 +67,7 @@ export function SavedQueryGroup({ connection, database, schema, depth }: QueryGr
                 onActivate={openIt}
                 onContextMenu={(event) =>
                   openMenu(event, [
-                    { label: "打开", icon: <FolderOpen />, shortcut: "↩", onSelect: openIt },
+                    { label: "打开", icon: <FolderOpen />, shortcut: keyLabel("Enter"), onSelect: openIt },
                     "separator",
                     { label: "删除…", icon: <Trash2 />, danger: true, onSelect: () => setDeleting(ref) },
                   ])

@@ -6,6 +6,7 @@ import { objectsTab, useTabs } from "../../stores/tabs";
 import { useUi } from "../../stores/ui";
 import { renderApp, resetStores } from "../../test/renderApp";
 import { connectionKey } from "../sidebar/treeKeys";
+import { setPlatformForTesting } from "../../lib/platform";
 import { NoticeArea } from "./NoticeArea";
 
 const toolbar = () => within(screen.getByRole("banner"));
@@ -184,5 +185,22 @@ describe("sidebar width", () => {
     await user.dblClick(resizer());
     await waitFor(() => expect(resizer()).toHaveAttribute("aria-valuenow", "260"));
     expect(localStorage.getItem("basalt.sidebarWidth")).toBe("260");
+  });
+});
+
+describe("on Windows", () => {
+  afterEach(() => setPlatformForTesting("mac"));
+
+  it("shows Ctrl shortcuts and answers to Ctrl instead of ⌘", async () => {
+    setPlatformForTesting("windows");
+    const { user } = renderApp();
+    expect(await screen.findByText("Ctrl+N")).toBeInTheDocument();
+    expect(screen.getByText("Ctrl+Enter")).toBeInTheDocument();
+    await user.keyboard("{Meta>}n{/Meta}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await user.keyboard("{Control>}n{/Control}");
+    const dialog = within(screen.getByRole("dialog", { name: "新建连接" }));
+    await user.click(dialog.getByText("MySQL", { exact: true }));
+    expect(dialog.getByLabelText("把密码保存到Windows 凭据管理器")).toBeInTheDocument();
   });
 });

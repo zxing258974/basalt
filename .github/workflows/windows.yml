@@ -1,0 +1,53 @@
+# 在 Windows 上打安装包(NSIS 的 .exe 和 MSI),再跑 Rust 测试。
+# 手动触发,或推 v 开头的 tag 时触发;产物在这次运行的 Artifacts 里下载。
+# 安装包没有代码签名:第一次运行时 SmartScreen 会提示「未知发布者」。
+name: Windows 安装包
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # 和本机一致;sqlx 0.8 更新的版本要 1.94,Cargo.lock 锁着不会漂。
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.93.1"
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: 打包
+        run: pnpm tauri build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: basalt-windows
+          if-no-files-found: error
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/msi/*.msi
+
+      # 放在上传之后:测试挂了也拿得到安装包。不设 BASALT_IT:要数据库容器的集成测试跳过,
+      # SQLite 和单元测试在 Windows 上真跑。src-tauri 的测试程序靠 build.rs 嵌的清单才启动得了。
+      - name: Rust 测试
+        run: cargo test --workspace

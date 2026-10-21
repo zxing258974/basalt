@@ -26,6 +26,7 @@ import type { DriverKind } from "../../lib/types";
 import { editorTheme } from "./editorTheme";
 import { schemaCompletion, type CompletionProvider } from "./sqlCompletion";
 import type { SqlDialect } from "./splitStatements";
+import { shortcut } from "../../lib/platform";
 
 export interface SqlEditorHandle {
   getText(): string;
@@ -123,7 +124,7 @@ export function SqlEditor({ ref, driver, initialText, label, completion, ...call
           closeBrackets(),
           highlightActiveLine(),
           highlightSelectionMatches(),
-          placeholder("在这里写 SQL，⌘↩ 执行光标所在的语句"),
+          placeholder(`在这里写 SQL，${shortcut("Enter")} 执行光标所在的语句`),
           keymap.of([
             ...closeBracketsKeymap,
             ...defaultKeymap,

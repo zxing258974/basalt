@@ -1,3 +1,4 @@
+import { fileName } from "../../lib/platform";
 import type { ConnectionConfig, DriverKind } from "../../lib/types";
 
 export interface DriverMeta {
@@ -55,7 +56,7 @@ export function driverMeta(kind: DriverKind): DriverMeta {
 /** 列表里一行连接的副标题:主机:端口 或 文件名。 */
 export function endpointSummary(config: Pick<ConnectionConfig, "endpoint">): string {
   const { endpoint } = config;
-  if (endpoint.kind === "file") return endpoint.path.split("/").pop() ?? endpoint.path;
+  if (endpoint.kind === "file") return fileName(endpoint.path);
   return `${endpoint.username}@${endpoint.host}:${endpoint.port}`;
 }
 

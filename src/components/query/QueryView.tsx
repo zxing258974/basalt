@@ -23,6 +23,7 @@ import { editorDialect, SqlEditor, type SqlEditorHandle } from "./SqlEditor";
 import { useCompletionProvider } from "./useCompletionProvider";
 import { useEditorHeight } from "./useEditorHeight";
 import { useQueryRunner } from "./useQueryRunner";
+import { hasPrimaryModifier } from "../../lib/platform";
 
 /** 和保存时的内容比;没保存过的,写了东西就算有改动。 */
 const isDirty = (text: string, baseline: string, saved: boolean) => (saved ? text !== baseline : text.trim() !== "");
@@ -139,7 +140,7 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
   useEffect(() => {
     if (!active) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!event.metaKey || event.altKey || event.ctrlKey || event.defaultPrevented) return;
+      if (!hasPrimaryModifier(event) || event.altKey || event.defaultPrevented) return;
       const key = event.key.toLowerCase();
       if (key === "s") {
         event.preventDefault();

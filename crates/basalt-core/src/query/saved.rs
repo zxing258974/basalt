@@ -51,13 +51,33 @@ pub fn validate_name(name: &str) -> CoreResult<String> {
     if name.starts_with('.') {
         return invalid("名字不能以「.」开头");
     }
-    if name
-        .chars()
-        .any(|c| matches!(c, '/' | '\\' | ':') || c.is_control())
-    {
-        return invalid("名字里不能有 /、\\、: 或换行这类控制字符");
+    if name.chars().any(is_forbidden) {
+        return invalid("名字里不能有 / \\ : * ? \" < > | 或换行这类控制字符");
+    }
+    if is_reserved(name) {
+        return invalid(&format!("「{name}」是 Windows 的保留名，换一个吧"));
     }
     Ok(name.to_owned())
+}
+
+/// Windows 文件名里不许出现的字符。macOS 上也一样拦下:同一个名字在两个平台上都存得下。
+fn is_forbidden(c: char) -> bool {
+    matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()
+}
+
+/// Windows 的保留设备名(CON、NUL、COM1……),带不带扩展名都不能当文件名。
+fn is_reserved(name: &str) -> bool {
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim_end()
+        .to_ascii_uppercase();
+    let numbered = |prefix: &str| {
+        stem.strip_prefix(prefix)
+            .is_some_and(|n| n.len() == 1 && matches!(n.as_bytes()[0], b'1'..=b'9'))
+    };
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL") || numbered("COM") || numbered("LPT")
 }
 
 /// 把不能当名字用的字符换成下划线,用于导入别处的查询。
@@ -65,13 +85,7 @@ pub fn sanitize_name(name: &str) -> String {
     let replaced: String = name
         .trim()
         .chars()
-        .map(|c| {
-            if matches!(c, '/' | '\\' | ':') || c.is_control() {
-                '_'
-            } else {
-                c
-            }
-        })
+        .map(|c| if is_forbidden(c) { '_' } else { c })
         .collect();
     let trimmed = replaced.trim_start_matches('.');
     let mut name = String::new();
@@ -83,6 +97,8 @@ pub fn sanitize_name(name: &str) -> String {
     }
     if name.trim().is_empty() {
         "未命名查询".to_owned()
+    } else if is_reserved(&name) {
+        format!("_{name}")
     } else {
         name
     }
@@ -90,10 +106,22 @@ pub fn sanitize_name(name: &str) -> String {
 
 /// 目录名的百分号编码:可以放心落成一层文件夹,不会变成上级目录或隐藏文件。
 fn encode_segment(segment: &str) -> String {
+    encode_segment_for(segment, cfg!(windows))
+}
+
+/// Windows 上还要编码它不收的字符、结尾的点和空格(会被悄悄去掉)、保留设备名的首字母。
+/// 只在 Windows 上多编码:macOS 上已有的目录名不变,存过的查询照样找得到。
+fn encode_segment_for(segment: &str, windows: bool) -> String {
+    let count = segment.chars().count();
+    let reserved = windows && is_reserved(segment);
     let mut out = String::with_capacity(segment.len());
     for (index, c) in segment.chars().enumerate() {
         let unsafe_char = matches!(c, '%' | '/' | '\\' | ':') || c.is_control();
-        if unsafe_char || (index == 0 && c == '.') {
+        let windows_char = windows
+            && (matches!(c, '*' | '?' | '"' | '<' | '>' | '|')
+                || (index + 1 == count && matches!(c, '.' | ' '))
+                || (index == 0 && reserved));
+        if unsafe_char || windows_char || (index == 0 && c == '.') {
             let mut buf = [0u8; 4];
             for byte in c.encode_utf8(&mut buf).bytes() {
                 out.push_str(&format!("%{byte:02X}"));

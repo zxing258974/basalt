@@ -1,5 +1,6 @@
 import { Check, FileDown, Minus, Plus, RefreshCw, RotateCcw, Undo2, X } from "lucide-react";
 import { Button } from "../ui/Button";
+import { keyLabel, shortcut } from "../../lib/platform";
 
 interface DataToolbarProps {
   filterDraft: string;
@@ -24,7 +25,7 @@ interface DataToolbarProps {
   onExport(): void;
 }
 
-const LOCKED_HINT = "先提交（⌘S）或撤销未提交的修改";
+const lockedHint = () => `先提交（${shortcut("S")}）或撤销未提交的修改`;
 
 export function DataToolbar(props: DataToolbarProps) {
   const { filterDraft, appliedFilter, locked, editable, pending } = props;
@@ -33,7 +34,7 @@ export function DataToolbar(props: DataToolbarProps) {
 
   return (
     <div className="data-toolbar">
-      <label className={filtering ? "filter-box is-applied" : "filter-box"} title={locked ? LOCKED_HINT : undefined}>
+      <label className={filtering ? "filter-box is-applied" : "filter-box"} title={locked ? lockedHint() : undefined}>
         <span className="filter-keyword" aria-hidden>
           WHERE
         </span>
@@ -52,7 +53,7 @@ export function DataToolbar(props: DataToolbarProps) {
             if (event.key === "Escape") props.onFilterDraftChange(appliedFilter ?? "");
           }}
         />
-        {draftChanged && !locked && <kbd className="filter-hint">↩</kbd>}
+        {draftChanged && !locked && <kbd className="filter-hint">{keyLabel("Enter")}</kbd>}
         {filtering && (
           <button className="filter-clear" aria-label="清除筛选" disabled={locked} onClick={props.onClearFilter}>
             <X />
@@ -66,7 +67,7 @@ export function DataToolbar(props: DataToolbarProps) {
           size="sm"
           icon={<RefreshCw />}
           aria-label="刷新"
-          title={locked ? LOCKED_HINT : "重新读取这一页"}
+          title={locked ? lockedHint() : "重新读取这一页"}
           busy={props.refreshing}
           disabled={locked}
           onClick={props.onRefresh}
@@ -89,7 +90,7 @@ export function DataToolbar(props: DataToolbarProps) {
           size="sm"
           icon={props.selectedDeleted ? <RotateCcw /> : <Minus />}
           disabled={!editable || !props.canDelete}
-          title="⌘⌫"
+          title={shortcut("Backspace")}
           onClick={props.onToggleDelete}
         >
           {props.selectedDeleted ? "恢复行" : "删除行"}
@@ -103,7 +104,7 @@ export function DataToolbar(props: DataToolbarProps) {
           size="sm"
           icon={<Check />}
           disabled={pending === 0}
-          title="⌘S"
+          title={shortcut("S")}
           onClick={props.onCommit}
         >
           提交{pending > 0 && <span className="commit-count">{pending}</span>}

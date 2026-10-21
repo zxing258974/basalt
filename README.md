@@ -97,6 +97,18 @@ BASALT_IT=all cargo llvm-cov --workspace --fail-under-lines 80    # 覆盖率;�
 测试容器只监听 127.0.0.1:MySQL 5.7 `23306`、MySQL 8.4 `23307`、MariaDB `23308`、PostgreSQL `25432`,
 账号见 `docker-compose.test.yml`(仅用于本机一次性容器)。
 
+Windows:
+
+```bash
+tools/check-windows.sh                      # 在 Mac 上对 Windows 目标跑 clippy(C 依赖用假编译器顶替,不链接)
+```
+
+Windows 安装包(NSIS 的 .exe 和 MSI)由 `.github/workflows/windows.yml` 在 GitHub 的 Windows 机器上打,
+手动触发或推 `v` 开头的 tag;打完包再在 Windows 上跑 `cargo test --workspace`(不连数据库容器)。
+平台差异:密码存 Windows 凭据管理器、快捷键用 Ctrl、「在资源管理器中显示」、没有红绿灯的标题栏、
+WebView2 的刷新 / 打印 / 页内查找快捷键和空白处右键菜单都关掉;本机 Navicat 来源在 Windows 上不可用,只能导 .ncx。
+前端测试固定按 macOS 跑(`src/test/setup.ts`),Windows 的文案和按键另有测试。
+
 ESLint 通过 `tools/typescript-eslint-ts6` 给 typescript-eslint 配了一份 TypeScript 6:
 项目用的 TypeScript 7 是原生版,没有它需要的 JS 编译器接口。`tsc` 仍然用 7。
 
@@ -108,5 +120,5 @@ crates/basalt-core/   连接配置、密码存储、驱动、会话、表数据�
 src-tauri/            Tauri 外壳:commands.rs 只做转发,逻辑在 service.rs
 src/                  前端:components 按界面区域组织,lib/api.ts 是后端接口
 e2e/                  Playwright 截图测试与基准图
-tools/                开发工具用的本地包(给 typescript-eslint 配 TypeScript 6)
+tools/                开发工具:给 typescript-eslint 配 TypeScript 6 的本地包、Windows 编译检查脚本
 ```

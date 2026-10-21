@@ -3,13 +3,13 @@
 
 use std::collections::{HashMap, HashSet};
 
+use basalt_core::CoreResult;
 use basalt_core::config::{ConnectionConfig, DriverKind};
 use basalt_core::import::navicat::{self, NavicatLocation};
 use basalt_core::import::{
     CandidateStatus, ImportCandidate, SourceConnection, SourcePassword, SourceTarget, classify,
 };
 use basalt_core::secret::password_key;
-use basalt_core::{CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 
 use super::{CommandResult, restore_secret};
@@ -69,9 +69,7 @@ fn load_source(
     local: Option<&NavicatLocation>,
 ) -> CoreResult<Vec<SourceConnection>> {
     match source {
-        ImportSource::LocalNavicat => local
-            .ok_or_else(|| CoreError::Storage("找不到用户主目录，无法定位本机 Navicat".into()))?
-            .load(),
+        ImportSource::LocalNavicat => local.ok_or_else(navicat::local_unavailable)?.load(),
         ImportSource::NcxFile { path } => navicat::load_ncx(path.as_ref()),
     }
 }

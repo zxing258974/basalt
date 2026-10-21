@@ -81,6 +81,8 @@ describe("guardDiscard", () => {
     });
     expect(discardText(3, 2, 0).message).toBe("有 3 行修改还没有提交、2 个查询还没有保存，关闭后就没有了。");
     expect(discardText(3, 2, 0).title).toBe("放弃未保存的修改？");
+    expect(discardText(2, 0, 0, false, "清空").message).toBe("有 2 行修改还没有提交，清空后就没有了。");
+    expect(discardText(2, 0, 0, true, "清空").message).toBe("有 2 行修改还没有提交，退出后就没有了。");
   });
 
   it("cancels a prompt that is still open before asking again", () => {

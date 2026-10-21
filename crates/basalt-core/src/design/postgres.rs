@@ -61,6 +61,29 @@ pub(super) fn create_table(target: &TableDesign) -> Vec<String> {
     statements
 }
 
+/// 转储用:建表语句不带外键,外键另给成 `ALTER TABLE … ADD`,插完数据再加。
+/// 自引用的行谁先谁后、被引用的表还没建,都不碍事。
+pub(super) fn create_table_deferring_foreign_keys(
+    target: &TableDesign,
+) -> (Vec<String>, Vec<String>) {
+    let without = TableDesign {
+        foreign_keys: Vec::new(),
+        ..target.clone()
+    };
+    let table = table_name(D, &target.table);
+    let foreign_keys = target
+        .foreign_keys
+        .iter()
+        .map(|f| {
+            format!(
+                "ALTER TABLE {table} ADD {}",
+                foreign_key_definition(target, f)
+            )
+        })
+        .collect();
+    (create_table(&without), foreign_keys)
+}
+
 fn alter_table(diff: &Diff) -> CoreResult<Vec<String>> {
     check_order(diff)?;
     check_raw_indexes(diff)?;

@@ -17,6 +17,9 @@ export const catalogKeys = {
   /** 信息面板:一张表的属性和建表语句。 */
   details: (id: string, database: string, schema: string | null, table: string) =>
     ["catalog", id, "details", database, schema ?? "", table] as const,
+  /** 别的表上引用这张表的外键(清空、截断的确认框用)。 */
+  references: (id: string, database: string, schema: string | null, table: string) =>
+    ["catalog", id, "references", database, schema ?? "", table] as const,
   /** 补全用的列名,只在用到时才取。 */
   columns: (id: string, database: string, schema: string | null, table: string) =>
     ["catalog", id, "columns", database, schema ?? "", table] as const,

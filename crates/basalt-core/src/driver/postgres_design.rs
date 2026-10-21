@@ -1,7 +1,7 @@
 //! PostgreSQL 的表结构读取与 DDL 执行。DDL 放在一个事务里,失败整体回滚。
 
 use sqlx::Row;
-use sqlx::postgres::PgRow;
+use sqlx::postgres::{PgConnection, PgRow};
 
 use super::postgres::PgSession;
 use super::{finish_transaction, statement_failed, table_not_found};
@@ -74,43 +74,9 @@ const CHECKS_SQL: &str = "
 
 impl PgSession {
     pub async fn read_design(&self, table: &TableRef) -> CoreResult<TableDesign> {
-        let schema = table
-            .schema
-            .as_deref()
-            .ok_or_else(|| CoreError::Unsupported("PostgreSQL 需要指定 schema".into()))?;
         let pool = self.pool(&table.database).await?;
-        let Some(table_row) = sqlx::query(TABLE_SQL)
-            .bind(schema)
-            .bind(&table.table)
-            .fetch_optional(&pool)
-            .await?
-        else {
-            return Err(table_not_found(&format!("{schema}.{}", table.table)));
-        };
-        let oid: i64 = table_row.try_get("oid")?;
-        let fetch = |sql: &'static str| sqlx::query(sql).bind(oid).fetch_all(&pool);
-        let columns = fetch(COLUMNS_SQL)
-            .await?
-            .iter()
-            .map(column)
-            .collect::<Result<Vec<_>, sqlx::Error>>()?;
-        let mut design = TableDesign {
-            version: String::new(),
-            table: table.clone(),
-            columns,
-            primary_key: Vec::new(),
-            primary_key_name: None,
-            indexes: indexes(&fetch(INDEXES_SQL).await?)?,
-            foreign_keys: Vec::new(),
-            checks: checks(&fetch(CHECKS_SQL).await?)?,
-            triggers: Vec::new(),
-            options: TableOptions {
-                comment: super::non_empty(table_row.try_get("comment")?),
-                ..TableOptions::default()
-            },
-        };
-        constraints(&mut design, schema, &fetch(CONSTRAINT_COLUMNS).await?)?;
-        Ok(design)
+        let mut connection = pool.acquire().await?;
+        read_design_on(&mut connection, table).await
     }
 
     pub async fn execute_ddl(
@@ -256,6 +222,62 @@ fn checks(rows: &[PgRow]) -> Result<Vec<CheckDef>, sqlx::Error> {
             })
         })
         .collect()
+}
+
+async fn fetch_by_oid(
+    connection: &mut PgConnection,
+    sql: &str,
+    oid: i64,
+) -> Result<Vec<PgRow>, sqlx::Error> {
+    sqlx::query(sql).bind(oid).fetch_all(&mut *connection).await
+}
+
+/// 在给定的连接上读表结构。转储要在 search_path 为空的事务里读(名字全带 schema),所以不直接用连接池。
+pub(crate) async fn read_design_on(
+    connection: &mut PgConnection,
+    table: &TableRef,
+) -> CoreResult<TableDesign> {
+    let schema = table
+        .schema
+        .as_deref()
+        .ok_or_else(|| CoreError::Unsupported("PostgreSQL 需要指定 schema".into()))?;
+    let Some(table_row) = sqlx::query(TABLE_SQL)
+        .bind(schema)
+        .bind(&table.table)
+        .fetch_optional(&mut *connection)
+        .await?
+    else {
+        return Err(table_not_found(&format!("{schema}.{}", table.table)));
+    };
+    let oid: i64 = table_row.try_get("oid")?;
+    let columns = fetch_by_oid(connection, COLUMNS_SQL, oid)
+        .await?
+        .iter()
+        .map(column)
+        .collect::<Result<Vec<_>, sqlx::Error>>()?;
+    let indexes = indexes(&fetch_by_oid(connection, INDEXES_SQL, oid).await?)?;
+    let checks = checks(&fetch_by_oid(connection, CHECKS_SQL, oid).await?)?;
+    let mut design = TableDesign {
+        version: String::new(),
+        table: table.clone(),
+        columns,
+        primary_key: Vec::new(),
+        primary_key_name: None,
+        indexes,
+        foreign_keys: Vec::new(),
+        checks,
+        triggers: Vec::new(),
+        options: TableOptions {
+            comment: super::non_empty(table_row.try_get("comment")?),
+            ..TableOptions::default()
+        },
+    };
+    constraints(
+        &mut design,
+        schema,
+        &fetch_by_oid(connection, CONSTRAINT_COLUMNS, oid).await?,
+    )?;
+    Ok(design)
 }
 
 #[cfg(test)]

@@ -9,6 +9,7 @@ type TransferApi = Pick<
   | "pickSavePath"
   | "pickImportFile"
   | "exportData"
+  | "dumpTable"
   | "previewImport"
   | "importData"
   | "cancelTransfer"
@@ -54,7 +55,14 @@ function preview(path: string, columns: ColumnInfo[], hasHeader: boolean, sheet:
   };
 }
 
-export function createMockTransfer(wait: (ms?: number) => Promise<unknown>): TransferApi {
+/**
+ * `rowsOf`:清空过的表现在有几行(没清空过的返回 undefined,按示例表假装的行数算),
+ * 导出、转储报的行数和对象列表一致。
+ */
+export function createMockTransfer(
+  wait: (ms?: number) => Promise<unknown>,
+  rowsOf: (connectionId: string, table: TableRef) => number | undefined = () => undefined,
+): TransferApi {
   const listeners = new Set<(progress: TransferProgress) => void>();
   const running = new Map<string, { cancelled: boolean }>();
   const emit = (progress: TransferProgress) => listeners.forEach((listener) => listener(progress));
@@ -77,7 +85,8 @@ export function createMockTransfer(wait: (ms?: number) => Promise<unknown>): Tra
     }
   }
 
-  const tableRows = (table: TableRef) => Math.max(seedTable(table.table).rows.length, PRETEND_ROWS);
+  const tableRows = (connectionId: string, table: TableRef) =>
+    rowsOf(connectionId, table) ?? Math.max(seedTable(table.table).rows.length, PRETEND_ROWS);
 
   return {
     async pickSavePath(defaultName) {
@@ -91,9 +100,18 @@ export function createMockTransfer(wait: (ms?: number) => Promise<unknown>): Tra
     async exportData(jobId, request) {
       const { source } = request;
       const rows =
-        source.kind === "rows" ? source.rows.length : source.kind === "table" ? tableRows(source.table) : 12_480;
+        source.kind === "rows"
+          ? source.rows.length
+          : source.kind === "table"
+            ? tableRows(request.connectionId, source.table)
+            : 12_480;
       await simulate(jobId, "exporting", rows);
       return { rows, bytes: rows * 96 + 64, path: request.path, notice: null };
+    },
+    async dumpTable(jobId, request) {
+      const rows = request.withData ? tableRows(request.connectionId, request.table) : 0;
+      await simulate(jobId, "exporting", rows);
+      return { rows, bytes: rows * 112 + 1_024, path: request.path, notice: null };
     },
     async previewImport(_connectionId, table, source) {
       await wait();

@@ -20,6 +20,8 @@ export interface DiscardPrompt {
   designs: number;
   /** 是退出整个应用(⌘Q、关主窗口),不是关标签页或连接。 */
   quit?: boolean;
+  /** 不是关闭,而是这个操作让修改没了(如「清空」「改名」):确认框照这个说。 */
+  action?: string;
   onConfirm(): void;
   onCancel?(): void;
 }

@@ -10,6 +10,7 @@ use std::sync::Mutex;
 
 use basalt_core::CoreError;
 use basalt_core::table::TableRef;
+use basalt_core::transfer::dump::{DumpRequest, run_dump};
 use basalt_core::transfer::export::{
     ExportOutcome, ExportRequest, ExportSource, run_export, transfer_editor_id,
 };
@@ -83,6 +84,19 @@ pub async fn export_data(
     };
     let cancel = state.transfers.start(job_id, editor_id)?;
     let result = run_export(&state.sessions, job_id, request, &cancel, progress).await;
+    state.transfers.finish(job_id);
+    Ok(result?)
+}
+
+/// 转储 SQL 文件:和导出同一套任务登记、进度和取消。
+pub async fn dump_table(
+    state: &AppState,
+    job_id: &str,
+    request: &DumpRequest,
+    progress: &dyn ProgressSink,
+) -> CommandResult<ExportOutcome> {
+    let cancel = state.transfers.start(job_id, transfer_editor_id(job_id))?;
+    let result = run_dump(&state.sessions, job_id, request, &cancel, progress).await;
     state.transfers.finish(job_id);
     Ok(result?)
 }

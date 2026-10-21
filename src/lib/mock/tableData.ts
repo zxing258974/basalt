@@ -198,6 +198,18 @@ export function createMockTables() {
   }
 
   return {
+    /** 清空表,返回删掉的行数。 */
+    clear(connectionId: string, table: TableRef): number {
+      const data = get(connectionId, table);
+      tables.set(keyOf(connectionId, table), { ...data, rows: [] });
+      return data.rows.length;
+    },
+    /** 改名:数据跟着新名字走。 */
+    rename(connectionId: string, table: TableRef, name: string): void {
+      const data = get(connectionId, table);
+      tables.delete(keyOf(connectionId, table));
+      tables.set(keyOf(connectionId, { ...table, table: name }), data);
+    },
     read(connectionId: string, driver: DriverKind, table: TableRef, request: PageRequest): TablePage {
       const data = get(connectionId, table);
       const filtered = request.filter?.trim() ? data.rows.filter(rowFilter(data.columns, request.filter)) : data.rows;

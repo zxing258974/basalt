@@ -1,11 +1,10 @@
-import { CircleCheck, FolderOpen } from "lucide-react";
 import { useState } from "react";
 import { getBackend } from "../../lib/api";
 import type { BinaryEncoding, ExportOutcome } from "../../lib/transferTypes";
 import { errorMessage, isCommandError } from "../../lib/types";
-import { useUi } from "../../stores/ui";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
+import { ExportDoneBody, ExportDoneFooter } from "./ExportDone";
 import { ExportOptionsForm } from "./ExportOptionsForm";
 import {
   DEFAULT_CSV,
@@ -25,7 +24,6 @@ import {
 } from "./exportModel";
 import { TransferProgressView } from "./TransferProgressView";
 import { useTransferJob } from "./useTransferJob";
-import { fileManagerName, fileName } from "../../lib/platform";
 
 /** 选项页下方的一行话:取消是平常事,出错才用警示色。 */
 type Message = { tone: "error" | "note"; text: string } | null;
@@ -78,14 +76,6 @@ export function ExportDialog({ target, onClose }: { target: ExportTarget; onClos
     }
   };
 
-  const reveal = async (path: string) => {
-    try {
-      await (await getBackend()).revealInFinder(path);
-    } catch (error) {
-      useUi.getState().notify(`没能在${fileManagerName()}中显示：${errorMessage(error)}`);
-    }
-  };
-
   if (view.kind === "done") {
     const { outcome } = view;
     return (
@@ -94,30 +84,16 @@ export function ExportDialog({ target, onClose }: { target: ExportTarget; onClos
         title="导出完成"
         width={520}
         onClose={onClose}
-        footer={
-          <>
-            <Button variant="secondary" icon={<FolderOpen />} onClick={() => void reveal(outcome.path)}>
-              在{fileManagerName()}中显示
-            </Button>
-            <span className="footer-spacer" />
-            <Button variant="primary" autoFocus onClick={onClose}>
-              完成
-            </Button>
-          </>
-        }
+        footer={<ExportDoneFooter path={outcome.path} onClose={onClose} />}
       >
-        <div className="transfer-done">
-          <CircleCheck className="transfer-done-icon" aria-hidden />
-          <div>
-            <p className="transfer-done-title">
+        <ExportDoneBody
+          outcome={outcome}
+          summary={
+            <>
               已导出 <span className="mono">{formatCount(outcome.rows)}</span> 行，文件 {formatBytes(outcome.bytes)}
-            </p>
-            <p className="transfer-done-path selectable" title={outcome.path}>
-              {fileName(outcome.path)}
-            </p>
-            {outcome.notice && <p className="transfer-note">{outcome.notice}</p>}
-          </div>
-        </div>
+            </>
+          }
+        />
       </Dialog>
     );
   }

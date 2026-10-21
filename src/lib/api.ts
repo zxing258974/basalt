@@ -11,6 +11,7 @@ import type {
   TestReply,
 } from "./llmTypes";
 import type {
+  DumpRequest,
   ExportOutcome,
   ExportRequest,
   ImportFailure,
@@ -31,6 +32,8 @@ import type {
 } from "./queryTypes";
 import type {
   ApplyOutcome,
+  ClearMode,
+  ClearTableOutcome,
   ColumnInfo,
   ConnectionConfig,
   ConnectionDraft,
@@ -38,7 +41,10 @@ import type {
   CopyTableOutcome,
   TableDetails,
   DeletedConnection,
+  Maintenance,
+  MaintenanceOutcome,
   PageRequest,
+  ReferencingKey,
   RowChange,
   ServerInfo,
   TableInfo,
@@ -66,6 +72,14 @@ export interface Backend {
   dropTable(id: string, table: TableRef): Promise<void>;
   /** 复制到同一个库(schema)里;withData 为假时只复制结构。 */
   copyTable(id: string, table: TableRef, name: string, withData: boolean): Promise<CopyTableOutcome>;
+  /** 清空(DELETE)或截断(TRUNCATE);被外键引用时截断会被数据库拒绝,原样报错。 */
+  clearTable(id: string, table: TableRef, mode: ClearMode): Promise<ClearTableOutcome>;
+  /** 改名,留在同一个库(schema)里;返回新表。 */
+  renameTable(id: string, table: TableRef, name: string): Promise<TableRef>;
+  /** 别的表上引用这张表的外键:清空、截断的确认框写明会波及哪些表。 */
+  tableReferences(id: string, table: TableRef): Promise<ReferencingKey[]>;
+  /** 维护;这种数据库没有这项时以 unsupported reject。 */
+  maintainTable(id: string, table: TableRef, operation: Maintenance): Promise<MaintenanceOutcome>;
   /** 信息面板:表或视图的属性和建表语句。 */
   tableDetails(id: string, table: TableRef): Promise<TableDetails>;
   /** SQL 助手:模型配置。API Key 在钥匙串里,不随列表返回。 */
@@ -126,6 +140,8 @@ export interface Backend {
   pickImportFile(): Promise<string | null>;
   /** 导出;`jobId` 由前端起,命令还没返回时也能按它取消、认领进度。取消时以 code `cancelled` reject。 */
   exportData(jobId: string, request: ExportRequest): Promise<ExportOutcome>;
+  /** 转储 SQL 文件;和 exportData 一样按 jobId 认领进度、取消。 */
+  dumpTable(jobId: string, request: DumpRequest): Promise<ExportOutcome>;
   /** 读文件预览、目标表的列和自动匹配的映射。 */
   previewImport(connectionId: string, table: TableRef, source: SourceSpec): Promise<ImportPreview>;
   /** 导入;数据库层面的失败写在报告里,不 reject。 */
@@ -173,6 +189,10 @@ function createTauriBackend(): Backend {
     listTables: (id, database, schema) => call("list_tables", { id, database, schema: schema ?? null }),
     dropTable: (id, table) => call("drop_table", { id, table }),
     copyTable: (id, table, name, withData) => call("copy_table", { id, table, name, withData }),
+    clearTable: (id, table, mode) => call("clear_table", { id, table, mode }),
+    renameTable: (id, table, name) => call("rename_table", { id, table, name }),
+    maintainTable: (id, table, operation) => call("maintain_table", { id, table, operation }),
+    tableReferences: (id, table) => call("table_references", { id, table }),
     tableDetails: (id, table) => call("table_details", { id, table }),
     listLlmModels: () => call("list_llm_models"),
     saveLlmModel: (draft) => call("save_llm_model", { draft }),
@@ -246,6 +266,7 @@ function createTauriBackend(): Backend {
       return typeof picked === "string" ? picked : null;
     },
     exportData: (jobId, request) => call("export_data", { jobId, request }),
+    dumpTable: (jobId, request) => call("dump_table", { jobId, request }),
     previewImport: (connectionId, table, source) => call("preview_import", { connectionId, table, source }),
     importData: (jobId, request) => call("import_data", { jobId, request }),
     cancelTransfer: (jobId) => call("cancel_transfer", { jobId }),

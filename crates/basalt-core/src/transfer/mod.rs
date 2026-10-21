@@ -3,6 +3,8 @@
 //! 导出:表(整张或按筛选条件)、查询结果写成 CSV / Excel / JSON / SQL INSERT。数据从一条专用连接上
 //! 流式读出、边读边写,内存不随行数增长;取消走查询标签页同一套机制(见 [`crate::query::lease`])。
 //!
+//! 转储:一张表的建表语句连同全部数据写成可以直接执行的 SQL 文件(见 [`dump`]),读数据、进度和取消与导出共用。
+//!
 //! 导入:CSV / Excel 按列映射写进一张表。按目标列的类型先在客户端解析,解析不了的进失败报告,
 //! 不静默改成 NULL;一律参数化执行。
 //!
@@ -13,6 +15,7 @@ pub mod convert;
 mod convert_temporal;
 pub mod csv_read;
 pub mod csv_write;
+pub mod dump;
 pub mod encoding;
 pub mod export;
 pub mod import;

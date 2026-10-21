@@ -4,6 +4,7 @@ import { createMockQueries } from "./mock/queryMock";
 import { seedTable } from "./mock/seedTables";
 import { createMockTables } from "./mock/tableData";
 import { createMockDesigns } from "./mock/tableDesign";
+import { mockMaintenance, mockReferences, refuseByForeignKeys } from "./mock/maintenance";
 import { mockTableDetails } from "./mock/tableDetails";
 import { createMockTransfer } from "./mock/transferMock";
 import { createMockLlm } from "./mock/llmMock";
@@ -18,6 +19,7 @@ import type {
   FieldError,
   ServerInfo,
   TableInfo,
+  TableRef,
 } from "./types";
 
 const LATENCY_MS = 120;
@@ -177,7 +179,10 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
   const designs = createMockDesigns();
   const tableData = createMockTables();
   const queries = createMockQueries(() => connections, wait);
-  const transfer = createMockTransfer(wait);
+  /** 清空过的表现在的行数:对象列表、导出、转储都按它报。 */
+  const rowCounts = new Map<string, number>();
+  const rowKey = (id: string, ref: TableRef) => [id, ref.database, ref.schema ?? "", ref.table].join("\u0000");
+  const transfer = createMockTransfer(wait, (id, ref) => rowCounts.get(rowKey(id, ref)));
   const llm = createMockLlm(wait);
 
   const find = (id: string) =>
@@ -196,7 +201,10 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
         : config.driver === "postgres"
           ? (PG_TABLES[schema ?? ""] ?? [])
           : (MYSQL_TABLES[database] ?? []);
-    return designs.tables(id, database, schema, base);
+    return designs.tables(id, database, schema, base).map((info) => {
+      const rows = rowCounts.get(rowKey(id, { database, schema, table: info.name }));
+      return rows === undefined ? info : { ...info, rows };
+    });
   };
 
   return {
@@ -316,6 +324,58 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       designs.copy(id, config.driver, ref, target);
       return { table: { ...ref, table: target }, rows: withData ? seedTable(ref.table).rows.length : null };
     },
+    async clearTable(id, ref, mode) {
+      await wait(120);
+      const config = requireOpen(id);
+      if (!tablesOf(id, ref.database, ref.schema).some((t) => t.name === ref.table)) {
+        fail("table_not_found", `找不到表：${ref.table}`);
+      }
+      refuseByForeignKeys(config.driver, ref, mode);
+      const rows = tableData.clear(id, ref);
+      rowCounts.set(rowKey(id, ref), 0);
+      // 和 Rust 端一样:MySQL、PostgreSQL 的 TRUNCATE 不报行数。
+      return { rows: mode === "truncate" && config.driver !== "sqlite" ? null : rows };
+    },
+    async renameTable(id, ref, name) {
+      await wait(120);
+      const config = requireOpen(id);
+      const target = name.trim();
+      if (!target) fail("invalid_data", "新表名不能为空。");
+      if (target === ref.table) fail("invalid_data", "新表名不能和原表一样。");
+      const bytes = new TextEncoder().encode(target).length;
+      if (config.driver === "postgres" && bytes > 63) {
+        fail(
+          "invalid_data",
+          `PostgreSQL 的表名最长 63 字节（约 21 个汉字），这个名字有 ${bytes} 字节，会被数据库截短。`,
+        );
+      }
+      const existing = tablesOf(id, ref.database, ref.schema);
+      if (existing.some((t) => t.name === target)) {
+        fail("database", `Table '${target}' already exists`);
+      }
+      designs.rename(
+        id,
+        config.driver,
+        ref,
+        target,
+        existing.find((t) => t.name === ref.table),
+      );
+      tableData.rename(id, ref, target);
+      const renamed = { ...ref, table: target };
+      const rows = rowCounts.get(rowKey(id, ref));
+      rowCounts.delete(rowKey(id, ref));
+      if (rows !== undefined) rowCounts.set(rowKey(id, renamed), rows);
+      return renamed;
+    },
+    async tableReferences(id, ref) {
+      await wait();
+      requireOpen(id);
+      return mockReferences(ref);
+    },
+    async maintainTable(id, ref, operation) {
+      await wait(200);
+      return mockMaintenance(requireOpen(id).driver, ref, operation);
+    },
     async readTablePage(id, table, request) {
       await wait();
       const config = requireOpen(id);
@@ -410,6 +470,10 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
     async exportData(jobId, request) {
       requireOpen(request.connectionId);
       return transfer.exportData(jobId, request);
+    },
+    async dumpTable(jobId, request) {
+      requireOpen(request.connectionId);
+      return transfer.dumpTable(jobId, request);
     },
     async previewImport(connectionId, table, source) {
       requireOpen(connectionId);

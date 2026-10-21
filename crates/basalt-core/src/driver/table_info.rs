@@ -83,24 +83,36 @@ impl MysqlSession {
             p.text("创建选项", get("create_options")?);
             p.text("注释", get("comment")?);
         }
-        let show = sqlx::query(&format!(
-            "SHOW CREATE TABLE {}",
-            table_name(Dialect::Mysql, table)
-        ))
-        .persistent(false)
-        .fetch_one(&self.pool)
-        .await?;
-        // 第二列是建表(或建视图)语句;二进制排序规则下会以字节返回。
-        let ddl = match show.try_get::<String, _>(1) {
-            Ok(text) => text,
-            Err(_) => String::from_utf8_lossy(&show.try_get::<Vec<u8>, _>(1)?).into_owned(),
-        };
         Ok(TableDetails {
             properties: p.into_vec(),
-            ddl: join_statements([ddl]),
+            ddl: join_statements([self.show_create(table).await?]),
             ddl_generated: false,
         })
     }
+
+    /// SHOW CREATE TABLE 的原文。
+    pub(crate) async fn show_create(&self, table: &TableRef) -> CoreResult<String> {
+        show_create_with(&self.pool, table).await
+    }
+}
+
+/// SHOW CREATE TABLE 的原文,在给定的连接(或连接池)上读。
+pub(crate) async fn show_create_with<'c, E>(executor: E, table: &TableRef) -> CoreResult<String>
+where
+    E: sqlx::Executor<'c, Database = sqlx::MySql>,
+{
+    let show = sqlx::query(&format!(
+        "SHOW CREATE TABLE {}",
+        table_name(Dialect::Mysql, table)
+    ))
+    .persistent(false)
+    .fetch_one(executor)
+    .await?;
+    // 第二列是建表(或建视图)语句;二进制排序规则下会以字节返回。
+    Ok(match show.try_get::<String, _>(1) {
+        Ok(text) => text,
+        Err(_) => String::from_utf8_lossy(&show.try_get::<Vec<u8>, _>(1)?).into_owned(),
+    })
 }
 
 impl PgSession {
@@ -200,9 +212,9 @@ impl PgSession {
 }
 
 impl SqliteSession {
-    pub(crate) async fn table_details(&self, table: &TableRef) -> CoreResult<TableDetails> {
-        let d = Dialect::Sqlite;
-        let schema = quote_ident(d, &table.database);
+    /// `sqlite_master` 里和这张表有关的对象(类型、语句):先是表或视图本身,再是索引,最后是触发器。
+    pub(crate) async fn own_objects(&self, table: &TableRef) -> CoreResult<Vec<(String, String)>> {
+        let schema = quote_ident(Dialect::Sqlite, &table.database);
         let objects = sqlx::query(&format!(
             "SELECT type, sql FROM {schema}.sqlite_master
              WHERE tbl_name = ? AND sql IS NOT NULL
@@ -210,11 +222,21 @@ impl SqliteSession {
         ))
         .bind(&table.table)
         .fetch_all(&self.pool)
-        .await?;
-        let first = objects
-            .first()
-            .ok_or_else(|| table_not_found(&table.table))?;
-        let is_view = first.try_get::<String, _>("type")? == "view";
+        .await?
+        .iter()
+        .map(|row| Ok((row.try_get("type")?, row.try_get("sql")?)))
+        .collect::<Result<Vec<_>, sqlx::Error>>()?;
+        if objects.is_empty() {
+            return Err(table_not_found(&table.table));
+        }
+        Ok(objects)
+    }
+
+    pub(crate) async fn table_details(&self, table: &TableRef) -> CoreResult<TableDetails> {
+        let d = Dialect::Sqlite;
+        let schema = quote_ident(d, &table.database);
+        let objects = self.own_objects(table).await?;
+        let is_view = objects[0].0 == "view";
         let mut p = Properties::default();
         p.text("类型", Some(if is_view { "视图" } else { "表" }.into()));
         if !is_view {
@@ -255,19 +277,12 @@ impl SqliteSession {
             .ok()
             .flatten();
             p.count("自动递增", sequence);
-            let indexes = objects
-                .iter()
-                .filter(|o| o.try_get::<String, _>("type").is_ok_and(|t| t == "index"))
-                .count();
+            let indexes = objects.iter().filter(|(kind, _)| kind == "index").count();
             p.count("索引", Some(indexes.to_string()));
         }
-        let statements = objects
-            .iter()
-            .map(|o| o.try_get::<String, _>("sql"))
-            .collect::<Result<Vec<_>, _>>()?;
         Ok(TableDetails {
             properties: p.into_vec(),
-            ddl: join_statements(statements),
+            ddl: join_statements(objects.into_iter().map(|(_, sql)| sql)),
             ddl_generated: false,
         })
     }

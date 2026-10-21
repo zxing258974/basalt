@@ -9,7 +9,7 @@ use super::progress::{CancelFlag, Phase, Progress, ProgressSink, Throttle};
 use super::writer::{OutputFile, RowWriter, open_writer};
 use super::{ExportColumn, ExportFormat, ExportOptions};
 use crate::error::{CoreError, CoreResult};
-use crate::query::lease::{RowSink, StreamEnd, StreamQuery};
+use crate::query::lease::{ExecError, RowSink, StreamEnd, StreamQuery};
 use crate::query::{QueryScope, ResultColumn, leading_keyword};
 use crate::session::SessionManager;
 use crate::sql::Dialect;
@@ -127,18 +127,47 @@ fn bare_words(sql: &str) -> Vec<String> {
 }
 
 /// 读到的行交给写器;第一次知道列时才写文件头(查询结果的列要等读到第一行)。
-struct WriterSink<'a> {
+pub(super) struct WriterSink<'a> {
     writer: Box<dyn RowWriter>,
-    begun: bool,
     rows: u64,
     cancel: &'a CancelFlag,
     throttle: Throttle<'a>,
 }
 
-impl WriterSink<'_> {
-    fn begin(&mut self, columns: &[ExportColumn]) -> CoreResult<()> {
-        self.begun = true;
+impl<'a> WriterSink<'a> {
+    pub(super) fn new(
+        writer: Box<dyn RowWriter>,
+        cancel: &'a CancelFlag,
+        throttle: Throttle<'a>,
+    ) -> Self {
+        Self {
+            writer,
+            rows: 0,
+            cancel,
+            throttle,
+        }
+    }
+
+    pub(super) fn begin(&mut self, columns: &[ExportColumn]) -> CoreResult<()> {
         self.writer.begin(columns)
+    }
+
+    /// 写文件尾、改名成目标文件,返回行数与文件大小。取消了就不落盘。
+    pub(super) fn finish(self, output: OutputFile) -> CoreResult<(u64, u64)> {
+        if self.cancel.is_cancelled() {
+            return Err(CoreError::Cancelled);
+        }
+        let Self {
+            mut writer,
+            mut throttle,
+            rows,
+            ..
+        } = self;
+        throttle.force(&Progress::new(Phase::Finishing, rows));
+        writer.finish()?;
+        drop(writer);
+        let bytes = output.commit()?;
+        Ok((rows, bytes))
     }
 }
 
@@ -189,13 +218,7 @@ pub async fn run_export(
         ));
     }
     let writer = open_writer(&output, &request.options, dialect, &sheet)?;
-    let mut sink = WriterSink {
-        writer,
-        begun: false,
-        rows: 0,
-        cancel,
-        throttle,
-    };
+    let mut sink = WriterSink::new(writer, cancel, throttle);
     let notice = match &request.source {
         ExportSource::Rows { columns, rows } => {
             sink.columns(columns)?;
@@ -212,37 +235,14 @@ pub async fn run_export(
             filter,
             sort,
         } => {
-            let columns = session.table_columns(table).await?;
-            let sql = select_all(dialect, table, &columns, filter.as_deref(), sort.as_ref())?;
-            let export: Vec<ExportColumn> = columns
-                .iter()
-                .map(|c| ExportColumn {
-                    is_generated: c.is_generated,
-                    ..ExportColumn::new(&c.name, &c.data_type)
-                })
-                .collect();
-            sink.begin(&export)?;
-            let editor = transfer_editor_id(job_id);
-            let scope = QueryScope {
-                database: Some(table.database.clone()),
-                schema: None,
+            let source = TableSource {
+                connection_id: &request.connection_id,
+                table,
+                filter: filter.as_deref(),
+                sort: sort.as_ref(),
+                setup: None,
             };
-            let query = StreamQuery::Table {
-                sql: &sql,
-                columns: &columns,
-            };
-            let result = stream(
-                sessions,
-                &editor,
-                &request.connection_id,
-                &scope,
-                cancel,
-                query,
-                &mut sink,
-            )
-            .await;
-            sessions.close_editor(&editor).await;
-            result?
+            stream_table(sessions, job_id, &source, &mut sink).await?
         }
         ExportSource::Query {
             editor_id,
@@ -255,32 +255,16 @@ pub async fn run_export(
                         .into(),
                 ));
             }
-            let query = StreamQuery::Text(sql);
-            stream(
-                sessions,
+            let reader = Reader {
                 editor_id,
-                &request.connection_id,
+                connection_id: &request.connection_id,
                 scope,
-                cancel,
-                query,
-                &mut sink,
-            )
-            .await?
+                setup: None,
+            };
+            stream(sessions, &reader, StreamQuery::Text(sql), &mut sink).await?
         }
     };
-    if cancel.is_cancelled() {
-        return Err(CoreError::Cancelled);
-    }
-    let rows = sink.rows;
-    let WriterSink {
-        mut writer,
-        mut throttle,
-        ..
-    } = sink;
-    throttle.force(&Progress::new(Phase::Finishing, rows));
-    writer.finish()?;
-    drop(writer);
-    let bytes = output.commit()?;
+    let (rows, bytes) = sink.finish(output)?;
     Ok(ExportOutcome {
         rows,
         bytes,
@@ -289,28 +273,101 @@ pub async fn run_export(
     })
 }
 
+/// 要整张读出的表(或筛选、排序后的结果)。
+pub(super) struct TableSource<'a> {
+    pub connection_id: &'a str,
+    pub table: &'a TableRef,
+    pub filter: Option<&'a str>,
+    pub sort: Option<&'a SortSpec>,
+    /// 读之前先在这条专用连接上执行的设置(转储 MySQL 时把时区设成 +00:00)。
+    pub setup: Option<&'a str>,
+}
+
+/// 按表的列写文件头,再在这次任务的专用连接上把行流式读给 `sink`,读完关掉连接。返回准备连接时的提示。
+pub(super) async fn stream_table(
+    sessions: &SessionManager,
+    job_id: &str,
+    source: &TableSource<'_>,
+    sink: &mut WriterSink<'_>,
+) -> CoreResult<Option<String>> {
+    let session = sessions.get(source.connection_id).await?;
+    let table = source.table;
+    let columns = session.table_columns(table).await?;
+    let sql = select_all(
+        session.dialect(),
+        table,
+        &columns,
+        source.filter,
+        source.sort,
+    )?;
+    let export: Vec<ExportColumn> = columns
+        .iter()
+        .map(|c| ExportColumn {
+            is_generated: c.is_generated,
+            ..ExportColumn::new(&c.name, &c.data_type)
+        })
+        .collect();
+    sink.begin(&export)?;
+    let editor = transfer_editor_id(job_id);
+    let scope = QueryScope {
+        database: Some(table.database.clone()),
+        schema: None,
+    };
+    let query = StreamQuery::Table {
+        sql: &sql,
+        columns: &columns,
+    };
+    let reader = Reader {
+        editor_id: &editor,
+        connection_id: source.connection_id,
+        scope: &scope,
+        setup: source.setup,
+    };
+    let result = stream(sessions, &reader, query, sink).await;
+    sessions.close_editor(&editor).await;
+    result
+}
+
 /// 借连接、流式读完、还连接。返回准备连接时的提示。
 /// 在查询标签页自己的连接上重新执行时,中途停下(取消、写不出来)要让数据库中止语句。PostgreSQL 里
 /// 这会让标签页开着的事务整个失效,之后的 COMMIT 只会悄悄变成回滚——所以先试着开一个保存点,
 /// 停下了就回到保存点。不在事务里时 SAVEPOINT 会报错,那也没关系,本来就没有事务可坏。
 const EXPORT_SAVEPOINT: &str = "basalt_export";
 
+/// 在哪条连接上读:查询标签页自己的,或这次任务新开的专用连接。
+struct Reader<'a> {
+    editor_id: &'a str,
+    connection_id: &'a str,
+    scope: &'a QueryScope,
+    setup: Option<&'a str>,
+}
+
+fn exec_error(error: ExecError) -> CoreError {
+    match error {
+        ExecError::Cancelled => CoreError::Cancelled,
+        ExecError::Lost(message) | ExecError::Rejected(message) => CoreError::Database(message),
+    }
+}
+
 async fn stream(
     sessions: &SessionManager,
-    editor_id: &str,
-    connection_id: &str,
-    scope: &QueryScope,
-    cancel: &CancelFlag,
+    reader: &Reader<'_>,
     query: StreamQuery<'_>,
     sink: &mut WriterSink<'_>,
 ) -> CoreResult<Option<String>> {
-    if cancel.is_cancelled() {
+    if sink.cancel.is_cancelled() {
         return Err(CoreError::Cancelled);
     }
     let mut lease = sessions
-        .lease_editor(editor_id, connection_id, scope)
+        .lease_editor(reader.editor_id, reader.connection_id, reader.scope)
         .await?;
     let notice = lease.notice().map(str::to_owned);
+    if let Some(setup) = reader.setup
+        && let Err(error) = lease.execute_sql(setup).await
+    {
+        lease.release().await;
+        return Err(exec_error(error));
+    }
     let guard = matches!(query, StreamQuery::Text(_))
         && lease.session().dialect() == Dialect::Postgres
         && lease

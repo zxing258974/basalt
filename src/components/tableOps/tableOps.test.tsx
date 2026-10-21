@@ -5,33 +5,17 @@ import type { Backend } from "../../lib/api";
 import { createMockBackend } from "../../lib/mockBackend";
 import { tableDataTab, useTabs } from "../../stores/tabs";
 import { useUi } from "../../stores/ui";
-import { renderApp } from "../../test/renderApp";
+import { MYSQL_CUSTOMERS, openTableMenu, tree } from "../../test/tableMenu";
 import { tableKey } from "../sidebar/treeKeys";
 import { copiedNotice, copyName, qualifiedName, tabsOfTable } from "./tableOpsModel";
 
-const tree = () => within(screen.getByRole("tree", { name: "连接" }));
-const findRow = async (name: string) =>
-  (await tree().findByRole("treeitem", { name })).firstElementChild as HTMLElement;
-
 /** 展开「开发 → 本地 MySQL → shop → 表」,在 `table` 上右键选 `item`。 */
-async function tableMenu(
+const tableMenu = (
   item: string,
   table = "customers",
   backend: Backend = createMockBackend(),
   before: () => void = () => undefined,
-) {
-  const app = renderApp(backend);
-  act(before);
-  const { user } = app;
-  await user.dblClick(await findRow("开发"));
-  await user.dblClick(await findRow("本地 MySQL"));
-  await user.click(await findRow("shop"));
-  await user.keyboard("{ArrowRight}");
-  await user.dblClick(await findRow("表"));
-  await user.pointer({ keys: "[MouseRight]", target: await findRow(table) });
-  await user.click(screen.getByRole("menuitem", { name: item }));
-  return app;
-}
+) => openTableMenu(item, { ...MYSQL_CUSTOMERS, table }, backend, before);
 
 describe("table operations", { timeout: 15_000 }, () => {
   it("copies only the structure under a fresh name and selects the new table", async () => {
@@ -87,6 +71,48 @@ describe("table operations", { timeout: 15_000 }, () => {
     await user.click(dialog.getByRole("button", { name: "删除表" }));
     expect(await dialog.findByRole("alert")).toHaveTextContent("foreign key constraint");
     expect(tree().getByRole("treeitem", { name: "customers" })).toBeInTheDocument();
+  });
+});
+
+describe("drop and copy keep the caches honest", { timeout: 15_000 }, () => {
+  it("can finish dropping in the background and forgets the dropped table's caches", async () => {
+    const backend = createMockBackend();
+    let finish: () => void = () => undefined;
+    const real = backend.dropTable.bind(backend);
+    vi.spyOn(backend, "dropTable").mockImplementationOnce(
+      (id, table) => new Promise((resolve) => (finish = () => resolve(real(id, table)))),
+    );
+    const { user, queryClient } = await tableMenu("删除表…", "customers", backend, () =>
+      useTabs.getState().open(tableDataTab("mock-mysql", "shop", null, "customers")),
+    );
+    await waitFor(() =>
+      expect(
+        queryClient.getQueryCache().findAll({ queryKey: ["tableData", "mock-mysql", "shop", "", "customers"] }),
+      ).not.toEqual([]),
+    );
+    const dialog = within(screen.getByRole("dialog", { name: "删除表「customers」？" }));
+    await user.click(dialog.getByRole("button", { name: "删除表" }));
+    await user.click(dialog.getByRole("button", { name: "在后台继续" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    act(() => finish());
+    await waitFor(() =>
+      expect(within(document.querySelector<HTMLElement>(".statusbar")!).getByRole("alert")).toHaveTextContent(
+        "已删除表「customers」。",
+      ),
+    );
+    expect(useTabs.getState().tabs).toEqual([]);
+    expect(
+      queryClient.getQueryCache().findAll({ queryKey: ["tableData", "mock-mysql", "shop", "", "customers"] }),
+    ).toEqual([]);
+  });
+
+  it("forgets whatever was cached under the copy's name", async () => {
+    const { user, queryClient } = await tableMenu("复制表…");
+    queryClient.setQueryData(["tableDesign", "mock-mysql", "shop", "", "customers_copy1"], { columns: ["旧"] });
+    const dialog = within(screen.getByRole("dialog", { name: "复制表" }));
+    await user.click(dialog.getByRole("button", { name: "复制" }));
+    expect(await tree().findByRole("treeitem", { name: "customers_copy1" })).toBeInTheDocument();
+    expect(queryClient.getQueryData(["tableDesign", "mock-mysql", "shop", "", "customers_copy1"])).toBeUndefined();
   });
 });
 

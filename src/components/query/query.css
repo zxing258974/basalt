@@ -105,9 +105,11 @@
 .query-body.has-history {
   grid-template-columns: minmax(0, 1fr) 300px;
 }
+/* 列宽要钉成 minmax(0, 1fr):隐式列按内容取宽,宽结果表会把整页撑出窗口 */
 .query-main {
   min-height: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: var(--editor-height) 6px minmax(0, 1fr);
   border-top: 1px solid var(--line);
 }

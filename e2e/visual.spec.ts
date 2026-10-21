@@ -12,7 +12,14 @@ async function parkPointer(page: Page) {
   await page.mouse.move(1, (viewport?.height ?? 1) - 1);
 }
 
+/** 页面不能比窗口宽:超出的部分在桌面窗口里看不到,也滚不过去。 */
+async function expectFitsWindow(page: Page) {
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow, "页面横向超出窗口的像素").toBeLessThanOrEqual(0);
+}
+
 async function snapshot(page: Page, name: string) {
+  await expectFitsWindow(page);
   await parkPointer(page);
   await page.evaluate(() => document.fonts.ready);
   await expect(page).toHaveScreenshot(`${name}.png`);
@@ -94,6 +101,7 @@ test("query: result grid", async ({ page }) => {
   await runShopQuery(page);
   await page.getByRole("tab", { name: /结果 1/ }).click();
   await expect(page.getByRole("grid", { name: "查询 1 的结果 1" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "导出" })).toBeInViewport({ ratio: 1 });
   await snapshot(page, "query-results");
 });
 

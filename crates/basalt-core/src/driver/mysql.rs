@@ -1,17 +1,21 @@
 //! MySQL 与 MariaDB(同一协议)。
 
-use sqlx::mysql::{MySqlConnectOptions, MySqlPool, MySqlPoolOptions};
+use sqlx::mysql::{MySqlConnectOptions, MySqlPool, MySqlPoolOptions, MySqlSslMode};
 use sqlx::{ConnectOptions, Connection, Row};
 
 use super::{
     ACQUIRE_TIMEOUT, CONNECT_TIMEOUT, ConnectParams, MAX_POOL_CONNECTIONS, ServerInfo, TableInfo,
     TableKind, non_empty,
 };
+use crate::config::{SslMode, SslSettings};
 use crate::error::{CoreError, CoreResult};
+use crate::tunnel::Tunnel;
 
 pub struct MysqlSession {
     pub(super) pool: MySqlPool,
     server: ServerInfo,
+    /// 经 SSH 隧道时,池里的连接都连它的本机端口;池关掉之后再关它。
+    tunnel: Option<Tunnel>,
 }
 
 /// sqlx 默认在建连后改会话:sql_mode 追加 PIPES_AS_CONCAT(`||` 变成字符串拼接)与
@@ -30,30 +34,40 @@ pub(crate) fn connect_options(params: &ConnectParams) -> MySqlConnectOptions {
         Some(password) => options.password(password),
         None => options,
     };
+    let options = with_ssl(options, &params.ssl);
     match &params.database {
         Some(database) => options.database(database),
         None => options,
     }
 }
 
+fn with_ssl(options: MySqlConnectOptions, ssl: &SslSettings) -> MySqlConnectOptions {
+    let mode = match ssl.mode {
+        SslMode::Disabled => return options.ssl_mode(MySqlSslMode::Disabled),
+        SslMode::Preferred => MySqlSslMode::Preferred,
+        SslMode::Required => MySqlSslMode::Required,
+        SslMode::VerifyCa => MySqlSslMode::VerifyCa,
+        SslMode::VerifyIdentity => MySqlSslMode::VerifyIdentity,
+    };
+    let options = options.ssl_mode(mode);
+    let options = match &ssl.ca_path {
+        Some(path) => options.ssl_ca(path),
+        None => options,
+    };
+    match (&ssl.client_cert_path, &ssl.client_key_path) {
+        (Some(cert), Some(key)) => options.ssl_client_cert(cert).ssl_client_key(key),
+        _ => options,
+    }
+}
+
 impl MysqlSession {
     pub async fn open(params: &ConnectParams) -> CoreResult<Self> {
-        let options = connect_options(params);
-        // 先用单条连接探测:连接池遇到「连接被拒绝」会一直重试到超时,探测连接则立即报错。
-        // 握手和版本查询整体受超时约束。
-        let probe = async {
-            let mut connection = options.connect().await?;
-            let version: String = sqlx::query_scalar("SELECT CAST(VERSION() AS CHAR)")
-                .fetch_one(&mut connection)
-                .await?;
-            if let Err(error) = connection.close().await {
-                log::warn!("关闭 MySQL 探测连接失败：{error}");
-            }
-            Ok::<_, CoreError>(version)
+        let (direct, tunnel) = super::route(params).await?;
+        let options = connect_options(&direct);
+        let version = match probe(&options).await {
+            Ok(version) => version,
+            Err(error) => return Err(super::abandon(tunnel, error).await),
         };
-        let version = tokio::time::timeout(CONNECT_TIMEOUT, probe)
-            .await
-            .map_err(|_| CoreError::Timeout)??;
         let pool = MySqlPoolOptions::new()
             .max_connections(MAX_POOL_CONNECTIONS)
             .acquire_timeout(ACQUIRE_TIMEOUT)
@@ -70,6 +84,7 @@ impl MysqlSession {
                 product: product.into(),
                 version,
             },
+            tunnel,
         })
     }
 
@@ -128,7 +143,28 @@ impl MysqlSession {
 
     pub async fn close(&self) {
         self.pool.close().await;
+        if let Some(tunnel) = &self.tunnel {
+            tunnel.close().await;
+        }
     }
+}
+
+/// 先用单条连接探测:连接池遇到「连接被拒绝」会一直重试到超时,探测连接则立即报错。
+/// 握手和版本查询整体受超时约束。
+async fn probe(options: &MySqlConnectOptions) -> CoreResult<String> {
+    let attempt = async {
+        let mut connection = options.connect().await?;
+        let version: String = sqlx::query_scalar("SELECT CAST(VERSION() AS CHAR)")
+            .fetch_one(&mut connection)
+            .await?;
+        if let Err(error) = connection.close().await {
+            log::warn!("关闭 MySQL 探测连接失败：{error}");
+        }
+        Ok::<_, CoreError>(version)
+    };
+    tokio::time::timeout(CONNECT_TIMEOUT, attempt)
+        .await
+        .map_err(|_| CoreError::Timeout)?
 }
 
 fn table_kind(table_type: &str) -> TableKind {
@@ -158,6 +194,8 @@ mod tests {
             password: Some("pw".into()),
             database: Some("shop".into()),
             file_path: None,
+            ssl: crate::config::SslSettings::default(),
+            ssh: None,
         };
         let options = connect_options(&params);
         assert_eq!(options.get_host(), "db.local");
@@ -170,6 +208,36 @@ mod tests {
             ..params
         });
         assert_eq!(without_db.get_database(), None);
+    }
+
+    #[test]
+    fn ssl_settings_map_to_mysql_modes() {
+        let base = ConnectParams::network(DriverKind::Mysql, "db", 3306, "root");
+        assert!(matches!(
+            connect_options(&base).get_ssl_mode(),
+            MySqlSslMode::Preferred
+        ));
+        for (mode, expected) in [
+            (SslMode::Disabled, MySqlSslMode::Disabled),
+            (SslMode::Required, MySqlSslMode::Required),
+            (SslMode::VerifyCa, MySqlSslMode::VerifyCa),
+            (SslMode::VerifyIdentity, MySqlSslMode::VerifyIdentity),
+        ] {
+            let params = ConnectParams {
+                ssl: SslSettings {
+                    mode,
+                    ca_path: Some("/certs/ca.pem".into()),
+                    ..SslSettings::default()
+                },
+                ..base.clone()
+            };
+            let options = connect_options(&params);
+            assert_eq!(
+                std::mem::discriminant(&options.get_ssl_mode()),
+                std::mem::discriminant(&expected),
+                "{mode:?}"
+            );
+        }
     }
 
     #[test]

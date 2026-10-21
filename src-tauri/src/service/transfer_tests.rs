@@ -1,5 +1,6 @@
 //! 导入导出命令的 service 测试:临时配置目录 + 真实 SQLite 文件,和前端走同一条路径。
 
+use basalt_core::config::SslSettings;
 use std::sync::{Arc, Mutex};
 
 use basalt_core::config::{ConnectionDraft, DriverKind, Endpoint};
@@ -47,9 +48,14 @@ async fn harness() -> Harness {
         },
         save_password: false,
         password: None,
+        ssh: None,
+        ssl: SslSettings::default(),
+        ssh_secret: None,
     };
     let id = service::save_connection(&state, draft).await.unwrap().id;
-    service::open_connection(&state, &id, None).await.unwrap();
+    service::open_connection(&state, &id, None, None)
+        .await
+        .unwrap();
     Harness { dir, state, id }
 }
 

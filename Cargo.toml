@@ -51,3 +51,5 @@ rust_xlsxwriter = { version = "0.100", features = ["constant_memory"] }
 calamine = { version = "0.37", features = ["dates"] }
 encoding_rs = "0.8"
 base64 = "0.22"
+# SSH 隧道:纯 Rust;关掉默认的 aws-lc-rs(要 cmake 编 C 库),加密后端用 sqlx / rustls 已经在用的 ring
+russh = { version = "0.64", default-features = false, features = ["ring", "rsa"] }

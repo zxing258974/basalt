@@ -19,6 +19,9 @@ fn source(id: &str, name: &str, driver: DriverKind, endpoint: Endpoint) -> Sourc
         source_type: "MySQL".into(),
         target: SourceTarget::Supported { driver, endpoint },
         password: SourcePassword::Plain(FAKE_PASSWORD.into()),
+        ssh: None,
+        ssh_secret: SourcePassword::Absent,
+        ssl: SslSettings::default(),
         warnings: vec![],
     }
 }
@@ -31,6 +34,8 @@ fn saved(name: &str, driver: DriverKind, endpoint: Endpoint) -> ConnectionConfig
         driver,
         endpoint,
         save_password: false,
+        ssh: None,
+        ssl: SslSettings::default(),
     }
 }
 
@@ -352,4 +357,111 @@ fn fill_password_status_serializes_with_camel_case_fields() {
         serde_json::to_string(&status).unwrap(),
         r#"{"kind":"fillPassword","existingId":"c1","existingName":"旧"}"#
     );
+}
+
+fn tunnel(host: &str) -> SshTunnel {
+    SshTunnel {
+        host: host.into(),
+        port: 22,
+        username: "jump".into(),
+        auth: crate::config::SshAuthMethod::Password,
+        private_key_path: None,
+        save_secret: false,
+    }
+}
+
+#[test]
+fn tunneled_connections_are_told_apart_by_their_ssh_server() {
+    // 隧道后面的库地址常常都是 127.0.0.1:3306,要连同 SSH 服务器一起比。
+    let existing = list(vec![ConnectionConfig {
+        ssh: Some(tunnel("bastion-a")),
+        ..saved(
+            "A 机房",
+            DriverKind::Mysql,
+            network("127.0.0.1", 3306, "app"),
+        )
+    }]);
+    let behind = |id: &str, name: &str, host: Option<&str>| SourceConnection {
+        ssh: host.map(tunnel),
+        ..source(
+            id,
+            name,
+            DriverKind::Mysql,
+            network("127.0.0.1", 3306, "app"),
+        )
+    };
+    let sources = [
+        behind("same", "别名", Some("BASTION-A")),
+        behind("other", "B 机房", Some("bastion-b")),
+        behind("direct", "本机", None),
+    ];
+    let candidates = classify(&sources, &existing);
+    assert_eq!(
+        candidates[0].status,
+        CandidateStatus::FillPassword {
+            existing_id: "saved-A 机房".into(),
+            existing_name: "A 机房".into()
+        }
+    );
+    assert_eq!(candidates[1].status, CandidateStatus::New);
+    assert_eq!(candidates[2].status, CandidateStatus::New);
+}
+
+#[test]
+fn candidates_and_drafts_carry_tunnel_and_ssl() {
+    let with_tunnel = SourceConnection {
+        ssh: Some(tunnel("bastion")),
+        ssh_secret: SourcePassword::Plain("ssh-fake".into()),
+        ssl: SslSettings {
+            mode: SslMode::Required,
+            ..SslSettings::default()
+        },
+        ..source(
+            "t",
+            "隧道库",
+            DriverKind::Postgres,
+            network("10.0.0.5", 5432, "u"),
+        )
+    };
+    let candidate = &classify(
+        std::slice::from_ref(&with_tunnel),
+        &ConnectionList::default(),
+    )[0];
+    assert_eq!(
+        candidate.ssh.as_ref().map(|t| t.host.as_str()),
+        Some("bastion")
+    );
+    assert_eq!(candidate.ssh_secret, Some(PasswordStatus::Included));
+    assert_eq!(candidate.ssl_mode, SslMode::Required);
+    let json = serde_json::to_string(candidate).unwrap();
+    assert!(!json.contains("ssh-fake"), "{json}");
+
+    let draft = with_tunnel.to_draft().unwrap();
+    assert_eq!(draft.ssh_secret.as_deref(), Some("ssh-fake"));
+    assert!(draft.ssh.as_ref().unwrap().save_secret);
+    assert_eq!(draft.ssl.mode, SslMode::Required);
+
+    let without_secret = SourceConnection {
+        ssh_secret: SourcePassword::Undecryptable,
+        ..with_tunnel
+    }
+    .to_draft()
+    .unwrap();
+    assert_eq!(without_secret.ssh_secret, None);
+    assert!(
+        !without_secret.ssh.unwrap().save_secret,
+        "没带上 SSH 密码就不标保存"
+    );
+
+    let direct = &classify(
+        &[source(
+            "d",
+            "直连",
+            DriverKind::Mysql,
+            network("h", 3306, "u"),
+        )],
+        &ConnectionList::default(),
+    )[0];
+    assert_eq!(direct.ssh, None);
+    assert_eq!(direct.ssh_secret, None);
 }

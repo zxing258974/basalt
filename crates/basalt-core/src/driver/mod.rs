@@ -22,12 +22,15 @@ mod table_info;
 mod table_ops;
 
 use std::fmt;
+use std::net::Ipv4Addr;
+use std::path::Path;
 use std::time::Duration;
 
 use serde::Serialize;
 
-use crate::config::{ConnectionConfig, DriverKind, Endpoint};
+use crate::config::{ConnectionConfig, DriverKind, Endpoint, SslSettings};
 use crate::error::{CoreError, CoreResult};
+use crate::tunnel::{KnownHosts, SshParams, Tunnel};
 
 /// 建立连接(含握手与认证)的最长等待时间。
 pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -38,6 +41,7 @@ pub(crate) const MAX_POOL_CONNECTIONS: u32 = 4;
 pub(crate) const APPLICATION_NAME: &str = "basalt";
 
 /// 打开一个连接所需的全部参数。`Debug` 不输出密码。
+/// 经 SSH 隧道时 `host`、`port` 是从 SSH 服务器那边看的数据库地址。
 #[derive(Clone, PartialEq, Eq)]
 pub struct ConnectParams {
     pub driver: DriverKind,
@@ -47,10 +51,18 @@ pub struct ConnectParams {
     pub password: Option<String>,
     pub database: Option<String>,
     pub file_path: Option<String>,
+    pub ssl: SslSettings,
+    pub ssh: Option<SshParams>,
 }
 
 impl ConnectParams {
-    pub fn from_config(config: &ConnectionConfig, password: Option<String>) -> Self {
+    /// `ssh_secret` 是 SSH 密码或私钥口令,`known_hosts` 记着信任过的 SSH 服务器;没开隧道时都用不上。
+    pub fn from_config(
+        config: &ConnectionConfig,
+        password: Option<String>,
+        ssh_secret: Option<String>,
+        known_hosts: &KnownHosts,
+    ) -> Self {
         match &config.endpoint {
             Endpoint::Network {
                 host,
@@ -65,6 +77,11 @@ impl ConnectParams {
                 password,
                 database: database.clone(),
                 file_path: None,
+                ssl: config.ssl.clone(),
+                ssh: config
+                    .ssh
+                    .as_ref()
+                    .map(|tunnel| SshParams::from_config(tunnel, ssh_secret, known_hosts.clone())),
             },
             Endpoint::File { path } => Self {
                 driver: config.driver,
@@ -74,9 +91,62 @@ impl ConnectParams {
                 password: None,
                 database: None,
                 file_path: Some(path.clone()),
+                ssl: SslSettings::default(),
+                ssh: None,
             },
         }
     }
+
+    /// 网络连接的通用写法,测试和导入导出的夹具用。
+    pub fn network(driver: DriverKind, host: &str, port: u16, username: &str) -> Self {
+        Self {
+            driver,
+            host: host.to_owned(),
+            port,
+            username: username.to_owned(),
+            password: None,
+            database: None,
+            file_path: None,
+            ssl: SslSettings::default(),
+            ssh: None,
+        }
+    }
+}
+
+/// 驱动实际要连的地方:直连就是原参数;有 SSH 隧道时先建隧道,改连本机的转发端口。
+/// 先查证书文件在不在,免得 TLS 握手时报一句看不懂的 I/O 错误。
+pub(crate) async fn route(params: &ConnectParams) -> CoreResult<(ConnectParams, Option<Tunnel>)> {
+    check_ssl_files(&params.ssl)?;
+    let Some(ssh) = &params.ssh else {
+        return Ok((params.clone(), None));
+    };
+    let tunnel = Tunnel::open(ssh, &params.host, params.port).await?;
+    let direct = ConnectParams {
+        host: Ipv4Addr::LOCALHOST.to_string(),
+        port: tunnel.local_port(),
+        ssh: None,
+        ..params.clone()
+    };
+    Ok((direct, Some(tunnel)))
+}
+
+/// 经隧道连库失败:换成隧道记下的真正原因,再把隧道关掉。
+pub(crate) async fn abandon(tunnel: Option<Tunnel>, error: CoreError) -> CoreError {
+    let Some(tunnel) = tunnel else {
+        return error;
+    };
+    let error = tunnel.explain(error);
+    tunnel.close().await;
+    error
+}
+
+fn check_ssl_files(ssl: &SslSettings) -> CoreResult<()> {
+    for (label, path) in ssl.files() {
+        if !Path::new(path).is_file() {
+            return Err(CoreError::File(format!("找不到{label}文件：{path}")));
+        }
+    }
+    Ok(())
 }
 
 impl fmt::Debug for ConnectParams {
@@ -89,6 +159,8 @@ impl fmt::Debug for ConnectParams {
             .field("password", &self.password.as_ref().map(|_| "***"))
             .field("database", &self.database)
             .field("file_path", &self.file_path)
+            .field("ssl", &self.ssl)
+            .field("ssh", &self.ssh)
             .finish()
     }
 }
@@ -187,17 +259,39 @@ pub(crate) fn table_not_found(name: &str) -> CoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{SshAuthMethod, SshTunnel, SslMode};
+    use crate::tunnel::SshAuth;
+
+    fn known_hosts() -> KnownHosts {
+        KnownHosts::new("/tmp/basalt-test-known_hosts")
+    }
+
+    fn network_config(ssh: Option<SshTunnel>) -> ConnectionConfig {
+        ConnectionConfig {
+            id: "n".into(),
+            name: "n".into(),
+            group: None,
+            driver: DriverKind::Postgres,
+            endpoint: Endpoint::Network {
+                host: "10.0.0.5".into(),
+                port: 5432,
+                username: "app".into(),
+                database: Some("shop".into()),
+            },
+            save_password: true,
+            ssh,
+            ssl: SslSettings {
+                mode: SslMode::Required,
+                ..SslSettings::default()
+            },
+        }
+    }
 
     #[test]
     fn debug_output_redacts_password() {
         let params = ConnectParams {
-            driver: DriverKind::Mysql,
-            host: "db".into(),
-            port: 3306,
-            username: "root".into(),
             password: Some("hunter2".into()),
-            database: None,
-            file_path: None,
+            ..ConnectParams::network(DriverKind::Mysql, "db", 3306, "root")
         };
         let debug = format!("{params:?}");
         assert!(!debug.contains("hunter2"));
@@ -215,10 +309,85 @@ mod tests {
                 path: "/tmp/a.db".into(),
             },
             save_password: false,
+            ssh: None,
+            ssl: SslSettings::default(),
         };
-        let params = ConnectParams::from_config(&config, Some("x".into()));
+        let params = ConnectParams::from_config(&config, Some("x".into()), None, &known_hosts());
         assert_eq!(params.file_path.as_deref(), Some("/tmp/a.db"));
         assert_eq!(params.password, None);
+        assert_eq!(params.ssh, None);
+    }
+
+    #[test]
+    fn network_config_carries_ssl_and_tunnel_credentials() {
+        let direct = ConnectParams::from_config(&network_config(None), None, None, &known_hosts());
+        assert_eq!(direct.ssl.mode, SslMode::Required);
+        assert_eq!(direct.ssh, None);
+
+        let tunnel = SshTunnel {
+            host: "jump".into(),
+            port: 2222,
+            username: "deploy".into(),
+            auth: SshAuthMethod::PrivateKey,
+            private_key_path: Some("/keys/id".into()),
+            save_secret: true,
+        };
+        let params = ConnectParams::from_config(
+            &network_config(Some(tunnel)),
+            Some("db-pass".into()),
+            Some("key-pass".into()),
+            &known_hosts(),
+        );
+        let ssh = params.ssh.clone().unwrap();
+        assert_eq!((ssh.host.as_str(), ssh.port), ("jump", 2222));
+        assert_eq!(
+            ssh.auth,
+            SshAuth::PrivateKey {
+                path: "/keys/id".into(),
+                passphrase: Some("key-pass".into()),
+            }
+        );
+        let debug = format!("{params:?}");
+        assert!(
+            !debug.contains("key-pass") && !debug.contains("db-pass"),
+            "{debug}"
+        );
+    }
+
+    #[tokio::test]
+    async fn route_without_tunnel_is_direct_and_checks_certificate_files() {
+        let params = ConnectParams::network(DriverKind::Mysql, "db", 3306, "root");
+        let (direct, tunnel) = route(&params).await.unwrap();
+        assert_eq!(direct, params);
+        assert!(tunnel.is_none());
+
+        let missing = ConnectParams {
+            ssl: SslSettings {
+                mode: SslMode::VerifyCa,
+                ca_path: Some("/nonexistent/basalt-ca.pem".into()),
+                ..SslSettings::default()
+            },
+            ..params.clone()
+        };
+        let error = route(&missing).await.unwrap_err();
+        assert_eq!(error.code(), "file");
+        assert!(error.to_string().contains("CA 证书"), "{error}");
+
+        // 禁用 SSL 时不管证书路径。
+        let disabled = ConnectParams {
+            ssl: SslSettings {
+                mode: SslMode::Disabled,
+                ..missing.ssl.clone()
+            },
+            ..params
+        };
+        assert!(route(&disabled).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn abandon_without_tunnel_keeps_the_error() {
+        let error = abandon(None, CoreError::Timeout).await;
+        assert_eq!(error.code(), "timeout");
     }
 
     #[test]

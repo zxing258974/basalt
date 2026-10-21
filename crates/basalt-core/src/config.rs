@@ -1,11 +1,15 @@
 //! 连接配置:模型、校验、不可变的连接列表,以及落盘到 JSON 的仓库。
-//! 密码不在这里——见 [`crate::secret`]。
+//! 密码不在这里——见 [`crate::secret`]。SSH 隧道和 SSL 见 [`transport`]。
+
+mod transport;
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CoreError, CoreResult, FieldError};
+
+pub use transport::{DEFAULT_SSH_PORT, SshAuthMethod, SshTunnel, SslMode, SslSettings};
 
 const MAX_NAME_CHARS: usize = 100;
 const STORE_VERSION: u32 = 1;
@@ -59,6 +63,11 @@ pub struct ConnectionConfig {
     pub endpoint: Endpoint,
     #[serde(default)]
     pub save_password: bool,
+    /// 经 SSH 隧道连接;只有网络连接才有。
+    #[serde(default)]
+    pub ssh: Option<SshTunnel>,
+    #[serde(default)]
+    pub ssl: SslSettings,
 }
 
 /// 连接表单提交的内容。`id` 为空表示新建。`Debug` 不输出密码。
@@ -77,6 +86,13 @@ pub struct ConnectionDraft {
     /// `None` 表示沿用已保存的密码;`Some("")` 表示空密码。
     #[serde(default)]
     pub password: Option<String>,
+    #[serde(default)]
+    pub ssh: Option<SshTunnel>,
+    #[serde(default)]
+    pub ssl: SslSettings,
+    /// SSH 密码或私钥口令,规则同 `password`:`None` 沿用已保存的,`Some("")` 表示没有口令。
+    #[serde(default)]
+    pub ssh_secret: Option<String>,
 }
 
 impl std::fmt::Debug for ConnectionDraft {
@@ -89,6 +105,9 @@ impl std::fmt::Debug for ConnectionDraft {
             .field("endpoint", &self.endpoint)
             .field("save_password", &self.save_password)
             .field("password", &self.password.as_ref().map(|_| "***"))
+            .field("ssh", &self.ssh)
+            .field("ssl", &self.ssl)
+            .field("ssh_secret", &self.ssh_secret.as_ref().map(|_| "***"))
             .finish()
     }
 }
@@ -100,6 +119,10 @@ impl ConnectionDraft {
         if !errors.is_empty() {
             return Err(CoreError::InvalidConfig(errors));
         }
+        let (ssh, ssl) = match &self.endpoint {
+            Endpoint::Network { .. } => transport::normalize(self.ssh, self.ssl),
+            Endpoint::File { .. } => (None, SslSettings::default()),
+        };
         let endpoint = match self.endpoint {
             Endpoint::Network {
                 host,
@@ -123,6 +146,8 @@ impl ConnectionDraft {
             driver: self.driver,
             endpoint,
             save_password: self.save_password,
+            ssh,
+            ssl,
         })
     }
 }
@@ -163,6 +188,10 @@ pub fn validate(draft: &ConnectionDraft) -> Vec<FieldError> {
             if username.trim().is_empty() {
                 errors.push(FieldError::new("username", "请填写用户名"));
             }
+            if let Some(ssh) = &draft.ssh {
+                transport::validate_ssh(ssh, &mut errors);
+            }
+            transport::validate_ssl(&draft.ssl, draft.ssh.is_some(), &mut errors);
         }
         (Endpoint::File { path }, true) => {
             let path = path.trim();
@@ -312,6 +341,9 @@ mod tests {
             },
             save_password: true,
             password: Some("secret".into()),
+            ssh: None,
+            ssl: SslSettings::default(),
+            ssh_secret: None,
         }
     }
 
@@ -324,6 +356,9 @@ mod tests {
             endpoint: Endpoint::File { path: path.into() },
             save_password: false,
             password: None,
+            ssh: None,
+            ssl: SslSettings::default(),
+            ssh_secret: None,
         }
     }
 
@@ -340,6 +375,8 @@ mod tests {
                 database: None,
             },
             save_password: false,
+            ssh: None,
+            ssl: SslSettings::default(),
         }
     }
 
@@ -350,7 +387,7 @@ mod tests {
     #[test]
     fn draft_debug_output_redacts_password() {
         let debug = format!("{:?}", network_draft());
-        assert!(!debug.contains("secret"), "{debug}");
+        assert!(!debug.contains("\"secret\""), "{debug}");
         assert!(debug.contains("***"));
     }
 
@@ -543,5 +580,48 @@ mod tests {
         let raw = std::fs::read_to_string(repo.path()).unwrap();
         assert!(!raw.contains("secret"));
         assert!(!raw.contains("password\""));
+    }
+
+    #[test]
+    fn config_saved_before_m4_reads_as_direct_with_preferred_ssl() {
+        let raw = r#"{"version":1,"connections":[{"id":"a","name":"A","driver":"mysql",
+            "endpoint":{"kind":"network","host":"db","port":3306,"username":"root"},"savePassword":true}]}"#;
+        let list: ConnectionList = serde_json::from_str(raw).unwrap();
+        let config = list.get("a").unwrap();
+        assert_eq!(config.ssh, None);
+        assert_eq!(config.ssl, SslSettings::default());
+        assert_eq!(config.ssl.mode, SslMode::Preferred);
+    }
+
+    #[test]
+    fn draft_debug_output_redacts_ssh_secret() {
+        let draft = ConnectionDraft {
+            ssh_secret: Some("tunnel-pass".into()),
+            ..network_draft()
+        };
+        let debug = format!("{draft:?}");
+        assert!(!debug.contains("tunnel-pass"), "{debug}");
+    }
+
+    #[test]
+    fn file_connections_drop_tunnel_and_ssl() {
+        let draft = ConnectionDraft {
+            ssh: Some(SshTunnel {
+                host: "jump".into(),
+                port: 22,
+                username: "u".into(),
+                auth: SshAuthMethod::Password,
+                private_key_path: None,
+                save_secret: false,
+            }),
+            ssl: SslSettings {
+                mode: SslMode::Required,
+                ..SslSettings::default()
+            },
+            ..sqlite_draft(&absolute("a.db"))
+        };
+        let config = draft.into_config("s".into()).unwrap();
+        assert_eq!(config.ssh, None);
+        assert_eq!(config.ssl, SslSettings::default());
     }
 }

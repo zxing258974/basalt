@@ -39,6 +39,11 @@ pub fn password_key(connection_id: &str) -> String {
     format!("connection:{connection_id}:password")
 }
 
+/// SSH 隧道的密码(或私钥口令)在钥匙串里的账户名。macOS 上和别的密码一起合在 basalt:vault 那一条里。
+pub fn ssh_secret_key(connection_id: &str) -> String {
+    format!("connection:{connection_id}:ssh")
+}
+
 pub struct KeychainStore {
     service: String,
 }
@@ -139,5 +144,7 @@ mod tests {
     fn password_key_is_scoped_by_connection() {
         assert_eq!(password_key("abc"), "connection:abc:password");
         assert_ne!(password_key("a"), password_key("b"));
+        assert_eq!(ssh_secret_key("abc"), "connection:abc:ssh");
+        assert_ne!(ssh_secret_key("a"), password_key("a"));
     }
 }

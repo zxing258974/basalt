@@ -1,0 +1,20 @@
+# 集成测试用的 sshd:basalt 用户可以密码或私钥登录并做端口转发;
+# noforward 用户能登录但不许转发,用来测「服务器拒绝转发」的提示。
+Port 22
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+HostKey /etc/ssh/ssh_host_rsa_key
+PermitRootLogin no
+PasswordAuthentication yes
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthorizedKeysFile /etc/ssh/authorized_keys/%u
+AllowTcpForwarding yes
+GatewayPorts no
+X11Forwarding no
+PermitTTY no
+UseDNS no
+MaxStartups 50:30:100
+
+Match User noforward
+    AllowTcpForwarding no

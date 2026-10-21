@@ -6,7 +6,8 @@ use quick_xml::XmlVersion;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 
-use super::{RawConnection, decrypt_password, into_sources};
+use super::transport::{RawSsh, RawSsl};
+use super::{HTTP_TUNNEL_WARNING, RawConnection, decrypt_password, into_sources};
 use crate::error::{CoreError, CoreResult};
 use crate::import::{SourceConnection, SourcePassword};
 
@@ -64,12 +65,41 @@ fn raw_connection(attrs: &HashMap<String, String>) -> RawConnection {
             .get(key)
             .is_some_and(|v| v.eq_ignore_ascii_case("true"))
     };
-    let cipher = text("Password");
-    // 没勾「保存密码」时 Password 即使有值也不该用。
-    let password = if !flag("SavePassword") || cipher.trim().is_empty() {
-        SourcePassword::Absent
+    // 没勾「保存密码」时密文即使有值也不该用。
+    let secret = |value: &str, saved: &str| {
+        let cipher = text(value);
+        if !flag(saved) || cipher.trim().is_empty() {
+            SourcePassword::Absent
+        } else {
+            decrypt_password(&cipher).map_or(SourcePassword::Undecryptable, SourcePassword::Plain)
+        }
+    };
+    let ssh = flag("SSH").then(|| RawSsh {
+        host: text("SSH_Host"),
+        port: text("SSH_Port"),
+        username: text("SSH_UserName"),
+        auth_method: text("SSH_AuthenMethod"),
+        private_key: text("SSH_PrivateKey"),
+        password: secret("SSH_Password", "SSH_SavePassword"),
+        passphrase: secret("SSH_Passphrase", "SSH_SavePassphrase"),
+    });
+    let ssl = flag("SSL").then(|| RawSsl {
+        pg_mode: text("SSL_PGSSLMode"),
+        verify_ca: flag("SSL_VerifyCACert"),
+        allow_invalid_host_name: flag("SSL_AllowInvalidHostName"),
+        client_auth: flag("SSL_Authen"),
+        ca_cert: text("SSL_CACert"),
+        client_cert: text("SSL_ClientCert"),
+        client_key: text("SSL_ClientKey"),
+        client_key_password: !text("SSL_PEMClientKeyPassword").trim().is_empty(),
+        // Navicat 导出时就把这个属性名拼成了 Clpher。
+        cipher: text("SSL_Clpher"),
+        crl: text("SSL_PGSSLCRL"),
+    });
+    let notes = if flag("HTTP") {
+        vec![HTTP_TUNNEL_WARNING.to_owned()]
     } else {
-        decrypt_password(&cipher).map_or(SourcePassword::Undecryptable, SourcePassword::Plain)
+        Vec::new()
     };
     RawConnection {
         name: text("ConnectionName"),
@@ -79,9 +109,10 @@ fn raw_connection(attrs: &HashMap<String, String>) -> RawConnection {
         username: text("UserName"),
         database: text("Database"),
         file_path: text("DatabaseFileName"),
-        password,
-        uses_tunnel: flag("SSH") || flag("HTTP"),
-        uses_ssl: flag("SSL"),
+        password: secret("Password", "SavePassword"),
+        ssh,
+        ssl,
+        notes,
     }
 }
 

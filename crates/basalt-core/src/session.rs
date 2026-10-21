@@ -275,6 +275,8 @@ mod tests {
             password: None,
             database: None,
             file_path: Some(path.to_string_lossy().into_owned()),
+            ssl: crate::config::SslSettings::default(),
+            ssh: None,
         }
     }
 

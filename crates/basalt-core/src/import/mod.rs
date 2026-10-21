@@ -5,7 +5,10 @@ pub mod navicat;
 
 use serde::Serialize;
 
-use crate::config::{ConnectionConfig, ConnectionDraft, ConnectionList, DriverKind, Endpoint};
+use crate::config::{
+    ConnectionConfig, ConnectionDraft, ConnectionList, DriverKind, Endpoint, SshTunnel, SslMode,
+    SslSettings,
+};
 
 /// 来源里的密码。`Debug` 不输出明文,也不实现 `Serialize`,不会经 IPC 传出去。
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -49,6 +52,10 @@ pub struct SourceConnection {
     pub source_type: String,
     pub target: SourceTarget,
     pub password: SourcePassword,
+    pub ssh: Option<SshTunnel>,
+    /// SSH 密码或私钥口令。
+    pub ssh_secret: SourcePassword,
+    pub ssl: SslSettings,
     /// 照常导入、但没有迁移过来的设置。
     pub warnings: Vec<String>,
 }
@@ -65,6 +72,15 @@ impl SourceConnection {
             SourcePassword::Plain(password) => Some(password.clone()),
             SourcePassword::Absent | SourcePassword::Undecryptable => None,
         };
+        let ssh_secret = match &self.ssh_secret {
+            SourcePassword::Plain(secret) => Some(secret.clone()),
+            SourcePassword::Absent | SourcePassword::Undecryptable => None,
+        };
+        // 隧道的「保存密码」同理:只有带着明文的才存。
+        let ssh = self.ssh.clone().map(|tunnel| SshTunnel {
+            save_secret: ssh_secret.is_some(),
+            ..tunnel
+        });
         Some(ConnectionDraft {
             id: None,
             name: self.name.clone(),
@@ -73,6 +89,9 @@ impl SourceConnection {
             endpoint: endpoint.clone(),
             save_password: password.is_some(),
             password,
+            ssh,
+            ssl: self.ssl.clone(),
+            ssh_secret,
         })
     }
 }
@@ -128,6 +147,11 @@ pub struct ImportCandidate {
     pub endpoint: Option<Endpoint>,
     pub status: CandidateStatus,
     pub password: PasswordStatus,
+    /// 经哪台 SSH 服务器转发;没有隧道时为 `None`。
+    pub ssh: Option<SshTunnel>,
+    /// SSH 密码或私钥口令带没带上;没有隧道时为 `None`。
+    pub ssh_secret: Option<PasswordStatus>,
+    pub ssl_mode: SslMode,
     pub warnings: Vec<String>,
 }
 
@@ -139,7 +163,12 @@ pub fn classify(sources: &[SourceConnection], existing: &ConnectionList) -> Vec<
     for source in sources {
         let (driver, endpoint, status) = match &source.target {
             SourceTarget::Supported { driver, endpoint } => {
-                let status = match find_duplicate(&source.name, *driver, endpoint, &known) {
+                let identity = Identity {
+                    driver: *driver,
+                    endpoint,
+                    ssh: source.ssh.as_ref(),
+                };
+                let status = match find_duplicate(&source.name, &identity, &known) {
                     Some((found, same_address)) => {
                         duplicate_status(source, endpoint, found, same_address)
                     }
@@ -148,8 +177,7 @@ pub fn classify(sources: &[SourceConnection], existing: &ConnectionList) -> Vec<
                 known.push(Known {
                     id: None,
                     name: source.name.trim(),
-                    driver: *driver,
-                    endpoint,
+                    identity,
                     has_saved_password: false,
                 });
                 (Some(*driver), Some(endpoint.clone()), status)
@@ -171,10 +199,33 @@ pub fn classify(sources: &[SourceConnection], existing: &ConnectionList) -> Vec<
             endpoint,
             status,
             password: PasswordStatus::from(&source.password),
+            ssh: source.ssh.clone(),
+            ssh_secret: source
+                .ssh
+                .as_ref()
+                .map(|_| PasswordStatus::from(&source.ssh_secret)),
+            ssl_mode: source.ssl.mode,
             warnings: source.warnings.clone(),
         });
     }
     candidates
+}
+
+/// 「连到哪、以谁的身份」:数据库类型、地址、用户,经隧道时还有 SSH 服务器和 SSH 用户
+/// (隧道后面的库地址常常都是 127.0.0.1,不看隧道会把不同服务器上的库当成一个)。
+#[derive(Clone, Copy)]
+struct Identity<'a> {
+    driver: DriverKind,
+    endpoint: &'a Endpoint,
+    ssh: Option<&'a SshTunnel>,
+}
+
+impl Identity<'_> {
+    fn same_as(&self, other: &Identity<'_>) -> bool {
+        self.driver == other.driver
+            && same_address(self.endpoint, other.endpoint)
+            && same_tunnel(self.ssh, other.ssh)
+    }
 }
 
 /// 判重时用到的连接要素:已保存的连接和本次来源里排在前面的连接都算。
@@ -182,8 +233,7 @@ struct Known<'a> {
     /// 已保存的连接才有 id;本次来源里的重复项没有,只能跳过、不能补密码。
     id: Option<&'a str>,
     name: &'a str,
-    driver: DriverKind,
-    endpoint: &'a Endpoint,
+    identity: Identity<'a>,
     has_saved_password: bool,
 }
 
@@ -192,26 +242,40 @@ impl<'a> From<&'a ConnectionConfig> for Known<'a> {
         Self {
             id: Some(&config.id),
             name: &config.name,
-            driver: config.driver,
-            endpoint: &config.endpoint,
+            identity: Identity {
+                driver: config.driver,
+                endpoint: &config.endpoint,
+                ssh: config.ssh.as_ref(),
+            },
             has_saved_password: config.save_password,
         }
     }
 }
 
-/// 连接名相同,或者数据库类型和「连到哪、以谁的身份」都相同,就算重复。
+/// 连接名相同,或者「连到哪、以谁的身份」都相同,就算重复。
 /// 同时返回是否是后一种情况:只有地址也对得上,才允许把密码补过去。
 fn find_duplicate<'a, 'k>(
     name: &str,
-    driver: DriverKind,
-    endpoint: &Endpoint,
+    identity: &Identity<'_>,
     known: &'k [Known<'a>],
 ) -> Option<(&'k Known<'a>, bool)> {
     let name = name.trim();
     known.iter().find_map(|k| {
-        let same = k.driver == driver && same_address(k.endpoint, endpoint);
+        let same = k.identity.same_as(identity);
         (same || k.name == name).then_some((k, same))
     })
+}
+
+fn same_tunnel(a: Option<&SshTunnel>, b: Option<&SshTunnel>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => {
+            a.host.trim().eq_ignore_ascii_case(b.host.trim())
+                && a.port == b.port
+                && a.username.trim() == b.username.trim()
+        }
+        _ => false,
+    }
 }
 
 /// 重复项是「补密码」还是单纯「已存在」。补密码要求地址一致、是网络连接、

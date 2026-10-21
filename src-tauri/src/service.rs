@@ -2,8 +2,9 @@
 
 use basalt_core::config::{ConnectionConfig, ConnectionDraft};
 use basalt_core::driver::{ConnectParams, ServerInfo, TableInfo};
-use basalt_core::secret::{QuietDelete, password_key};
+use basalt_core::secret::{QuietDelete, password_key, ssh_secret_key};
 use basalt_core::table::{ApplyOutcome, PageRequest, RowChange, TablePage, TableRef};
+use basalt_core::tunnel::HostKey;
 use basalt_core::{CoreError, FieldError, session};
 use serde::Serialize;
 
@@ -19,7 +20,10 @@ mod query_import;
 mod table_ops;
 pub use table_ops::{copy_table, drop_table, table_details};
 pub mod transfer;
+mod tunnel;
 pub use query_import::{import_navicat_queries, scan_navicat_queries};
+use tunnel::SecretEdit;
+pub use tunnel::{remember_ssh_secret, trust_host_key};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,6 +31,9 @@ pub struct CommandError {
     pub(crate) code: &'static str,
     pub(crate) message: String,
     pub(crate) fields: Vec<FieldError>,
+    /// 第一次连接的 SSH 服务器的主机密钥,前端拿给用户核对。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) host_key: Option<Box<HostKey>>,
 }
 
 impl From<CoreError> for CommandError {
@@ -36,6 +43,7 @@ impl From<CoreError> for CommandError {
             code: error.code(),
             message: error.to_string(),
             fields: error.field_errors().to_vec(),
+            host_key: error.host_key().cloned().map(Box::new),
         }
     }
 }
@@ -80,15 +88,17 @@ fn secret_change(save_password: bool, password: Option<String>) -> SecretChange 
 }
 
 /// 只有影响「怎么连」的改动才需要断开已打开的会话:改名、分组、取消保存密码都不需要。
+/// `secrets` 是数据库密码和 SSH 密码这次的改动,换了新密码也要重连。
 fn needs_reconnect(
     previous: Option<&ConnectionConfig>,
     next: &ConnectionConfig,
-    secret: &SecretChange,
+    secrets: &[&SecretChange],
 ) -> bool {
     previous.is_some_and(|prev| {
         prev.driver != next.driver
             || prev.endpoint != next.endpoint
-            || matches!(secret, SecretChange::Set(_))
+            || tunnel::route_changed(prev, next)
+            || secrets.iter().any(|s| matches!(s, SecretChange::Set(_)))
     })
 }
 
@@ -104,6 +114,7 @@ fn restore_secret(state: &AppState, key: &str, previous: Option<&str>) {
 }
 
 /// 写钥匙串在前、写配置在后:钥匙串被拒绝时配置原样不动;配置写失败时把钥匙串回滚。
+/// 数据库密码和 SSH 密码各是一条,一起写、一起回滚。
 pub async fn save_connection(
     state: &AppState,
     draft: ConnectionDraft,
@@ -113,8 +124,8 @@ pub async fn save_connection(
         .clone()
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let change = secret_change(draft.save_password, draft.password.clone());
+    let ssh_change = tunnel::ssh_secret_change(draft.ssh.as_ref(), draft.ssh_secret.clone());
     let config = draft.into_config(id.clone())?;
-    let key = password_key(&id);
 
     let store = state.store().await;
     let list = store.load()?;
@@ -130,29 +141,23 @@ pub async fn save_connection(
     // 原来就没存密码(或者是新建的连接)时钥匙串里没有它的密码,不用去读:
     // 不需要密码的连接(如 SQLite)保存时不会触发钥匙串授权。
     let had_password = previous.as_ref().is_some_and(|p| p.save_password);
-    let old_secret = match change {
-        SecretChange::Keep => None,
-        _ if !had_password => None,
-        _ => state.secrets.get(&key)?,
-    };
-    let change = match change {
-        SecretChange::Delete if old_secret.is_none() => SecretChange::Keep,
-        other => other,
-    };
-    match &change {
-        SecretChange::Keep => {}
-        SecretChange::Set(password) => state.secrets.set(&key, password)?,
-        SecretChange::Delete => state.secrets.delete(&key)?,
-    }
+    let had_ssh_secret = previous
+        .as_ref()
+        .and_then(|p| p.ssh.as_ref())
+        .is_some_and(|t| t.save_secret);
+    let edits = [
+        SecretEdit::plan(state, password_key(&id), change, had_password)?,
+        SecretEdit::plan(state, ssh_secret_key(&id), ssh_change, had_ssh_secret)?,
+    ];
+    tunnel::apply_all(state, &edits)?;
     if let Err(error) = store.save(&list.upserted(config.clone())) {
-        if change != SecretChange::Keep {
-            restore_secret(state, &key, old_secret.as_deref());
-        }
+        tunnel::revert_all(state, &edits);
         return Err(error.into());
     }
     drop(store);
 
-    if needs_reconnect(previous.as_ref(), &config, &change) {
+    let changes: Vec<_> = edits.iter().map(SecretEdit::change).collect();
+    if needs_reconnect(previous.as_ref(), &config, &changes) {
         state.sessions.close(&id).await;
     }
     Ok(config)
@@ -200,17 +205,22 @@ pub async fn delete_connection(state: &AppState, id: &str) -> CommandResult<Dele
             return Err(CoreError::ConnectionNotFound(id.to_owned()).into());
         }
         store.save(&list.removed(id))?;
-        match state.secrets.delete_quietly(&password_key(id)) {
-            Ok(QuietDelete::Removed) => false,
-            Ok(QuietDelete::NeedsAuthorization) => {
-                log::warn!("连接 {id} 已删除，它的密码要授权才能删，留在了钥匙串里");
-                true
-            }
-            Err(error) => {
-                log::warn!("连接 {id} 已删除，但清理钥匙串失败：{error}");
-                true
-            }
-        }
+        // 两条都要删,不能用 any() 短路掉第二条。
+        let left: Vec<bool> = [password_key(id), ssh_secret_key(id)]
+            .iter()
+            .map(|key| match state.secrets.delete_quietly(key) {
+                Ok(QuietDelete::Removed) => false,
+                Ok(QuietDelete::NeedsAuthorization) => {
+                    log::warn!("连接 {id} 已删除，{key} 要授权才能删，留在了钥匙串里");
+                    true
+                }
+                Err(error) => {
+                    log::warn!("连接 {id} 已删除，但清理钥匙串里的 {key} 失败：{error}");
+                    true
+                }
+            })
+            .collect();
+        left.contains(&true)
     };
     state.sessions.close(id).await;
     Ok(DeletedConnection { password_left })
@@ -223,57 +233,76 @@ pub async fn duplicate_connection(state: &AppState, id: &str) -> CommandResult<C
     let (next, copy) = list
         .duplicated(id, new_id.clone())
         .ok_or_else(|| CoreError::ConnectionNotFound(id.to_owned()))?;
-    let new_key = password_key(&new_id);
     let source = list
         .get(id)
         .cloned()
         .ok_or_else(|| CoreError::ConnectionNotFound(id.to_owned()))?;
-    let copied_secret = match state.saved_password(&source)? {
-        Some(password) => {
-            state.secrets.set(&new_key, &password)?;
-            true
+    let copies = [
+        (password_key(&new_id), state.saved_password(&source)?),
+        (ssh_secret_key(&new_id), state.saved_ssh_secret(&source)?),
+    ];
+    let mut copied: Vec<String> = Vec::new();
+    for (key, secret) in &copies {
+        let Some(secret) = secret else { continue };
+        if let Err(error) = state.secrets.set(key, secret) {
+            copied
+                .iter()
+                .for_each(|key| restore_secret(state, key, None));
+            return Err(error.into());
         }
-        None => false,
-    };
+        copied.push(key.clone());
+    }
     if let Err(error) = store.save(&next) {
-        if copied_secret {
-            restore_secret(state, &new_key, None);
-        }
+        copied
+            .iter()
+            .for_each(|key| restore_secret(state, key, None));
         return Err(error.into());
     }
     Ok(copy)
 }
 
-/// 测试表单里的连接。表单没填密码且是已保存的连接时,沿用钥匙串里的密码。
+/// 测试表单里的连接(经隧道时连隧道一起测)。表单没填密码且是已保存的连接时,沿用钥匙串里的密码;
+/// SSH 密码同理。
 pub async fn test_connection(
     state: &AppState,
     draft: ConnectionDraft,
 ) -> CommandResult<ServerInfo> {
-    let saved = match (&draft.id, &draft.password) {
-        (Some(id), None) => match state.find(id) {
-            Ok(saved) => state.saved_password(&saved)?,
-            Err(_) => None,
-        },
+    let saved = match &draft.id {
+        Some(id) if draft.password.is_none() || draft.ssh_secret.is_none() => state.find(id).ok(),
         _ => None,
     };
-    let password = draft.password.clone().or(saved);
+    let password = match (&draft.password, &saved) {
+        (Some(password), _) => Some(password.clone()),
+        (None, Some(saved)) => state.saved_password(saved)?,
+        (None, None) => None,
+    };
+    let ssh_secret = match (&draft.ssh_secret, &saved) {
+        (Some(secret), _) => Some(secret.clone()),
+        (None, Some(saved)) => state.saved_ssh_secret(saved)?,
+        (None, None) => None,
+    };
     let config = draft.into_config(String::new())?;
-    let params = ConnectParams::from_config(&config, password);
+    let params = ConnectParams::from_config(&config, password, ssh_secret, &state.known_hosts);
     Ok(session::test_connection(&params).await?)
 }
 
-/// 打开连接。`password` 只在未保存密码时由前端询问后传入,不会落盘。
+/// 打开连接。`password`、`ssh_secret` 只在没保存时由前端询问后传入,不会落盘。
 pub async fn open_connection(
     state: &AppState,
     id: &str,
     password: Option<String>,
+    ssh_secret: Option<String>,
 ) -> CommandResult<ServerInfo> {
     let config = state.find(id)?;
     let password = match password {
         Some(p) => Some(p),
         None => state.saved_password(&config)?,
     };
-    let params = ConnectParams::from_config(&config, password);
+    let ssh_secret = match ssh_secret {
+        Some(s) => Some(s),
+        None => state.saved_ssh_secret(&config)?,
+    };
+    let params = ConnectParams::from_config(&config, password, ssh_secret, &state.known_hosts);
     let session = state.sessions.open(id, &params).await?;
     Ok(session.server().clone())
 }
@@ -344,7 +373,7 @@ pub async fn apply_table_changes(
 
 #[cfg(test)]
 mod tests {
-    use basalt_core::config::{DriverKind, Endpoint};
+    use basalt_core::config::{DriverKind, Endpoint, SslSettings};
 
     use super::*;
 
@@ -361,6 +390,8 @@ mod tests {
                 database: None,
             },
             save_password: true,
+            ssh: None,
+            ssl: SslSettings::default(),
         }
     }
 
@@ -386,22 +417,22 @@ mod tests {
         assert!(!needs_reconnect(
             Some(&before),
             &renamed,
-            &SecretChange::Delete
+            &[&SecretChange::Delete]
         ));
         assert!(needs_reconnect(
             Some(&before),
             &config("other"),
-            &SecretChange::Keep
+            &[&SecretChange::Keep]
         ));
         assert!(needs_reconnect(
             Some(&before),
             &before,
-            &SecretChange::Set("p".into())
+            &[&SecretChange::Keep, &SecretChange::Set("p".into())]
         ));
         assert!(!needs_reconnect(
             None,
             &before,
-            &SecretChange::Set("p".into())
+            &[&SecretChange::Set("p".into())]
         ));
     }
 }

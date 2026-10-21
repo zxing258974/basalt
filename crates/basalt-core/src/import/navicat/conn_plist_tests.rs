@@ -1,6 +1,6 @@
 use super::*;
+use super::{PLIST_SSH_WARNING, PLIST_SSL_WARNING};
 use crate::config::{DriverKind, Endpoint};
-use crate::import::navicat::TUNNEL_SSL_WARNING;
 use crate::import::{SourcePassword, SourceTarget};
 
 const FIXTURE: &[u8] = include_bytes!(concat!(
@@ -64,7 +64,8 @@ fn maps_fields_and_flags_tunnels_and_ssl() {
             None
         )
     );
-    assert_eq!(sources[1].warnings, [TUNNEL_SSL_WARNING]);
+    assert_eq!(sources[1].warnings, [PLIST_SSH_WARNING]);
+    assert_eq!(sources[1].ssh, None, "格式没核实过,不猜字段");
 
     assert_eq!(sources[2].source_type, "PostgreSQL");
     assert_eq!(
@@ -77,7 +78,7 @@ fn maps_fields_and_flags_tunnels_and_ssl() {
             Some("warehouse")
         )
     );
-    assert_eq!(sources[2].warnings, [TUNNEL_SSL_WARNING]);
+    assert_eq!(sources[2].warnings, [PLIST_SSL_WARNING]);
 
     assert_eq!(sources[3].source_type, "Redis");
     assert!(matches!(sources[3].target, SourceTarget::Unsupported(_)));

@@ -67,6 +67,8 @@ pub fn run() {
             commands::list_connections,
             commands::save_connection,
             commands::remember_password,
+            commands::remember_ssh_secret,
+            commands::trust_host_key,
             commands::delete_connection,
             commands::duplicate_connection,
             commands::test_connection,

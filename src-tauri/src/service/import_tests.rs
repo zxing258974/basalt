@@ -1,5 +1,6 @@
 //! 导入连接的 service 测试:合成的 conn.plist / .ncx 夹具 + 内存密码存储 + 临时配置目录。
 
+use basalt_core::config::SslSettings;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -7,7 +8,7 @@ use basalt_core::CoreError;
 use basalt_core::config::{ConnectionDraft, DriverKind, Endpoint};
 use basalt_core::import::CandidateStatus;
 use basalt_core::import::navicat::NavicatLocation;
-use basalt_core::secret::{MemorySecretStore, SecretStore, password_key};
+use basalt_core::secret::{MemorySecretStore, SecretStore, password_key, ssh_secret_key};
 
 use super::*;
 use crate::service;
@@ -19,6 +20,8 @@ const FIXTURES: &str = concat!(
 /// .ncx 夹具里加密的假密码。
 const ORDER_PASSWORD: &str = "Fake-Pass#2026";
 const REPORT_PASSWORD: &str = "测试密码";
+/// 「跳板机后的库」的 SSH 密码。
+const SSH_PASSWORD: &str = "sixteen-chars-pw";
 
 struct Harness {
     dir: tempfile::TempDir,
@@ -87,6 +90,9 @@ fn mysql_draft(name: &str, host: &str, username: &str) -> ConnectionDraft {
         },
         save_password: false,
         password: None,
+        ssh: None,
+        ssl: SslSettings::default(),
+        ssh_secret: None,
     }
 }
 
@@ -135,10 +141,48 @@ async fn scan_results_never_carry_plaintext_passwords() {
         .await
         .unwrap();
     let json = serde_json::to_string(&candidates).unwrap();
-    for secret in [ORDER_PASSWORD, REPORT_PASSWORD, "7CD6F821"] {
+    for secret in [ORDER_PASSWORD, REPORT_PASSWORD, "7CD6F821", SSH_PASSWORD] {
         assert!(!json.contains(secret), "{json}");
     }
-    assert_eq!(candidates.len(), 9);
+    assert_eq!(candidates.len(), 10);
+    let tunneled = candidates
+        .iter()
+        .find(|c| c.name == "跳板机后的库")
+        .unwrap();
+    assert_eq!(
+        tunneled.ssh.as_ref().map(|t| t.host.as_str()),
+        Some("bastion.example.test")
+    );
+}
+
+#[tokio::test]
+async fn importing_a_tunneled_connection_keeps_its_ssh_password_in_the_keychain() {
+    let h = harness();
+    let report = import_connections(
+        &h.state,
+        &h.ncx(),
+        &ids(&["MARIADB:跳板机后的库"]),
+        Some(&h.local),
+    )
+    .await
+    .unwrap();
+    let item = &report.imported[0];
+    assert!(item.tunneled && item.ssh_secret_saved && !item.password_saved);
+    let config = h.state.find(&item.id).unwrap();
+    let tunnel = config.ssh.clone().unwrap();
+    assert_eq!(
+        (tunnel.host.as_str(), tunnel.username.as_str()),
+        ("bastion.example.test", "jump")
+    );
+    assert!(tunnel.save_secret);
+    assert_eq!(
+        h.secrets.get(&ssh_secret_key(&item.id)).unwrap().as_deref(),
+        Some(SSH_PASSWORD)
+    );
+    assert!(
+        !h.config_text().contains(SSH_PASSWORD),
+        "配置文件里没有明文"
+    );
 }
 
 #[tokio::test]
@@ -230,7 +274,9 @@ async fn imported_sqlite_connection_opens() {
         .unwrap();
     assert_eq!(report.imported[0].driver, DriverKind::Sqlite);
     let id = &report.imported[0].id;
-    let server = service::open_connection(&h.state, id, None).await.unwrap();
+    let server = service::open_connection(&h.state, id, None, None)
+        .await
+        .unwrap();
     assert_eq!(server.product, "SQLite");
 }
 

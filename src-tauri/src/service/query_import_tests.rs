@@ -1,5 +1,6 @@
 //! 导入 Navicat 查询的 service 测试:临时「主目录」里现造的 Navicat 查询目录 + 合成的 conn.plist。
 
+use basalt_core::config::SslSettings;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -74,6 +75,9 @@ fn mysql(name: &str, host: &str, port: u16) -> ConnectionDraft {
         },
         save_password: false,
         password: None,
+        ssh: None,
+        ssl: SslSettings::default(),
+        ssh_secret: None,
     }
 }
 

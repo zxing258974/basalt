@@ -8,6 +8,7 @@ mod cipher;
 mod conn_plist;
 mod ncx;
 pub mod queries;
+mod transport;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -19,8 +20,10 @@ pub use ncx::parse_ncx;
 use super::{SourceConnection, SourcePassword, SourceTarget};
 use crate::config::{self, ConnectionDraft, DriverKind, Endpoint};
 use crate::error::{CoreError, CoreResult};
+use transport::{RawSsh, RawSsl, Transport, map_transport};
 
-pub const TUNNEL_SSL_WARNING: &str = "隧道 / SSL 设置未迁移（M4 支持）";
+/// HTTP 隧道是 Navicat 自己的一套(服务器上放它的 PHP 脚本),Basalt 不支持。
+pub const HTTP_TUNNEL_WARNING: &str = "HTTP 隧道 Basalt 不支持，没有迁移；不经隧道可能连不上";
 
 /// 读不了本机 Navicat 时的说明。macOS 上只会是找不到用户主目录;Windows 版 Navicat 把连接存在注册表里,
 /// 格式没有核实过,先不读,请用户导出 .ncx。
@@ -56,8 +59,12 @@ struct RawConnection {
     database: String,
     file_path: String,
     password: SourcePassword,
-    uses_tunnel: bool,
-    uses_ssl: bool,
+    /// 用了 SSH 隧道时的设置。
+    ssh: Option<RawSsh>,
+    /// 开了 SSL 时的设置。
+    ssl: Option<RawSsl>,
+    /// 解析来源时就知道迁移不了的设置(HTTP 隧道、格式没核实过的字段……)。
+    notes: Vec<String>,
 }
 
 /// Navicat 的类型名 → Basalt 的数据库类型;不支持的返回给用户看的类型名。
@@ -96,20 +103,27 @@ fn non_blank(value: &str) -> Option<String> {
     Some(value.trim().to_owned()).filter(|v| !v.is_empty())
 }
 
-/// 映射成连接方式,并用连接表单同一套校验把不完整的拦下来。返回目标和附加提示。
-fn resolve_target(raw: &RawConnection) -> (SourceTarget, Vec<String>) {
+/// 映射成连接方式(连同隧道和 SSL),并用连接表单同一套校验把不完整的拦下来。返回目标、隧道与 SSL、附加提示。
+fn resolve_target(raw: &RawConnection) -> (SourceTarget, Transport, Vec<String>) {
+    let unsupported = |reason: String| {
+        (
+            SourceTarget::Unsupported(reason),
+            Transport::default(),
+            vec![],
+        )
+    };
     let driver = match map_type(&raw.conn_type) {
         Ok(driver) => driver,
         Err(label) => {
-            let reason = format!("Basalt 暂不支持 {label}，目前只支持 {SUPPORTED_LIST}");
-            return (SourceTarget::Unsupported(reason), vec![]);
+            return unsupported(format!(
+                "Basalt 暂不支持 {label}，目前只支持 {SUPPORTED_LIST}"
+            ));
         }
     };
     let mut warnings = Vec::new();
     let endpoint = if driver.is_file_based() {
         if raw.file_path.trim().is_empty() {
-            let reason = "Navicat 里没有记录 SQLite 数据库文件的路径".to_owned();
-            return (SourceTarget::Unsupported(reason), vec![]);
+            return unsupported("Navicat 里没有记录 SQLite 数据库文件的路径".to_owned());
         }
         Endpoint::File {
             path: raw.file_path.trim().to_owned(),
@@ -135,6 +149,11 @@ fn resolve_target(raw: &RawConnection) -> (SourceTarget, Vec<String>) {
         }
     };
 
+    let transport = if driver.is_file_based() {
+        Transport::default()
+    } else {
+        map_transport(driver, raw.ssh.as_ref(), raw.ssl.as_ref())
+    };
     let probe = ConnectionDraft {
         id: None,
         name: raw.name.clone(),
@@ -143,17 +162,22 @@ fn resolve_target(raw: &RawConnection) -> (SourceTarget, Vec<String>) {
         endpoint: endpoint.clone(),
         save_password: true,
         password: None,
+        ssh: transport.ssh.clone(),
+        ssl: transport.ssl.clone(),
+        ssh_secret: None,
     };
     let errors = config::validate(&probe);
     if !errors.is_empty() {
         let messages: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
-        let reason = format!("连接信息不完整：{}", messages.join("；"));
-        return (SourceTarget::Unsupported(reason), vec![]);
+        return unsupported(format!("连接信息不完整：{}", messages.join("；")));
     }
-    if raw.uses_tunnel || raw.uses_ssl {
-        warnings.push(TUNNEL_SSL_WARNING.to_owned());
-    }
-    (SourceTarget::Supported { driver, endpoint }, warnings)
+    warnings.extend(raw.notes.iter().cloned());
+    warnings.extend(transport.warnings.iter().cloned());
+    (
+        SourceTarget::Supported { driver, endpoint },
+        transport,
+        warnings,
+    )
 }
 
 /// 来源内唯一的 id:`类型:连接名`,已被占用就依次加 `#2`、`#3`……直到不重复
@@ -174,7 +198,7 @@ fn into_sources(raws: Vec<RawConnection>) -> Vec<SourceConnection> {
     raws.into_iter()
         .map(|raw| {
             let id = unique_id(&raw, &mut used);
-            let (target, warnings) = resolve_target(&raw);
+            let (target, transport, warnings) = resolve_target(&raw);
             SourceConnection {
                 id,
                 name: raw.name.trim().to_owned(),
@@ -182,6 +206,9 @@ fn into_sources(raws: Vec<RawConnection>) -> Vec<SourceConnection> {
                 source_type: display_type(&raw.conn_type),
                 target,
                 password: raw.password,
+                ssh: transport.ssh,
+                ssh_secret: transport.ssh_secret,
+                ssl: transport.ssl,
                 warnings,
             }
         })

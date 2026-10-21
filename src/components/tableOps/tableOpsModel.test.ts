@@ -7,6 +7,7 @@ import {
   clearedNotice,
   formatDuration,
   levelLabel,
+  maintenanceNotice,
   pendingWarning,
   pendingWork,
   renamedTab,
@@ -61,5 +62,7 @@ describe("tableOpsModel", () => {
     expect(levelLabel("Error_Unknown")).toBe("Error_Unknown");
     expect(formatDuration(87)).toBe("87 毫秒");
     expect(formatDuration(12_340)).toBe("12.3 秒");
+    const outcome = { sql: "VACUUM", messages: [], size: null, elapsedMs: 1 };
+    expect(maintenanceNotice(users, "清理", outcome)).toBe("「users」清理完成：数据库没有返回消息。");
   });
 });

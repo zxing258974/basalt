@@ -1,9 +1,9 @@
 // 转储 SQL 文件与维护表(mock 后端):选内容、选路径、进度能取消、完成后的说法;维护选项按数据库给、
 // 结果里列出数据库的消息和前后大小、能再做一项。
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createMockBackend } from "../../lib/mockBackend";
-import { MYSQL_CUSTOMERS, SQLITE_NOTES, openTableMenu } from "../../test/tableMenu";
+import { MYSQL_CUSTOMERS, SQLITE_NOTES, findRow, openTableMenu } from "../../test/tableMenu";
 
 const CUSTOMERS = { database: "shop", schema: null, table: "customers" };
 
@@ -118,6 +118,43 @@ describe("maintain table", { timeout: 15_000 }, () => {
     expect(document.querySelector(".maintenance-meta")).toHaveTextContent("库文件 1.8 MB → 600 KB · 用时 342 毫秒");
     await user.click(result.getByRole("button", { name: "完成" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("can keep running in the background and reports the outcome in the status bar", async () => {
+    const backend = createMockBackend();
+    let finish: () => void = () => undefined;
+    let fail: (error: unknown) => void = () => undefined;
+    vi.spyOn(backend, "maintainTable")
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = () =>
+              resolve({
+                sql: "OPTIMIZE TABLE `shop`.`customers`",
+                messages: [{ level: "status", text: "OK" }],
+                size: null,
+                elapsedMs: 9,
+              });
+          }),
+      )
+      .mockImplementationOnce(() => new Promise((_, reject) => (fail = reject)));
+    const { user } = await openTableMenu("维护…", MYSQL_CUSTOMERS, backend);
+    const dialog = within(screen.getByRole("dialog", { name: "维护表" }));
+    await user.click(dialog.getByRole("radio", { name: /^优化/ }));
+    await user.click(dialog.getByRole("button", { name: "执行" }));
+    await user.click(dialog.getByRole("button", { name: "在后台继续" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    act(() => finish());
+    const status = () => within(document.querySelector<HTMLElement>(".statusbar")!).getByRole("alert");
+    await waitFor(() => expect(status()).toHaveTextContent("「customers」优化完成：状态 OK。"));
+
+    await user.pointer({ keys: "[MouseRight]", target: await findRow("customers") });
+    await user.click(screen.getByRole("menuitem", { name: "维护…" }));
+    await user.click(within(screen.getByRole("dialog", { name: "维护表" })).getByRole("button", { name: "执行" }));
+    // jsdom 不会把 Esc 变成 <dialog> 的 cancel 事件:直接派发。
+    fireEvent(screen.getByRole("dialog"), new Event("cancel", { cancelable: true }));
+    act(() => fail({ code: "database", message: "Lock wait timeout exceeded", fields: [] }));
+    await waitFor(() => expect(status()).toHaveTextContent("「customers」分析失败：Lock wait timeout exceeded"));
   });
 
   it("keeps the choices open when the database refuses", async () => {

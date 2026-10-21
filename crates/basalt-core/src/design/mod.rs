@@ -352,6 +352,11 @@ pub fn postgres_create_statements(design: &TableDesign) -> Vec<String> {
     postgres::create_table(design)
 }
 
+/// 转储用的 PostgreSQL 建表语句:(建表、索引、注释,外键)。外键单独给出,插完数据再加。
+pub fn postgres_dump_statements(design: &TableDesign) -> (Vec<String>, Vec<String>) {
+    postgres::create_table_deferring_foreign_keys(design)
+}
+
 /// 由「原结构 + 新结构」生成要执行的语句。`original` 为 `None` 表示新建表。
 pub fn plan(
     context: &DdlContext,

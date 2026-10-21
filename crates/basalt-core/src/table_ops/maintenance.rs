@@ -3,7 +3,8 @@
 //!
 //! MySQL 这几条语句以结果集返回消息(每行一条 Msg_type、Msg_text),原样交给前端;表不存在、引擎不支持
 //! 也是这样报的,不算语句出错。PostgreSQL、SQLite 不返回消息,VACUUM、REINDEX 另外给出前后的大小
-//! (PostgreSQL 是表连同索引,SQLite 是整个库文件),让人看得出有没有效果。
+//! (PostgreSQL 是表连同索引,SQLite 是整个库文件),让人看得出有没有效果。PostgreSQL 的 VACUUM、ANALYZE
+//! 在没有权限时只发警告(拿不到)就跳过,看着像成功了,所以先查权限。
 
 use std::time::Instant;
 
@@ -121,6 +122,17 @@ impl Session {
         self.check_table(table)?;
         let dialect = self.dialect();
         let sql = maintenance_sql(dialect, table, operation)?;
+        if let Self::Postgres(s) = self
+            && matches!(operation, Maintenance::Vacuum | Maintenance::Analyze)
+            && !s.can_maintain(table).await?
+        {
+            return Err(CoreError::Database(format!(
+                "没有权限对「{}」做 {}：要是表的所有者、库的所有者或超级用户（PostgreSQL 17 起也可以授予 MAINTAIN 权限）。\
+                 没有权限时数据库只给一条警告就跳过这张表，所以这里先拦下来。",
+                table.table,
+                operation.keyword()
+            )));
+        }
         let measures = operation.measures_size(dialect);
         let before = match measures {
             true => Some(self.storage_size(table).await?),

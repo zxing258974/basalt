@@ -1,6 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { catalogKeys } from "../../hooks/useCatalog";
+import { tableDataKeys } from "../../hooks/useTableData";
+import { designKeys } from "../../hooks/useTableDesign";
 import { getBackend } from "../../lib/api";
 import { errorMessage, type ConnectionView, type TableRef } from "../../lib/types";
 import { useTabs } from "../../stores/tabs";
@@ -46,6 +48,15 @@ export function RenameTableDialog({ connection, table, onClose }: RenameTableDia
     try {
       const renamed = await (await getBackend()).renameTable(connection.id, table, trimmed);
       followRename(connection.id, table, renamed.table);
+      // 数据页、设计器的缓存不会自己过期:旧名字的快照留着,以后再有同名表(比如又改回来)会先显示旧内容。
+      for (const queryKey of [
+        tableDataKeys.table(connection.id, table),
+        designKeys.table(connection.id, table),
+        catalogKeys.details(connection.id, table.database, table.schema, table.table),
+        catalogKeys.columns(connection.id, table.database, table.schema, table.table),
+      ]) {
+        queryClient.removeQueries({ queryKey });
+      }
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: catalogKeys.tables(connection.id, table.database, table.schema),

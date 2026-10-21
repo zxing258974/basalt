@@ -43,6 +43,37 @@ impl MysqlSession {
         Ok(counts)
     }
 
+    /// 表上的触发器,按执行顺序拼成 CREATE TRIGGER(不带 DEFINER,还原时归执行的用户;表名不带库名,和转储的建表语句一致)。
+    pub(crate) async fn trigger_statements(&self, table: &TableRef) -> CoreResult<Vec<String>> {
+        let rows = sqlx::query(
+            "SELECT CAST(TRIGGER_NAME AS CHAR) AS name, CAST(ACTION_TIMING AS CHAR) AS timing,
+                    CAST(EVENT_MANIPULATION AS CHAR) AS event, CAST(ACTION_STATEMENT AS CHAR) AS body
+             FROM information_schema.TRIGGERS
+             WHERE EVENT_OBJECT_SCHEMA = ? AND EVENT_OBJECT_TABLE = ?
+             ORDER BY ACTION_TIMING, EVENT_MANIPULATION, ACTION_ORDER",
+        )
+        .bind(&table.database)
+        .bind(&table.table)
+        .fetch_all(&self.pool)
+        .await?;
+        let d = Dialect::Mysql;
+        rows.iter()
+            .map(|row| {
+                let name: String = row.try_get("name")?;
+                let timing: String = row.try_get("timing")?;
+                let event: String = row.try_get("event")?;
+                let body: String = row.try_get("body")?;
+                Ok(format!(
+                    "CREATE TRIGGER {} {timing} {event} ON {} FOR EACH ROW {}",
+                    quote_ident(d, &name),
+                    quote_ident(d, &table.table),
+                    body.trim().trim_end_matches(';')
+                ))
+            })
+            .collect::<Result<_, sqlx::Error>>()
+            .map_err(CoreError::from)
+    }
+
     /// ANALYZE / CHECK / OPTIMIZE / REPAIR TABLE 返回的消息(Table、Op、Msg_type、Msg_text 四列)。
     /// 走文本协议:CHECK TABLE 不能预备执行。
     pub(crate) async fn maintenance_messages(
@@ -109,6 +140,24 @@ impl PgSession {
         Ok(names)
     }
 
+    /// 表上用户建的触发器(不含外键约束自带的内部触发器)。
+    pub(crate) async fn trigger_statements(&self, table: &TableRef) -> CoreResult<Vec<String>> {
+        let schema = table.schema.as_deref().unwrap_or("public");
+        let pool = self.pool(&table.database).await?;
+        let statements = sqlx::query_scalar(
+            "SELECT pg_get_triggerdef(t.oid, true) FROM pg_trigger t
+             JOIN pg_class c ON c.oid = t.tgrelid
+             JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = $1 AND c.relname = $2 AND NOT t.tgisinternal
+             ORDER BY t.tgname",
+        )
+        .bind(schema)
+        .bind(&table.table)
+        .fetch_all(&pool)
+        .await?;
+        Ok(statements)
+    }
+
     /// 带序列的列(标识列、serial 列),转储时要重建序列、把它推到最大值。
     pub(crate) async fn sequence_columns(
         &self,
@@ -140,6 +189,30 @@ impl PgSession {
             })
             .collect::<Result<_, sqlx::Error>>()
             .map_err(CoreError::from)
+    }
+
+    /// 能不能对这张表做 VACUUM、ANALYZE:要是表的所有者、库的所有者或超级用户,PostgreSQL 17 起也可以是
+    /// 有 MAINTAIN 权限的用户。没有权限时数据库不报错,只发一条警告就跳过这张表,所以要先问。
+    pub(crate) async fn can_maintain(&self, table: &TableRef) -> CoreResult<bool> {
+        let schema = table.schema.as_deref().unwrap_or("public");
+        let pool = self.pool(&table.database).await?;
+        let allowed: Option<bool> = sqlx::query_scalar(
+            "SELECT CASE WHEN current_setting('server_version_num')::int >= 170000
+                         THEN has_table_privilege(c.oid, 'MAINTAIN')
+                         ELSE pg_has_role(c.relowner, 'USAGE')
+                              OR pg_has_role(d.datdba, 'USAGE')
+                              OR (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)
+                    END
+             FROM pg_class c
+             JOIN pg_namespace n ON n.oid = c.relnamespace
+             CROSS JOIN pg_database d
+             WHERE n.nspname = $1 AND c.relname = $2 AND d.datname = current_database()",
+        )
+        .bind(schema)
+        .bind(&table.table)
+        .fetch_optional(&pool)
+        .await?;
+        allowed.ok_or_else(|| table_not_found(&table.table))
     }
 
     /// VACUUM 不能在事务块里执行:单独一条、走简单查询协议。

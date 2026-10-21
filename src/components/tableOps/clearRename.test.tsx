@@ -1,6 +1,6 @@
 // 清空、截断、重命名表与复制表名(mock 后端):两种清空的区别、开着的数据页重读、外键拒绝时的提示、
 // 改名后标签页和选中项跟着换、剪贴板。
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createMockBackend } from "../../lib/mockBackend";
 import type { TablePage } from "../../lib/types";
@@ -84,6 +84,32 @@ describe("clear and truncate", { timeout: 15_000 }, () => {
     expect(dialog.getByRole("alert")).not.toHaveTextContent("外键");
   });
 
+  it("can keep running in the background and reports the outcome in the status bar", async () => {
+    const backend = createMockBackend();
+    let finish: (rows: number) => void = () => undefined;
+    let fail: (error: unknown) => void = () => undefined;
+    vi.spyOn(backend, "clearTable")
+      .mockImplementationOnce(() => new Promise((resolve) => (finish = (rows) => resolve({ rows }))))
+      .mockImplementationOnce(() => new Promise((_, reject) => (fail = reject)));
+    const { user } = await openTableMenu("清空表…", MYSQL_CUSTOMERS, backend);
+    let dialog = within(screen.getByRole("dialog", { name: "清空表「customers」？" }));
+    await user.click(dialog.getByRole("button", { name: "清空" }));
+    await user.click(dialog.getByRole("button", { name: "在后台继续" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    act(() => finish(18_204));
+    await waitFor(() => expect(notice()).toHaveTextContent("已清空表「customers」，删除了 18,204 行。"));
+
+    await user.pointer({ keys: "[MouseRight]", target: await findRow("customers") });
+    await user.click(screen.getByRole("menuitem", { name: "截断表…" }));
+    dialog = within(screen.getByRole("dialog", { name: "截断表「customers」？" }));
+    await user.click(dialog.getByRole("button", { name: "截断" }));
+    // jsdom 不会把 Esc 变成 <dialog> 的 cancel 事件:直接派发。
+    fireEvent(screen.getByRole("dialog"), new Event("cancel", { cancelable: true }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    act(() => fail({ code: "database", message: "Lock wait timeout exceeded", fields: [] }));
+    await waitFor(() => expect(notice()).toHaveTextContent("截断表「customers」失败：Lock wait timeout exceeded"));
+  });
+
   it("describes SQLite's delete-based truncation and reports its row count", async () => {
     const { user } = await openTableMenu("截断表…", SQLITE_NOTES);
     const dialog = within(screen.getByRole("dialog", { name: "截断表「notes」？" }));
@@ -97,7 +123,7 @@ describe("rename", { timeout: 15_000 }, () => {
   it("renames the table and moves its tabs and the selection to the new name", async () => {
     const backend = createMockBackend();
     const rename = vi.spyOn(backend, "renameTable");
-    const { user } = await openTableMenu("重命名…", MYSQL_CUSTOMERS, backend, () => {
+    const { user, queryClient } = await openTableMenu("重命名…", MYSQL_CUSTOMERS, backend, () => {
       const { open } = useTabs.getState();
       open(tableDesignTab("mock-mysql", "shop", null, "customers"));
       open(tableDataTab("mock-mysql", "shop", null, "customers"));
@@ -124,6 +150,9 @@ describe("rename", { timeout: 15_000 }, () => {
     expect(activeId).toBe(tableDataTab("mock-mysql", "shop", null, "orders").id);
     expect(useUi.getState().selectedKey).toBe(tableKey("mock-mysql", "shop", null, "clients"));
     expect(notice()).toHaveTextContent("已把「customers」改名为「clients」。");
+    expect(
+      queryClient.getQueryCache().findAll({ queryKey: ["tableData", "mock-mysql", "shop", "", "customers"] }),
+    ).toEqual([]);
   });
 
   it("keeps the dialog open when the new name is taken", async () => {

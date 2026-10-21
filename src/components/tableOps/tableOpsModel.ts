@@ -6,6 +6,7 @@ import type {
   CopyTableOutcome,
   DriverKind,
   Maintenance,
+  MaintenanceOutcome,
   TableRef,
 } from "../../lib/types";
 
@@ -144,10 +145,12 @@ export const RENAME_NOTES: Record<DriverKind, string> = {
 
 /** 转储文件开头会做的事,各家不一样。 */
 export const DUMP_NOTES: Record<DriverKind, string> = {
-  mysql: "文件开头先删掉同名表（DROP TABLE IF EXISTS）再建表；表名不带库名，执行时进当前库。执行期间关掉外键检查。",
-  mariadb: "文件开头先删掉同名表（DROP TABLE IF EXISTS）再建表；表名不带库名，执行时进当前库。执行期间关掉外键检查。",
+  mysql:
+    "文件开头先删掉同名表（DROP TABLE IF EXISTS）再建表；表名不带库名，执行时进当前库。执行期间关掉外键检查，触发器在数据之后重建。",
+  mariadb:
+    "文件开头先删掉同名表（DROP TABLE IF EXISTS）再建表；表名不带库名，执行时进当前库。执行期间关掉外键检查，触发器在数据之后重建。",
   postgres:
-    "文件开头先删掉同名表（DROP TABLE IF EXISTS）再建表，表名带 schema；建表语句按表结构生成，serial 的序列一起重建。",
+    "文件开头先删掉同名表（DROP TABLE IF EXISTS）再建表，表名带 schema；外键、触发器在数据之后加。表被别的表的外键或视图引用时，开头的 DROP 会失败。",
   sqlite: "文件开头先删掉同名表（DROP TABLE IF EXISTS）再建表；索引跟在建表后面，触发器放在数据之后。",
 };
 
@@ -225,6 +228,13 @@ const LEVELS: Record<string, string> = { status: "状态", error: "错误", info
 /** MySQL 消息的级别,翻成中文;认不出的原样显示。 */
 export function levelLabel(level: string): string {
   return LEVELS[level] ?? level;
+}
+
+/** 对话框已经先关掉时,维护的结果改用状态栏的一句话:数据库最后一条消息。 */
+export function maintenanceNotice(table: TableRef, label: string, outcome: MaintenanceOutcome): string {
+  const last = outcome.messages.at(-1);
+  const detail = last ? `${levelLabel(last.level)} ${last.text}` : "数据库没有返回消息";
+  return `「${table.table}」${label}完成：${detail}。`;
 }
 
 /** 用时:不到 1 秒写毫秒,否则写到小数点后一位。 */

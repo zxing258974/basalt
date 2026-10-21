@@ -9,11 +9,13 @@ import {
   type MaintenanceOutcome,
   type TableRef,
 } from "../../lib/types";
+import { useUi } from "../../stores/ui";
 import { formatBytes } from "../transfer/exportModel";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { ChoiceList } from "./ChoiceList";
-import { MAINTENANCE, formatDuration, levelLabel, qualifiedName } from "./tableOpsModel";
+import { MAINTENANCE, formatDuration, levelLabel, maintenanceNotice, qualifiedName } from "./tableOpsModel";
+import { useDetachable } from "./useDetachable";
 
 interface MaintainTableDialogProps {
   connection: ConnectionView;
@@ -21,22 +23,28 @@ interface MaintainTableDialogProps {
   onClose(): void;
 }
 
-/** 维护表:先选做哪一项,执行完在同一个对话框里看数据库返回的消息。 */
+/**
+ * 维护表:先选做哪一项,执行完在同一个对话框里看数据库返回的消息。
+ * 大表的 OPTIMIZE、VACUUM 要很久:执行中可以「在后台继续」,做完在状态栏提示。
+ */
 export function MaintainTableDialog({ connection, table, onClose }: MaintainTableDialogProps) {
   const queryClient = useQueryClient();
+  const { detach, isDetached } = useDetachable(onClose);
   const choices = MAINTENANCE[connection.driver];
   const [operation, setOperation] = useState<Maintenance>(choices[0]!.operation);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [outcome, setOutcome] = useState<MaintenanceOutcome | null>(null);
   const subtitle = `${connection.name} · ${qualifiedName(table)}`;
+  const labelOf = (op: Maintenance) => choices.find((c) => c.operation === op)?.label ?? "维护";
 
   const run = async () => {
     setBusy(true);
     setError(undefined);
     try {
       const result = await (await getBackend()).maintainTable(connection.id, table, operation);
-      setOutcome(result);
+      if (isDetached()) useUi.getState().notify(maintenanceNotice(table, labelOf(operation), result));
+      else setOutcome(result);
       // 分析、清理之后行数估算、大小都可能变了。
       await Promise.all([
         queryClient.invalidateQueries({
@@ -47,14 +55,16 @@ export function MaintainTableDialog({ connection, table, onClose }: MaintainTabl
         }),
       ]);
     } catch (e) {
-      setError(errorMessage(e));
+      const message = errorMessage(e);
+      if (isDetached()) useUi.getState().notify(`「${table.table}」${labelOf(operation)}失败：${message}`);
+      else setError(message);
     } finally {
       setBusy(false);
     }
   };
 
   if (outcome) {
-    const label = choices.find((c) => c.operation === operation)?.label ?? "维护";
+    const label = labelOf(operation);
     return (
       <Dialog
         open
@@ -85,12 +95,12 @@ export function MaintainTableDialog({ connection, table, onClose }: MaintainTabl
       title="维护表"
       subtitle={subtitle}
       width={520}
-      onClose={busy ? () => undefined : onClose}
+      onClose={busy ? detach : onClose}
       footer={
         <>
           <span className="footer-spacer" />
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
-            取消
+          <Button variant="ghost" onClick={busy ? detach : onClose}>
+            {busy ? "在后台继续" : "取消"}
           </Button>
           <Button variant="primary" autoFocus busy={busy} onClick={() => void run()}>
             执行

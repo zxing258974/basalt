@@ -133,11 +133,12 @@ PostgreSQL 一个连接只能连一个库,所以会话里按「库名」懒建�
 **表操作(对象树右键)**:表节点的菜单按「打开 / 设计 / 导入导出与转储 / 复制、改名、复制表名、维护 / 清空、截断、删除」分组,危险的放最后、标红,确认按钮不默认聚焦。
 - 清空与截断是同一个对话框,两种做法并排讲清区别:清空是 `DELETE FROM`(出错整体回滚、触发器照常、自增计数保留),截断是 `TRUNCATE`(快、自增从头开始;MySQL 隐式提交不能回滚;PostgreSQL 带 `RESTART IDENTITY`)。被别的表的外键引用时截断被数据库拒绝,原话后面补一句「可以改用清空」。SQLite 没有 TRUNCATE,截断是不带条件的 DELETE 再删掉 `sqlite_sequence` 里的计数。开着的数据页重读;它还有没提交的修改时确认框里先说会丢。
 - 改名:MySQL `RENAME TABLE`,另两家 `ALTER TABLE … RENAME TO`。这张表开着的数据页、设计器换成新名字的标签页(id 跟着变),对象树里选中新名字。
-- 转储 SQL 文件:建表语句和信息面板同一个来源(MySQL 的 SHOW CREATE TABLE、SQLite 的 `sqlite_master` 原文、PostgreSQL 按表结构生成),数据走导出同一套流式读取、SQL INSERT 写器、进度与取消。文件开头 `DROP TABLE IF EXISTS`;MySQL 表名不带库名、前后关开外键检查;PostgreSQL 先 `CREATE SEQUENCE IF NOT EXISTS` 再建表、`OWNED BY` 回 serial 列,带数据时最后把序列推到最大值;SQLite 的触发器放在数据之后,免得还原时触发。表名写进注释前去掉换行,不会被拼成可执行的语句。
-- 维护:MySQL 的 ANALYZE / CHECK / OPTIMIZE / REPAIR TABLE 走文本协议(CHECK TABLE 不能预备执行),结果集里的消息原样列出(表不存在、引擎不支持也是消息);PostgreSQL 的 VACUUM / ANALYZE / REINDEX、SQLite 的 ANALYZE / VACUUM 不返回消息,VACUUM、REINDEX 给出前后大小(PostgreSQL 是表连同索引,SQLite 是整个库文件)。VACUUM 不能在事务里,单独一条走简单查询协议。
+- 转储 SQL 文件:建表语句和信息面板同一个来源(MySQL 的 SHOW CREATE TABLE、SQLite 的 `sqlite_master` 原文、PostgreSQL 按表结构生成),数据走导出同一套流式读取、SQL INSERT 写器、进度与取消。文件开头 `DROP TABLE IF EXISTS`,它会连触发器一起删掉,所以触发器也转储,放在数据之后建(免得还原时触发);MySQL 的触发器按 information_schema 拼(不带 DEFINER),用 `DELIMITER ;;` 包起来,表名不带库名、前后关开外键检查;PostgreSQL 的外键在数据之后用 ALTER TABLE 加(自引用的行谁先谁后不碍事),先 `CREATE SEQUENCE IF NOT EXISTS` 再建表、`OWNED BY` 回 serial 列,带数据时把序列推到最大值。表名写进注释前去掉换行,不会被拼成可执行的语句。
+- 维护:MySQL 的 ANALYZE / CHECK / OPTIMIZE / REPAIR TABLE 走文本协议(CHECK TABLE 不能预备执行),结果集里的消息原样列出(表不存在、引擎不支持也是消息);PostgreSQL 的 VACUUM / ANALYZE / REINDEX、SQLite 的 ANALYZE / VACUUM 不返回消息,VACUUM、REINDEX 给出前后大小(PostgreSQL 是表连同索引,SQLite 是整个库文件)。VACUUM 不能在事务里,单独一条走简单查询协议。PostgreSQL 的 VACUUM、ANALYZE 没有权限时数据库只发警告(sqlx 拿不到)就跳过,所以先查是不是所有者 / 库的所有者 / 超级用户(17 起查 MAINTAIN 权限),不够就直接报错。
+- 清空、维护在大表上可能要很久:执行中可以「在后台继续」关掉对话框,做完在状态栏提示结果。
 - 复制表名:只复制名字,不带库名和引号;视图节点是「复制视图名」。
 
-**已知限制(表操作)**:转储一次只转一张表;PostgreSQL 的建表语句按表结构生成,不含 CHECK 约束、触发器、分区、权限,外键写在 CREATE TABLE 里(被引用的表不在库里时建不出来),GENERATED ALWAYS 的标识列转储成 BY DEFAULT,只重建归这张表所有的序列;MySQL 转储不含触发器(SHOW CREATE TABLE 里没有);截断不带 CASCADE;维护没有取消按钮(大表的 OPTIMIZE、VACUUM 要等它做完);PostgreSQL 的 VACUUM 在不是表的所有者时只发警告不报错,而警告(NOTICE)拿不到,界面上看起来像成功了;MySQL 改名后视图、存储过程里写的旧表名不会跟着改。
+**已知限制(表操作)**:转储一次只转一张表;PostgreSQL 的建表语句按表结构生成,不含 CHECK 约束、分区、权限、行级安全策略,GENERATED ALWAYS 的标识列转储成 BY DEFAULT,只重建归这张表所有的序列,触发器调用的函数不在文件里;PostgreSQL 的表被别的表的外键或视图引用时,文件开头的 DROP 会失败(不带 CASCADE,免得连带删掉别的表的约束),截断同理;维护、清空没有真正的取消,只能在后台继续;PostgreSQL 分区表的父表量出来的大小是 0;MySQL 改名后视图、存储过程里写的旧表名不会跟着改。
 
 **错误**:core 用 thiserror 定义错误;命令层统一转成 `{ code, message }` 给前端,message 写人话(连不上、认证失败、超时、SQL 错误原文)。
 

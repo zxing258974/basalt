@@ -25,6 +25,8 @@ const STEPS: Record<string, number> = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1
  */
 export function ChoiceList<T>({ label, choices, value, disabled, onChange }: ChoiceListProps<T>) {
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
+  // 选中后立刻聚焦到新卡片时,本次渲染的 checked 还是旧的:这次聚焦不能被当成「从组外进来」挪回去。
+  const selecting = useRef(false);
   const checked = Math.max(
     choices.findIndex((c) => c.value === value),
     0,
@@ -32,7 +34,9 @@ export function ChoiceList<T>({ label, choices, value, disabled, onChange }: Cho
 
   const select = (index: number) => {
     onChange(choices[index]!.value);
+    selecting.current = true;
     buttons.current[index]?.focus();
+    selecting.current = false;
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -43,6 +47,7 @@ export function ChoiceList<T>({ label, choices, value, disabled, onChange }: Cho
   };
 
   const onFocus = (index: number) => (event: FocusEvent<HTMLButtonElement>) => {
+    if (selecting.current) return;
     const fromInside = event.currentTarget.parentElement?.contains(event.relatedTarget);
     if (index !== checked && !fromInside) buttons.current[checked]?.focus();
   };

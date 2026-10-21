@@ -9,6 +9,7 @@ import { useUi } from "../../stores/ui";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { ChoiceList } from "./ChoiceList";
+import { useDetachable } from "./useDetachable";
 import {
   clearChoices,
   clearedNotice,
@@ -27,12 +28,16 @@ interface ClearTableDialogProps {
   onClose(): void;
 }
 
-/** 清空或截断表:两种做法放在一起,讲清楚区别。确认按钮不默认聚焦:回车不该清掉一张表。 */
+/**
+ * 清空或截断表:两种做法放在一起,讲清楚区别。确认按钮不默认聚焦:回车不该清掉一张表。
+ * 大表的 DELETE 要很久:执行中可以「在后台继续」,做完在状态栏提示。
+ */
 export function ClearTableDialog({ connection, table, mode: initialMode, onClose }: ClearTableDialogProps) {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState(initialMode);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const { detach, isDetached } = useDetachable(onClose);
   const choices = clearChoices(connection.driver);
   const choice = choices.find((c) => c.mode === mode) ?? choices[0]!;
   const hasData = useTabs((s) => s.tabs.some((t) => t.kind === "tableData" && tabsOfTable(t, connection.id, table)));
@@ -57,10 +62,11 @@ export function ClearTableDialog({ connection, table, mode: initialMode, onClose
         }),
       ]);
       useUi.getState().notify(clearedNotice(table, mode, outcome));
-      onClose();
+      if (!isDetached()) onClose();
     } catch (e) {
       const message = errorMessage(e);
-      setError(mode === "truncate" ? truncateRefusal(message) : message);
+      if (isDetached()) useUi.getState().notify(`${choice.label}表「${table.table}」失败：${message}`);
+      else setError(mode === "truncate" ? truncateRefusal(message) : message);
     } finally {
       setBusy(false);
     }
@@ -72,12 +78,12 @@ export function ClearTableDialog({ connection, table, mode: initialMode, onClose
       title={`${choice.label}表「${table.table}」？`}
       subtitle={`${connection.name} · ${qualifiedName(table)}`}
       width={500}
-      onClose={busy ? () => undefined : onClose}
+      onClose={busy ? detach : onClose}
       footer={
         <>
           <span className="footer-spacer" />
-          <Button variant="ghost" autoFocus onClick={onClose} disabled={busy}>
-            取消
+          <Button variant="ghost" autoFocus onClick={busy ? detach : onClose}>
+            {busy ? "在后台继续" : "取消"}
           </Button>
           <Button variant="danger" busy={busy} onClick={() => void run()}>
             {choice.label}

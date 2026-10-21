@@ -1,5 +1,5 @@
 // 单选卡片:Tab 只停在选中的那张、方向键换选项、焦点从组外进来时挪到选中的那张。
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
@@ -44,6 +44,15 @@ describe("ChoiceList", () => {
     screen.getByRole("radio", { name: /^甲/ }).focus();
     expect(screen.getByRole("radio", { name: /^丙/ })).toHaveFocus();
     await userEvent.setup().click(screen.getByRole("radio", { name: /^乙/ }));
+    expect(screen.getByRole("radio", { name: /^乙/ })).toHaveFocus();
+    expect(screen.getByRole("radio", { name: /^乙/ })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("keeps focus on the card just picked when a click does not focus it (WebKit)", () => {
+    render(<Harness initial="a" />);
+    screen.getByRole("button", { name: "外面" }).focus();
+    // WKWebView 里点按钮不会先把焦点给它:直接派发 click,焦点还在组外。
+    fireEvent.click(screen.getByRole("radio", { name: /^乙/ }));
     expect(screen.getByRole("radio", { name: /^乙/ })).toHaveFocus();
     expect(screen.getByRole("radio", { name: /^乙/ })).toHaveAttribute("aria-checked", "true");
   });

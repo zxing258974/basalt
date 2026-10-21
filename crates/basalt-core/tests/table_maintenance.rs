@@ -165,6 +165,29 @@ async fn postgres_vacuums_analyzes_and_reindexes() {
         .await
         .unwrap_err();
     assert_eq!(refused.code(), "unsupported");
+
+    // 不是所有者:数据库只会警告着跳过,这里先拦下来报错。
+    sqlx::raw_sql(
+        "DO $$ BEGIN
+           IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'basalt_more_reader') THEN
+             CREATE ROLE basalt_more_reader LOGIN PASSWORD 'reader';
+           END IF;
+         END $$;
+         GRANT SELECT ON public.more_tuned TO basalt_more_reader;",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let reader = SessionManager::default();
+    let mut connect = params(POSTGRES, "reader", Some(FIXTURE_DB));
+    connect.username = "basalt_more_reader".into();
+    reader.open(CONNECTION, &connect).await.unwrap();
+    let reader = reader.get(CONNECTION).await.unwrap();
+    for operation in [Maintenance::Vacuum, Maintenance::Analyze] {
+        let error = reader.maintain_table(&table, operation).await.unwrap_err();
+        assert_eq!(error.code(), "database", "{operation:?}");
+        assert!(error.to_string().contains("没有权限"), "{error}");
+    }
     pool.close().await;
 }
 

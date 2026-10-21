@@ -1,12 +1,14 @@
 //! 转储 SQL 文件:一张表的建表语句,连同(或不带)全部数据的 INSERT,还原时从头执行一遍即可。
 //!
 //! 建表语句和信息面板同一个来源(见 [`crate::table_info::CreateScript`]);数据走导出同一套流式读取、
-//! SQL INSERT 写器、进度与取消。开头先删掉同名表(DROP TABLE IF EXISTS),和 Navicat、mysqldump 一样。
+//! SQL INSERT 写器、进度与取消。开头先删掉同名表(DROP TABLE IF EXISTS),和 Navicat、mysqldump 一样;
+//! DROP 会把表上的触发器一起删掉,所以触发器要重建,一律放在数据之后,免得还原时每插一行就触发一次。
 //! - MySQL:SHOW CREATE TABLE 里的表名不带库名,INSERT 也不带,还原进哪个库看执行时的当前库;
-//!   前后关、开外键检查,被引用的表还没建也建得出来。
-//! - PostgreSQL:建表语句按表结构生成,带 schema。serial 列的序列不在建表语句里:先 CREATE SEQUENCE IF NOT EXISTS,
-//!   建表后再 OWNED BY 回这一列;带数据时最后把标识列、serial 的序列推到已有的最大值。
-//! - SQLite:`sqlite_master` 里的原文;触发器放到数据之后,免得还原时每插一行就触发一次。
+//!   前后关、开外键检查,被引用的表还没建也建得出来;触发器用 `DELIMITER ;;` 包起来。
+//! - PostgreSQL:建表语句按表结构生成,带 schema;外键在数据之后用 ALTER TABLE 加,自引用的行谁先谁后不碍事。
+//!   serial 列的序列不在建表语句里:先 CREATE SEQUENCE IF NOT EXISTS,建表后再 OWNED BY 回这一列;
+//!   带数据时把标识列、serial 的序列推到已有的最大值。
+//! - SQLite:`sqlite_master` 里的原文。
 
 use std::io::BufWriter;
 use std::path::Path;
@@ -53,6 +55,19 @@ fn comment_text(text: &str) -> String {
         .collect()
 }
 
+/// 建触发器的语句。MySQL 的触发器体里可能有分号(BEGIN … END),按 mysql 客户端的习惯临时把分隔符换成 `;;`
+/// (Navicat、mysql 命令行、Basalt 的查询页都认);另两家的客户端自己认得 BEGIN … END。
+fn triggers_sql(dialect: Dialect, triggers: &[String]) -> String {
+    if dialect != Dialect::Mysql {
+        return join_statements(triggers.iter().cloned());
+    }
+    let body: Vec<String> = triggers
+        .iter()
+        .map(|t| format!("{};;", t.trim_end()))
+        .collect();
+    format!("DELIMITER ;;\n{}\nDELIMITER ;", body.join("\n\n"))
+}
+
 /// INSERT 写进哪张表(加好引号),以及写在 INSERT 前后的内容。
 pub fn dump_frame(
     dialect: Dialect,
@@ -72,7 +87,7 @@ pub fn dump_frame(
             .iter()
             .map(|s| format!("CREATE SEQUENCE IF NOT EXISTS {}", s.sequence)),
     );
-    create.extend(script.before.iter().cloned());
+    create.extend(script.table.iter().cloned());
     create.extend(serials.iter().map(|s| {
         format!(
             "ALTER SEQUENCE {} OWNED BY {target}.{}",
@@ -91,22 +106,34 @@ pub fn dump_frame(
         before.push_str("-- 数据\n");
     }
 
+    // 插完数据之后:推序列、加外键、建触发器,每段已经带好结尾。
     let mut after: Vec<String> = Vec::new();
-    if with_data && dialect == Dialect::Postgres {
-        after.extend(
+    if with_data && dialect == Dialect::Postgres && !sequences.is_empty() {
+        after.push(join_statements(
             sequences
                 .iter()
                 .map(|s| reset_identity_sql(table, &s.column)),
-        );
+        ));
     }
-    after.extend(script.after.iter().cloned());
+    if !script.foreign_keys.is_empty() {
+        after.push(format!(
+            "-- 外键\n{}",
+            join_statements(script.foreign_keys.iter().cloned())
+        ));
+    }
+    if !script.triggers.is_empty() {
+        after.push(format!(
+            "-- 触发器\n{}",
+            triggers_sql(dialect, &script.triggers)
+        ));
+    }
     if dialect == Dialect::Mysql {
-        after.push("SET FOREIGN_KEY_CHECKS = 1".into());
+        after.push("SET FOREIGN_KEY_CHECKS = 1;".into());
     }
     let after = if after.is_empty() {
         String::new()
     } else {
-        format!("{}\n", join_statements(after))
+        format!("{}\n", after.join("\n\n"))
     };
     let name = [
         Some(&table.database),
@@ -182,20 +209,29 @@ mod tests {
         }
     }
 
-    fn script(before: &[&str], after: &[&str]) -> CreateScript {
+    fn script(table: &[&str], foreign_keys: &[&str], triggers: &[&str]) -> CreateScript {
+        let owned = |items: &[&str]| items.iter().map(|s| (*s).to_owned()).collect();
         CreateScript {
-            before: before.iter().map(|s| (*s).to_owned()).collect(),
-            after: after.iter().map(|s| (*s).to_owned()).collect(),
+            table: owned(table),
+            foreign_keys: owned(foreign_keys),
+            triggers: owned(triggers),
         }
     }
 
     #[test]
-    fn mysql_turns_foreign_key_checks_off_around_the_dump() {
+    fn mysql_turns_foreign_key_checks_off_and_wraps_triggers_in_a_delimiter() {
         let my = Dialect::Mysql;
         let (target, frame) = dump_frame(
             my,
             &table(my, "users"),
-            &script(&["CREATE TABLE `users` (\n  `id` int\n)"], &[]),
+            &script(
+                &["CREATE TABLE `users` (\n  `id` int\n)"],
+                &[],
+                &[
+                    "CREATE TRIGGER `a` BEFORE INSERT ON `users` FOR EACH ROW SET NEW.id = 1",
+                    "CREATE TRIGGER `b` AFTER DELETE ON `users` FOR EACH ROW BEGIN DELETE FROM log; END",
+                ],
+            ),
             &[],
             true,
         );
@@ -206,11 +242,25 @@ mod tests {
             "SET FOREIGN_KEY_CHECKS = 0;\n\n-- 表结构\nDROP TABLE IF EXISTS `users`;\n\n\
              CREATE TABLE `users` (\n  `id` int\n);\n\n-- 数据\n"
         );
-        assert_eq!(frame.after, "SET FOREIGN_KEY_CHECKS = 1;\n");
+        assert_eq!(
+            frame.after,
+            "-- 触发器\nDELIMITER ;;\n\
+             CREATE TRIGGER `a` BEFORE INSERT ON `users` FOR EACH ROW SET NEW.id = 1;;\n\n\
+             CREATE TRIGGER `b` AFTER DELETE ON `users` FOR EACH ROW BEGIN DELETE FROM log; END;;\n\
+             DELIMITER ;\n\nSET FOREIGN_KEY_CHECKS = 1;\n"
+        );
+        let (_, plain) = dump_frame(
+            my,
+            &table(my, "users"),
+            &script(&["CREATE TABLE t (a int)"], &[], &[]),
+            &[],
+            false,
+        );
+        assert_eq!(plain.after, "SET FOREIGN_KEY_CHECKS = 1;\n");
     }
 
     #[test]
-    fn postgres_recreates_serial_sequences_and_moves_them_past_the_data() {
+    fn postgres_recreates_sequences_and_adds_foreign_keys_and_triggers_after_the_data() {
         let pg = Dialect::Postgres;
         let sequences = [
             SequenceColumn {
@@ -224,7 +274,13 @@ mod tests {
                 identity: true,
             },
         ];
-        let create = script(&["CREATE TABLE \"public\".\"users\" (\"id\" integer)"], &[]);
+        let create = script(
+            &["CREATE TABLE \"public\".\"users\" (\"id\" integer)"],
+            &[
+                "ALTER TABLE \"public\".\"users\" ADD CONSTRAINT \"fk\" FOREIGN KEY (\"id\") REFERENCES \"public\".\"users\" (\"id\")",
+            ],
+            &["CREATE TRIGGER t BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION f()"],
+        );
         let users = table(pg, "users");
         let (target, frame) = dump_frame(pg, &users, &create, &sequences, true);
         assert_eq!(target, "\"public\".\"users\"");
@@ -235,18 +291,21 @@ mod tests {
              CREATE TABLE \"public\".\"users\" (\"id\" integer);\n\n\
              ALTER SEQUENCE public.users_id_seq OWNED BY \"public\".\"users\".\"id\";\n\n-- 数据\n"
         );
+        let later = "-- 外键\nALTER TABLE \"public\".\"users\" ADD CONSTRAINT \"fk\" \
+             FOREIGN KEY (\"id\") REFERENCES \"public\".\"users\" (\"id\");\n\n\
+             -- 触发器\nCREATE TRIGGER t BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION f();\n";
         assert_eq!(
             frame.after,
             format!(
-                "{};\n\n{};\n",
+                "{};\n\n{};\n\n{later}",
                 reset_identity_sql(&users, "id"),
                 reset_identity_sql(&users, "No")
             )
         );
-        // 只要结构:序列照样建,不推序列。
+        // 只要结构:序列照样建、不推序列;外键、触发器照样加。
         let (_, shape) = dump_frame(pg, &users, &create, &sequences, false);
         assert!(shape.before.ends_with("\"id\";\n\n"), "{}", shape.before);
-        assert_eq!(shape.after, "");
+        assert_eq!(shape.after, later);
     }
 
     #[test]
@@ -260,6 +319,7 @@ mod tests {
                     "CREATE TABLE notes (id INTEGER)",
                     "CREATE INDEX n ON notes (id)",
                 ],
+                &[],
                 &["CREATE TRIGGER t AFTER INSERT ON notes BEGIN SELECT 1; END"],
             ),
             &[],
@@ -273,7 +333,7 @@ mod tests {
         );
         assert_eq!(
             frame.after,
-            "CREATE TRIGGER t AFTER INSERT ON notes BEGIN SELECT 1; END;\n"
+            "-- 触发器\nCREATE TRIGGER t AFTER INSERT ON notes BEGIN SELECT 1; END;\n"
         );
     }
 

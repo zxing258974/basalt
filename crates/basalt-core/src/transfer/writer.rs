@@ -15,7 +15,7 @@ use crate::sql::Dialect;
 use crate::value::CellValue;
 
 /// 写文件的缓冲大小。
-const BUFFER_BYTES: usize = 256 * 1024;
+pub(super) const BUFFER_BYTES: usize = 256 * 1024;
 
 pub trait RowWriter: Send {
     /// 写文件头(列名行、BOM、开头的说明……)。

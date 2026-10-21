@@ -127,18 +127,47 @@ fn bare_words(sql: &str) -> Vec<String> {
 }
 
 /// 读到的行交给写器;第一次知道列时才写文件头(查询结果的列要等读到第一行)。
-struct WriterSink<'a> {
+pub(super) struct WriterSink<'a> {
     writer: Box<dyn RowWriter>,
-    begun: bool,
     rows: u64,
     cancel: &'a CancelFlag,
     throttle: Throttle<'a>,
 }
 
-impl WriterSink<'_> {
-    fn begin(&mut self, columns: &[ExportColumn]) -> CoreResult<()> {
-        self.begun = true;
+impl<'a> WriterSink<'a> {
+    pub(super) fn new(
+        writer: Box<dyn RowWriter>,
+        cancel: &'a CancelFlag,
+        throttle: Throttle<'a>,
+    ) -> Self {
+        Self {
+            writer,
+            rows: 0,
+            cancel,
+            throttle,
+        }
+    }
+
+    pub(super) fn begin(&mut self, columns: &[ExportColumn]) -> CoreResult<()> {
         self.writer.begin(columns)
+    }
+
+    /// 写文件尾、改名成目标文件,返回行数与文件大小。取消了就不落盘。
+    pub(super) fn finish(self, output: OutputFile) -> CoreResult<(u64, u64)> {
+        if self.cancel.is_cancelled() {
+            return Err(CoreError::Cancelled);
+        }
+        let Self {
+            mut writer,
+            mut throttle,
+            rows,
+            ..
+        } = self;
+        throttle.force(&Progress::new(Phase::Finishing, rows));
+        writer.finish()?;
+        drop(writer);
+        let bytes = output.commit()?;
+        Ok((rows, bytes))
     }
 }
 
@@ -189,13 +218,7 @@ pub async fn run_export(
         ));
     }
     let writer = open_writer(&output, &request.options, dialect, &sheet)?;
-    let mut sink = WriterSink {
-        writer,
-        begun: false,
-        rows: 0,
-        cancel,
-        throttle,
-    };
+    let mut sink = WriterSink::new(writer, cancel, throttle);
     let notice = match &request.source {
         ExportSource::Rows { columns, rows } => {
             sink.columns(columns)?;
@@ -212,37 +235,13 @@ pub async fn run_export(
             filter,
             sort,
         } => {
-            let columns = session.table_columns(table).await?;
-            let sql = select_all(dialect, table, &columns, filter.as_deref(), sort.as_ref())?;
-            let export: Vec<ExportColumn> = columns
-                .iter()
-                .map(|c| ExportColumn {
-                    is_generated: c.is_generated,
-                    ..ExportColumn::new(&c.name, &c.data_type)
-                })
-                .collect();
-            sink.begin(&export)?;
-            let editor = transfer_editor_id(job_id);
-            let scope = QueryScope {
-                database: Some(table.database.clone()),
-                schema: None,
+            let source = TableSource {
+                connection_id: &request.connection_id,
+                table,
+                filter: filter.as_deref(),
+                sort: sort.as_ref(),
             };
-            let query = StreamQuery::Table {
-                sql: &sql,
-                columns: &columns,
-            };
-            let result = stream(
-                sessions,
-                &editor,
-                &request.connection_id,
-                &scope,
-                cancel,
-                query,
-                &mut sink,
-            )
-            .await;
-            sessions.close_editor(&editor).await;
-            result?
+            stream_table(sessions, job_id, &source, &mut sink).await?
         }
         ExportSource::Query {
             editor_id,
@@ -268,25 +267,70 @@ pub async fn run_export(
             .await?
         }
     };
-    if cancel.is_cancelled() {
-        return Err(CoreError::Cancelled);
-    }
-    let rows = sink.rows;
-    let WriterSink {
-        mut writer,
-        mut throttle,
-        ..
-    } = sink;
-    throttle.force(&Progress::new(Phase::Finishing, rows));
-    writer.finish()?;
-    drop(writer);
-    let bytes = output.commit()?;
+    let (rows, bytes) = sink.finish(output)?;
     Ok(ExportOutcome {
         rows,
         bytes,
         path: request.path.clone(),
         notice,
     })
+}
+
+/// 要整张读出的表(或筛选、排序后的结果)。
+pub(super) struct TableSource<'a> {
+    pub connection_id: &'a str,
+    pub table: &'a TableRef,
+    pub filter: Option<&'a str>,
+    pub sort: Option<&'a SortSpec>,
+}
+
+/// 按表的列写文件头,再在这次任务的专用连接上把行流式读给 `sink`,读完关掉连接。返回准备连接时的提示。
+pub(super) async fn stream_table(
+    sessions: &SessionManager,
+    job_id: &str,
+    source: &TableSource<'_>,
+    sink: &mut WriterSink<'_>,
+) -> CoreResult<Option<String>> {
+    let session = sessions.get(source.connection_id).await?;
+    let table = source.table;
+    let columns = session.table_columns(table).await?;
+    let sql = select_all(
+        session.dialect(),
+        table,
+        &columns,
+        source.filter,
+        source.sort,
+    )?;
+    let export: Vec<ExportColumn> = columns
+        .iter()
+        .map(|c| ExportColumn {
+            is_generated: c.is_generated,
+            ..ExportColumn::new(&c.name, &c.data_type)
+        })
+        .collect();
+    sink.begin(&export)?;
+    let editor = transfer_editor_id(job_id);
+    let scope = QueryScope {
+        database: Some(table.database.clone()),
+        schema: None,
+    };
+    let query = StreamQuery::Table {
+        sql: &sql,
+        columns: &columns,
+    };
+    let cancel = sink.cancel;
+    let result = stream(
+        sessions,
+        &editor,
+        source.connection_id,
+        &scope,
+        cancel,
+        query,
+        sink,
+    )
+    .await;
+    sessions.close_editor(&editor).await;
+    result
 }
 
 /// 借连接、流式读完、还连接。返回准备连接时的提示。

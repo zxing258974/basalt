@@ -15,7 +15,9 @@ use basalt_core::query::saved::{SavedQueryInfo, SavedQueryRef};
 use basalt_core::query::{QueryScope, StatementOutcome};
 use basalt_core::table::{ApplyOutcome, ColumnInfo, PageRequest, RowChange, TablePage, TableRef};
 use basalt_core::table_info::TableDetails;
-use basalt_core::table_ops::CopyOutcome;
+use basalt_core::table_ops::maintenance::{Maintenance, MaintenanceOutcome};
+use basalt_core::table_ops::{ClearMode, ClearOutcome, CopyOutcome};
+use basalt_core::transfer::dump::DumpRequest;
 use basalt_core::transfer::export::{ExportOutcome, ExportRequest};
 use basalt_core::transfer::import::{self as transfer_import, ImportPreview, ImportRequest};
 use basalt_core::transfer::progress::Progress;
@@ -191,6 +193,36 @@ pub async fn copy_table(
     with_data: bool,
 ) -> CommandResult<CopyOutcome> {
     service::copy_table(&state, &id, &table, &name, with_data).await
+}
+
+#[tauri::command]
+pub async fn clear_table(
+    state: State<'_, AppState>,
+    id: String,
+    table: TableRef,
+    mode: ClearMode,
+) -> CommandResult<ClearOutcome> {
+    service::clear_table(&state, &id, &table, mode).await
+}
+
+#[tauri::command]
+pub async fn rename_table(
+    state: State<'_, AppState>,
+    id: String,
+    table: TableRef,
+    name: String,
+) -> CommandResult<TableRef> {
+    service::rename_table(&state, &id, &table, &name).await
+}
+
+#[tauri::command]
+pub async fn maintain_table(
+    state: State<'_, AppState>,
+    id: String,
+    table: TableRef,
+    operation: Maintenance,
+) -> CommandResult<MaintenanceOutcome> {
+    service::maintain_table(&state, &id, &table, operation).await
 }
 
 #[tauri::command]
@@ -451,6 +483,17 @@ pub async fn export_data(
 ) -> CommandResult<ExportOutcome> {
     let progress = progress_events(app, job_id.clone());
     service::transfer::export_data(&state, &job_id, &request, &progress).await
+}
+
+#[tauri::command]
+pub async fn dump_table(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    job_id: String,
+    request: DumpRequest,
+) -> CommandResult<ExportOutcome> {
+    let progress = progress_events(app, job_id.clone());
+    service::transfer::dump_table(&state, &job_id, &request, &progress).await
 }
 
 #[tauri::command]

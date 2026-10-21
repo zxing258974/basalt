@@ -128,6 +128,29 @@ async fn export_then_import_through_the_service_and_report_progress() {
 }
 
 #[tokio::test]
+async fn dump_goes_through_the_job_registry() {
+    let h = harness().await;
+    let path = h.dir.path().join("notes.sql");
+    let request = DumpRequest {
+        connection_id: h.id.clone(),
+        table: table("notes"),
+        with_data: true,
+        path: path.to_string_lossy().into_owned(),
+    };
+    let seen = Mutex::new(Vec::new());
+    let progress = |p: &Progress| seen.lock().unwrap().push(p.phase);
+    let outcome = dump_table(&h.state, "dump-1", &request, &progress)
+        .await
+        .unwrap();
+    assert_eq!(outcome.rows, 2);
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains("CREATE TABLE notes"), "{text}");
+    assert!(text.contains("(1, '第一条'),\n  (2, '');"), "{text}");
+    assert!(seen.lock().unwrap().contains(&Phase::Finishing));
+    assert!(!cancel_transfer(&h.state, "dump-1").await.unwrap());
+}
+
+#[tokio::test]
 async fn jobs_can_be_cancelled_by_id_and_ids_are_unique() {
     let h = harness().await;
     let cancel = h

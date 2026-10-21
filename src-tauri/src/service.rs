@@ -17,7 +17,9 @@ pub mod llm;
 pub mod query;
 mod query_import;
 mod table_ops;
-pub use table_ops::{copy_table, drop_table, table_details};
+pub use table_ops::{
+    clear_table, copy_table, drop_table, maintain_table, rename_table, table_details,
+};
 pub mod transfer;
 pub use query_import::{import_navicat_queries, scan_navicat_queries};
 

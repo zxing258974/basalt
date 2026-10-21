@@ -1,5 +1,6 @@
 //! SQL INSERT 写器。按连接的方言给标识符加引号、写字面量;每 N 行合成一条 INSERT。
-//! 生成列写不进去,跳过;文件一律 UTF-8,开头声明客户端编码。
+//! 生成列写不进去,跳过;文件一律 UTF-8,开头声明客户端编码。转储(见 [`super::dump`])在 INSERT 前后
+//! 另外写建表语句等,由 [`SqlFrame`] 给出。
 
 use std::io::Write;
 
@@ -54,10 +55,33 @@ pub fn value_literal(dialect: Dialect, value: &CellValue) -> Result<String, Stri
     })
 }
 
+/// 写在 INSERT 前后的内容。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SqlFrame {
+    /// 第一行注释的内容。
+    pub title: String,
+    /// 声明客户端编码那一行之后、第一条 INSERT 之前。
+    pub before: String,
+    /// 最后一条 INSERT 之后。
+    pub after: String,
+}
+
+impl Default for SqlFrame {
+    fn default() -> Self {
+        Self {
+            title: "由 Basalt 导出".into(),
+            before: String::new(),
+            after: String::new(),
+        }
+    }
+}
+
 pub struct SqlWriter<W: Write> {
     out: W,
     dialect: Dialect,
-    table: String,
+    /// INSERT INTO 后面的表名,已经加好引号。
+    target: String,
+    frame: SqlFrame,
     rows_per_statement: u64,
     /// 要写的列在行里的位置(跳过生成列)与它们的名字。
     picked: Vec<usize>,
@@ -69,10 +93,29 @@ pub struct SqlWriter<W: Write> {
 
 impl<W: Write> SqlWriter<W> {
     pub fn new(out: W, dialect: Dialect, table: &str, rows_per_statement: u32) -> Self {
+        let target = quote_ident(dialect, table);
+        Self::framed(
+            out,
+            dialect,
+            target,
+            rows_per_statement,
+            SqlFrame::default(),
+        )
+    }
+
+    /// `target` 是加好引号的表名(可以带 schema)。
+    pub fn framed(
+        out: W,
+        dialect: Dialect,
+        target: String,
+        rows_per_statement: u32,
+        frame: SqlFrame,
+    ) -> Self {
         Self {
             out,
             dialect,
-            table: table.to_owned(),
+            target,
+            frame,
             rows_per_statement: u64::from(rows_per_statement.max(1)),
             picked: Vec::new(),
             names: Vec::new(),
@@ -105,15 +148,16 @@ impl<W: Write + Send> RowWriter for SqlWriter<W> {
             .collect();
         self.insert_head = format!(
             "INSERT INTO {} ({}) VALUES\n  ",
-            quote_ident(self.dialect, &self.table),
+            self.target,
             list.join(", ")
         );
-        let preamble = match self.dialect {
-            Dialect::Mysql => "-- 由 Basalt 导出\nSET NAMES utf8mb4;\n\n",
-            Dialect::Postgres => "-- 由 Basalt 导出\nSET client_encoding = 'UTF8';\n\n",
-            Dialect::Sqlite => "-- 由 Basalt 导出\n\n",
+        let encoding = match self.dialect {
+            Dialect::Mysql => "SET NAMES utf8mb4;\n\n",
+            Dialect::Postgres => "SET client_encoding = 'UTF8';\n\n",
+            Dialect::Sqlite => "\n",
         };
-        self.write(preamble)
+        let preamble = format!("-- {}\n{encoding}{}", self.frame.title, self.frame.before);
+        self.write(&preamble)
     }
 
     fn write_row(&mut self, row: &[CellValue]) -> CoreResult<()> {
@@ -146,6 +190,10 @@ impl<W: Write + Send> RowWriter for SqlWriter<W> {
     fn finish(&mut self) -> CoreResult<()> {
         if !self.rows.is_multiple_of(self.rows_per_statement) {
             self.write(";\n")?;
+        }
+        if !self.frame.after.is_empty() {
+            let after = format!("\n{}", self.frame.after);
+            self.write(&after)?;
         }
         self.out.flush().map_err(file_error)
     }
@@ -208,6 +256,30 @@ mod tests {
         assert!(exact.ends_with("VALUES\n  (1);\n"), "{exact}");
         let empty = export(Dialect::Sqlite, 10, &columns, &[]);
         assert_eq!(empty, "-- 由 Basalt 导出\n\n");
+    }
+
+    #[test]
+    fn a_frame_wraps_the_inserts() {
+        let frame = SqlFrame {
+            title: "由 Basalt 转储".into(),
+            before: "CREATE TABLE t (id int);\n\n".into(),
+            after: "SELECT 1;\n".into(),
+        };
+        let mut writer = SqlWriter::framed(
+            Vec::new(),
+            Dialect::Postgres,
+            "\"s\".\"t\"".into(),
+            10,
+            frame,
+        );
+        writer.begin(&[ExportColumn::new("id", "int")]).unwrap();
+        writer.write_row(&[CellValue::Int(7)]).unwrap();
+        writer.finish().unwrap();
+        assert_eq!(
+            String::from_utf8(writer.into_inner()).unwrap(),
+            "-- 由 Basalt 转储\nSET client_encoding = 'UTF8';\n\nCREATE TABLE t (id int);\n\n\
+             INSERT INTO \"s\".\"t\" (\"id\") VALUES\n  (7);\n\nSELECT 1;\n"
+        );
     }
 
     #[test]

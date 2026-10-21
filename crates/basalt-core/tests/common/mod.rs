@@ -109,3 +109,21 @@ pub async fn sqlite_file(dir: &Path, name: &str, script: &str) -> String {
     pool.close().await;
     path.to_string_lossy().into_owned()
 }
+
+/// 连上 PostgreSQL 的测试库;单独跑某个测试文件时库可能还没建,先建出来。
+pub async fn postgres_fixture_pool() -> sqlx::PgPool {
+    if let Ok(pool) = sqlx::PgPool::connect(&postgres_url(FIXTURE_DB)).await {
+        return pool;
+    }
+    let admin = sqlx::PgPool::connect(&postgres_url("postgres"))
+        .await
+        .unwrap();
+    // 别的测试文件可能同时在建:已经有了不算错。
+    let _ = sqlx::raw_sql(&format!("CREATE DATABASE {FIXTURE_DB}"))
+        .execute(&admin)
+        .await;
+    admin.close().await;
+    sqlx::PgPool::connect(&postgres_url(FIXTURE_DB))
+        .await
+        .unwrap()
+}

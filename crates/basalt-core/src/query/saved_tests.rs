@@ -50,15 +50,21 @@ fn windows_segments_also_avoid_what_windows_rejects() {
     assert_eq!(encode_segment_for("con", true), "%63on");
     assert_eq!(encode_segment_for("con", false), "con");
     assert_eq!(encode_segment_for("shop", true), "shop");
+    // 结尾的点在 Windows 上会被悄悄去掉,也要编码。
+    assert_eq!(encode_segment_for("..", true), "%2E%2E");
 }
 
 #[test]
 fn segments_are_percent_encoded_only_where_needed() {
-    assert_eq!(encode_segment("shop"), "shop");
-    assert_eq!(encode_segment("库 名"), "库 名");
-    assert_eq!(encode_segment("a/b%c"), "a%2Fb%25c");
-    assert_eq!(encode_segment(".."), "%2E.");
-    assert_eq!(encode_segment(""), "%");
+    assert_eq!(encode_segment_for("shop", false), "shop");
+    assert_eq!(encode_segment_for("库 名", false), "库 名");
+    assert_eq!(encode_segment_for("a/b%c", false), "a%2Fb%25c");
+    assert_eq!(encode_segment_for("..", false), "%2E.");
+    assert_eq!(encode_segment_for("", false), "%");
+    assert_eq!(
+        encode_segment(".."),
+        encode_segment_for("..", cfg!(windows))
+    );
 }
 
 #[test]

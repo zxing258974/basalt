@@ -49,6 +49,16 @@ export interface ClearTableOutcome {
   rows: number | null;
 }
 
+/** 外键的 ON DELETE 规则。 */
+export type OnDelete = "cascade" | "setNull" | "setDefault" | "restrict" | "noAction";
+
+/** 别的表上引用这张表的外键:清空时按规则连带改动那张表,截断时会被拒绝。name:SQLite 的外键没有名字。 */
+export interface ReferencingKey {
+  table: TableRef;
+  name: string | null;
+  onDelete: OnDelete;
+}
+
 /** 表的维护,各家能做的不一样(见 tableOpsModel 的 MAINTENANCE)。 */
 export type Maintenance = "analyze" | "check" | "optimize" | "repair" | "vacuum" | "reindex";
 

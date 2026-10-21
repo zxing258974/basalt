@@ -1,6 +1,8 @@
 //! 转储 SQL 文件在真库上:转储出来的文件在同一个库里执行一遍(先删掉原表再重建),数据逐行一样,
 //! 自增、标识列、serial 接着往下编,唯一索引、注释都在;SQLite 的触发器在数据之后才建,还原时不会触发。
-//! 只转储结构得到空表;取消时不留文件。
+//! 只转储结构得到空表;取消时不留文件。MySQL 在别的 sql_mode(NO_BACKSLASH_ESCAPES、严格模式)和时区下还原也一样:
+//! 自增列的 0 不被换成新编号、反斜杠不翻倍、TIMESTAMP 不差几个小时。SQLite 在 Basalt 自己(开着外键)的连接上
+//! 还原,不会连带删掉引用它的表里的行。PostgreSQL 的建表语句、触发器里的名字都带 schema。
 //! MySQL / MariaDB / PostgreSQL 需要 BASALT_IT 选中目标(见 common);SQLite 总是跑。
 
 mod common;
@@ -31,6 +33,7 @@ const MYSQL_FIXTURE: &str = r#"
       at DATETIME(3),
       doc JSON,
       parent_id INT,
+      seen TIMESTAMP NULL,
       label VARCHAR(50) AS (CONCAT('#', name)) VIRTUAL,
       UNIQUE KEY more_dump_name (name),
       CONSTRAINT more_dump_parent_fk FOREIGN KEY (parent_id) REFERENCES basalt_ops_more.more_dump_parent (id)
@@ -39,9 +42,12 @@ const MYSQL_FIXTURE: &str = r#"
       FOR EACH ROW SET NEW.name = TRIM(NEW.name);
     CREATE TRIGGER basalt_ops_more.more_dump_log AFTER INSERT ON basalt_ops_more.more_dump
       FOR EACH ROW BEGIN INSERT INTO basalt_ops_more.more_dump_log VALUES (NEW.name); END;
-    INSERT INTO basalt_ops_more.more_dump (id, name, price, data, at, doc, parent_id) VALUES
-      (1, 'O''Brien \\ "q"\n第二行', 12.50, X'00FF', '2026-10-21 08:05:09.123', '{"a": [1, "b"]}', 1),
-      (7, '张三', NULL, NULL, NULL, NULL, NULL);
+    SET SESSION sql_mode = CONCAT(@@sql_mode, ',NO_AUTO_VALUE_ON_ZERO');
+    INSERT INTO basalt_ops_more.more_dump (id, name, price, data, at, doc, parent_id, seen) VALUES
+      (0, '零', NULL, NULL, NULL, NULL, NULL, NULL),
+      (1, 'O''Brien \\ "q"\n第二行', 12.50, X'00FF', '2026-10-21 08:05:09.123', '{"a": [1, "b"]}', 1,
+       FROM_UNIXTIME(1761000000)),
+      (7, '张三', NULL, NULL, NULL, NULL, NULL, NULL);
 "#;
 
 const PG_FIXTURE: &str = r#"
@@ -85,6 +91,8 @@ const SQLITE_FIXTURE: &str = r#"
     CREATE TRIGGER more_dump_log AFTER INSERT ON more_dump BEGIN INSERT INTO more_log VALUES (NEW.name); END;
     INSERT INTO more_dump (id, name, price, data) VALUES
       (1, 'O''Brien "q"' || char(10) || '第二行', 12.5, X'00FF'), (7, '张三', NULL, NULL);
+    CREATE TABLE more_dump_child (id INTEGER PRIMARY KEY, dump_id INTEGER REFERENCES more_dump (id) ON DELETE CASCADE);
+    INSERT INTO more_dump_child VALUES (1, 1), (2, 7);
 "#;
 
 struct Case<'a> {
@@ -94,6 +102,8 @@ struct Case<'a> {
     /// 带库名(schema)、加了引号的表名。
     quoted: String,
     label: &'a str,
+    /// 夹具里的行数。
+    rows: u64,
 }
 
 impl Case<'_> {
@@ -130,7 +140,7 @@ impl Case<'_> {
         .unwrap();
         assert_eq!(
             outcome.rows,
-            if with_data { 2 } else { 0 },
+            if with_data { self.rows } else { 0 },
             "{}",
             self.label
         );
@@ -152,12 +162,18 @@ fn without_delimiters(sql: &str) -> String {
         .join("\n")
 }
 
-/// 触发器还在(`count` 个),还原时没有触发:日志表里是夹具插的 2 行,加上还原后插「新」那 1 行。
+/// 触发器还在(`count` 个),还原时没有触发:日志表里是夹具插的那几行,加上还原后插「新」那 1 行。
 async fn assert_triggers_came_back(case: &Case<'_>, triggers: &str, log: &str, count: i64) {
     let (_, found) = case.rows(triggers).await;
     assert_eq!(found, [[CellValue::Int(count)]], "{}：触发器", case.label);
     let (_, logged) = case.rows(log).await;
-    assert_eq!(logged, [[CellValue::Int(3)]], "{}：日志表", case.label);
+    let expected = i64::try_from(case.rows).unwrap() + 1;
+    assert_eq!(
+        logged,
+        [[CellValue::Int(expected)]],
+        "{}：日志表",
+        case.label
+    );
 }
 
 /// 转储、执行、比较。`restore` 在库里执行一段 SQL 文本;`insert` 插一行不带 id 的新行。
@@ -170,7 +186,7 @@ where
     let dir = tempfile::tempdir().unwrap();
     let select = format!("SELECT {columns} FROM {} ORDER BY id", case.quoted);
     let (_, before) = case.rows(&select).await;
-    assert_eq!(before.len(), 2, "{label}");
+    assert_eq!(before.len() as u64, case.rows, "{label}");
 
     let full = case.dump(&dir.path().join("full.sql"), true).await;
     assert!(full.starts_with("-- 由 Basalt 转储："), "{label}：{full}");
@@ -235,20 +251,33 @@ async fn mysql_family_dumps_restore_into_the_same_table() {
             },
             quoted: "`basalt_ops_more`.`more_dump`".into(),
             label: target.name,
+            rows: 3,
         };
+        // TIMESTAMP 按 UTC 写进文件。
+        let text = case
+            .dump(&tempfile::tempdir().unwrap().path().join("utc.sql"), true)
+            .await;
+        assert!(
+            text.contains("'2025-10-20 22:40:00'"),
+            "{}：{text}",
+            target.name
+        );
         exercise(
             &case,
             |sql| {
                 let pool = pool.clone();
                 async move {
-                    sqlx::raw_sql(&without_delimiters(&sql))
+                    // 还原的连接开着 NO_BACKSLASH_ESCAPES、严格模式,时区也不是 UTC:文件自己把这些固定住。
+                    let hostile = "SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES,STRICT_ALL_TABLES';\n\
+                                   SET time_zone = '+05:00';\n";
+                    sqlx::raw_sql(&format!("{hostile}{}", without_delimiters(&sql)))
                         .execute(&pool)
                         .await
                         .unwrap();
                 }
             },
             "INSERT INTO `basalt_ops_more`.`more_dump` (name) VALUES ('新')",
-            "id, name, price, data, at, doc, parent_id, label",
+            "id, name, price, data, at, doc, parent_id, seen, label",
         )
         .await;
         // 外键约束跟着建表语句回来了。
@@ -304,10 +333,16 @@ async fn postgres_dumps_restore_with_sequences_and_comments() {
         },
         quoted: "\"public\".\"more_dump\"".into(),
         label: "PostgreSQL",
+        rows: 2,
     };
-    // 先单独看一遍标识列:还原后接着往下编。
+    // 先单独看一遍标识列:还原后接着往下编。名字都带 schema(读的时候 search_path 是空的)。
     let dir = tempfile::tempdir().unwrap();
     let sql = case.dump(&dir.path().join("identity.sql"), true).await;
+    assert!(
+        sql.contains("nextval('public.more_dump_id_seq'::regclass)")
+            && sql.contains("EXECUTE FUNCTION public.more_dump_log()"),
+        "{sql}"
+    );
     sqlx::raw_sql(&sql).execute(&pool).await.unwrap();
     let (id, no): (i32, i32) =
         sqlx::query_as("INSERT INTO public.more_dump (name) VALUES ('新') RETURNING id, no")
@@ -371,9 +406,6 @@ async fn sqlite_dumps_restore_and_create_triggers_after_the_data() {
         .open(CONNECTION, &sqlite_params(&path))
         .await
         .unwrap();
-    let pool = sqlx::SqlitePool::connect(&format!("sqlite://{path}"))
-        .await
-        .unwrap();
     let case = Case {
         sessions: &sessions,
         scope: QueryScope::default(),
@@ -384,13 +416,19 @@ async fn sqlite_dumps_restore_and_create_triggers_after_the_data() {
         },
         quoted: "\"main\".\"more_dump\"".into(),
         label: "SQLite",
+        rows: 2,
     };
     exercise(
         &case,
+        // 像在 Basalt 的查询页里那样,在它自己(开着外键)的连接上执行。
         |sql| {
-            let pool = pool.clone();
+            let sessions = &sessions;
             async move {
-                sqlx::raw_sql(&sql).execute(&pool).await.unwrap();
+                let outcome = sessions
+                    .run_query("restore", CONNECTION, &QueryScope::default(), &sql)
+                    .await
+                    .unwrap();
+                assert_eq!(outcome.status, OutcomeStatus::Ok, "{outcome:?}");
             }
         },
         "INSERT INTO more_dump (name) VALUES ('新')",
@@ -401,7 +439,9 @@ async fn sqlite_dumps_restore_and_create_triggers_after_the_data() {
     let (_, log) = case.rows("SELECT msg FROM more_log ORDER BY rowid").await;
     assert_eq!(log.len(), 3, "{log:?}");
     assert_eq!(log[2][0], CellValue::Text("新".into()));
-    pool.close().await;
+    // 删表重建时没有连带删掉引用它的行(文件前后关、开外键)。
+    let (_, children) = case.rows("SELECT count(*) FROM more_dump_child").await;
+    assert_eq!(children, [[CellValue::Int(2)]]);
 }
 
 #[tokio::test]

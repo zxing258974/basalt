@@ -1,5 +1,6 @@
 //! 表级操作要用到的执行方式:逐条执行并带回每条影响的行数、在一个事务里执行、不进事务执行(VACUUM),
-//! 以及 SQLite 建表、建索引语句的原文、PostgreSQL 标识列和维护前后的大小。语句由 [`crate::table_ops`] 生成。
+//! 以及 SQLite 建表、建索引语句的原文、PostgreSQL 标识列、维护的权限与前后大小。语句由 [`crate::table_ops`] 生成;
+//! 转储要读的建表语句、触发器、序列在 [`super::dump`]。
 
 use sqlx::{Executor, Row};
 
@@ -11,7 +12,6 @@ use crate::error::{CoreError, CoreResult};
 use crate::sql::{Dialect, quote_ident};
 use crate::table::TableRef;
 use crate::table_ops::maintenance::MaintenanceMessage;
-use crate::transfer::dump::SequenceColumn;
 
 /// 一个文本格:列是二进制排序规则时 MySQL 以字节返回。
 fn text_at(row: &sqlx::mysql::MySqlRow, index: usize) -> Result<String, sqlx::Error> {
@@ -41,37 +41,6 @@ impl MysqlSession {
             counts.push(done.rows_affected());
         }
         Ok(counts)
-    }
-
-    /// 表上的触发器,按执行顺序拼成 CREATE TRIGGER(不带 DEFINER,还原时归执行的用户;表名不带库名,和转储的建表语句一致)。
-    pub(crate) async fn trigger_statements(&self, table: &TableRef) -> CoreResult<Vec<String>> {
-        let rows = sqlx::query(
-            "SELECT CAST(TRIGGER_NAME AS CHAR) AS name, CAST(ACTION_TIMING AS CHAR) AS timing,
-                    CAST(EVENT_MANIPULATION AS CHAR) AS event, CAST(ACTION_STATEMENT AS CHAR) AS body
-             FROM information_schema.TRIGGERS
-             WHERE EVENT_OBJECT_SCHEMA = ? AND EVENT_OBJECT_TABLE = ?
-             ORDER BY ACTION_TIMING, EVENT_MANIPULATION, ACTION_ORDER",
-        )
-        .bind(&table.database)
-        .bind(&table.table)
-        .fetch_all(&self.pool)
-        .await?;
-        let d = Dialect::Mysql;
-        rows.iter()
-            .map(|row| {
-                let name: String = row.try_get("name")?;
-                let timing: String = row.try_get("timing")?;
-                let event: String = row.try_get("event")?;
-                let body: String = row.try_get("body")?;
-                Ok(format!(
-                    "CREATE TRIGGER {} {timing} {event} ON {} FOR EACH ROW {}",
-                    quote_ident(d, &name),
-                    quote_ident(d, &table.table),
-                    body.trim().trim_end_matches(';')
-                ))
-            })
-            .collect::<Result<_, sqlx::Error>>()
-            .map_err(CoreError::from)
     }
 
     /// ANALYZE / CHECK / OPTIMIZE / REPAIR TABLE 返回的消息(Table、Op、Msg_type、Msg_text 四列)。
@@ -140,69 +109,19 @@ impl PgSession {
         Ok(names)
     }
 
-    /// 表上用户建的触发器(不含外键约束自带的内部触发器)。
-    pub(crate) async fn trigger_statements(&self, table: &TableRef) -> CoreResult<Vec<String>> {
-        let schema = table.schema.as_deref().unwrap_or("public");
-        let pool = self.pool(&table.database).await?;
-        let statements = sqlx::query_scalar(
-            "SELECT pg_get_triggerdef(t.oid, true) FROM pg_trigger t
-             JOIN pg_class c ON c.oid = t.tgrelid
-             JOIN pg_namespace n ON n.oid = c.relnamespace
-             WHERE n.nspname = $1 AND c.relname = $2 AND NOT t.tgisinternal
-             ORDER BY t.tgname",
-        )
-        .bind(schema)
-        .bind(&table.table)
-        .fetch_all(&pool)
-        .await?;
-        Ok(statements)
-    }
-
-    /// 带序列的列(标识列、serial 列),转储时要重建序列、把它推到最大值。
-    pub(crate) async fn sequence_columns(
-        &self,
-        table: &TableRef,
-    ) -> CoreResult<Vec<SequenceColumn>> {
-        let schema = table.schema.as_deref().unwrap_or("public");
-        let pool = self.pool(&table.database).await?;
-        let rows = sqlx::query(
-            "SELECT * FROM (
-               SELECT a.attname::text AS name, a.attidentity <> '' AS identity, a.attnum,
-                      pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) AS sequence
-               FROM pg_attribute a
-               JOIN pg_class c ON c.oid = a.attrelid
-               JOIN pg_namespace n ON n.oid = c.relnamespace
-               WHERE n.nspname = $1 AND c.relname = $2 AND a.attnum > 0 AND NOT a.attisdropped
-             ) s WHERE sequence IS NOT NULL ORDER BY attnum",
-        )
-        .bind(schema)
-        .bind(&table.table)
-        .fetch_all(&pool)
-        .await?;
-        rows.iter()
-            .map(|row| {
-                Ok(SequenceColumn {
-                    column: row.try_get("name")?,
-                    sequence: row.try_get("sequence")?,
-                    identity: row.try_get("identity")?,
-                })
-            })
-            .collect::<Result<_, sqlx::Error>>()
-            .map_err(CoreError::from)
-    }
-
-    /// 能不能对这张表做 VACUUM、ANALYZE:要是表的所有者、库的所有者或超级用户,PostgreSQL 17 起也可以是
-    /// 有 MAINTAIN 权限的用户。没有权限时数据库不报错,只发一条警告就跳过这张表,所以要先问。
+    /// 能不能对这张表做 VACUUM、ANALYZE:要是表的所有者、库的所有者(共享的系统表除外)或超级用户,
+    /// PostgreSQL 17 起也可以是有 MAINTAIN 权限的用户。没有权限时数据库不报错,只发一条警告就跳过这张表,
+    /// 所以要先问。
     pub(crate) async fn can_maintain(&self, table: &TableRef) -> CoreResult<bool> {
         let schema = table.schema.as_deref().unwrap_or("public");
         let pool = self.pool(&table.database).await?;
         let allowed: Option<bool> = sqlx::query_scalar(
-            "SELECT CASE WHEN current_setting('server_version_num')::int >= 170000
-                         THEN has_table_privilege(c.oid, 'MAINTAIN')
-                         ELSE pg_has_role(c.relowner, 'USAGE')
-                              OR pg_has_role(d.datdba, 'USAGE')
-                              OR (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)
-                    END
+            "SELECT (pg_has_role(d.datdba, 'USAGE') AND NOT c.relisshared)
+                    OR CASE WHEN current_setting('server_version_num')::int >= 170000
+                            THEN has_table_privilege(c.oid, 'MAINTAIN')
+                            ELSE pg_has_role(c.relowner, 'USAGE')
+                                 OR (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)
+                       END
              FROM pg_class c
              JOIN pg_namespace n ON n.oid = c.relnamespace
              CROSS JOIN pg_database d
@@ -227,12 +146,17 @@ impl PgSession {
         Ok(())
     }
 
-    /// 表连同索引、TOAST 的大小(字节)。
+    /// 表连同索引、TOAST 的大小(字节)。分区表本身不存数据(量出来总是 0),要把各个分区加起来。
     pub(crate) async fn total_relation_size(&self, table: &TableRef) -> CoreResult<u64> {
         let schema = table.schema.as_deref().unwrap_or("public");
         let pool = self.pool(&table.database).await?;
         let size: Option<i64> = sqlx::query_scalar(
-            "SELECT pg_total_relation_size(c.oid) FROM pg_class c
+            "SELECT CASE WHEN c.relkind = 'p'
+                         THEN (SELECT COALESCE(sum(pg_total_relation_size(p.relid)), 0)::bigint
+                               FROM pg_partition_tree(c.oid::regclass) p)
+                         ELSE pg_total_relation_size(c.oid)
+                    END
+             FROM pg_class c
              JOIN pg_namespace n ON n.oid = c.relnamespace
              WHERE n.nspname = $1 AND c.relname = $2",
         )

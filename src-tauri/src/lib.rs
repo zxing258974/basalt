@@ -86,6 +86,7 @@ pub fn run() {
             commands::clear_table,
             commands::rename_table,
             commands::maintain_table,
+            commands::table_references,
             commands::table_details,
             commands::list_llm_models,
             commands::save_llm_model,

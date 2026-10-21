@@ -4,7 +4,7 @@ import { createMockQueries } from "./mock/queryMock";
 import { seedTable } from "./mock/seedTables";
 import { createMockTables } from "./mock/tableData";
 import { createMockDesigns } from "./mock/tableDesign";
-import { mockMaintenance } from "./mock/maintenance";
+import { mockMaintenance, mockReferences } from "./mock/maintenance";
 import { mockTableDetails } from "./mock/tableDetails";
 import { createMockTransfer } from "./mock/transferMock";
 import { createMockLlm } from "./mock/llmMock";
@@ -339,6 +339,11 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       designs.rename(id, config.driver, ref, target);
       tableData.rename(id, ref, target);
       return { ...ref, table: target };
+    },
+    async tableReferences(id, ref) {
+      await wait();
+      requireOpen(id);
+      return mockReferences(ref);
     },
     async maintainTable(id, ref, operation) {
       await wait(200);

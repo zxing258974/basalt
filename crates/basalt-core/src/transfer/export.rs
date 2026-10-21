@@ -9,7 +9,7 @@ use super::progress::{CancelFlag, Phase, Progress, ProgressSink, Throttle};
 use super::writer::{OutputFile, RowWriter, open_writer};
 use super::{ExportColumn, ExportFormat, ExportOptions};
 use crate::error::{CoreError, CoreResult};
-use crate::query::lease::{RowSink, StreamEnd, StreamQuery};
+use crate::query::lease::{ExecError, RowSink, StreamEnd, StreamQuery};
 use crate::query::{QueryScope, ResultColumn, leading_keyword};
 use crate::session::SessionManager;
 use crate::sql::Dialect;
@@ -240,6 +240,7 @@ pub async fn run_export(
                 table,
                 filter: filter.as_deref(),
                 sort: sort.as_ref(),
+                setup: None,
             };
             stream_table(sessions, job_id, &source, &mut sink).await?
         }
@@ -254,17 +255,13 @@ pub async fn run_export(
                         .into(),
                 ));
             }
-            let query = StreamQuery::Text(sql);
-            stream(
-                sessions,
+            let reader = Reader {
                 editor_id,
-                &request.connection_id,
+                connection_id: &request.connection_id,
                 scope,
-                cancel,
-                query,
-                &mut sink,
-            )
-            .await?
+                setup: None,
+            };
+            stream(sessions, &reader, StreamQuery::Text(sql), &mut sink).await?
         }
     };
     let (rows, bytes) = sink.finish(output)?;
@@ -282,6 +279,8 @@ pub(super) struct TableSource<'a> {
     pub table: &'a TableRef,
     pub filter: Option<&'a str>,
     pub sort: Option<&'a SortSpec>,
+    /// 读之前先在这条专用连接上执行的设置(转储 MySQL 时把时区设成 +00:00)。
+    pub setup: Option<&'a str>,
 }
 
 /// 按表的列写文件头,再在这次任务的专用连接上把行流式读给 `sink`,读完关掉连接。返回准备连接时的提示。
@@ -318,17 +317,13 @@ pub(super) async fn stream_table(
         sql: &sql,
         columns: &columns,
     };
-    let cancel = sink.cancel;
-    let result = stream(
-        sessions,
-        &editor,
-        source.connection_id,
-        &scope,
-        cancel,
-        query,
-        sink,
-    )
-    .await;
+    let reader = Reader {
+        editor_id: &editor,
+        connection_id: source.connection_id,
+        scope: &scope,
+        setup: source.setup,
+    };
+    let result = stream(sessions, &reader, query, sink).await;
     sessions.close_editor(&editor).await;
     result
 }
@@ -339,22 +334,40 @@ pub(super) async fn stream_table(
 /// 停下了就回到保存点。不在事务里时 SAVEPOINT 会报错,那也没关系,本来就没有事务可坏。
 const EXPORT_SAVEPOINT: &str = "basalt_export";
 
+/// 在哪条连接上读:查询标签页自己的,或这次任务新开的专用连接。
+struct Reader<'a> {
+    editor_id: &'a str,
+    connection_id: &'a str,
+    scope: &'a QueryScope,
+    setup: Option<&'a str>,
+}
+
+fn exec_error(error: ExecError) -> CoreError {
+    match error {
+        ExecError::Cancelled => CoreError::Cancelled,
+        ExecError::Lost(message) | ExecError::Rejected(message) => CoreError::Database(message),
+    }
+}
+
 async fn stream(
     sessions: &SessionManager,
-    editor_id: &str,
-    connection_id: &str,
-    scope: &QueryScope,
-    cancel: &CancelFlag,
+    reader: &Reader<'_>,
     query: StreamQuery<'_>,
     sink: &mut WriterSink<'_>,
 ) -> CoreResult<Option<String>> {
-    if cancel.is_cancelled() {
+    if sink.cancel.is_cancelled() {
         return Err(CoreError::Cancelled);
     }
     let mut lease = sessions
-        .lease_editor(editor_id, connection_id, scope)
+        .lease_editor(reader.editor_id, reader.connection_id, reader.scope)
         .await?;
     let notice = lease.notice().map(str::to_owned);
+    if let Some(setup) = reader.setup
+        && let Err(error) = lease.execute_sql(setup).await
+    {
+        lease.release().await;
+        return Err(exec_error(error));
+    }
     let guard = matches!(query, StreamQuery::Text(_))
         && lease.session().dialect() == Dialect::Postgres
         && lease

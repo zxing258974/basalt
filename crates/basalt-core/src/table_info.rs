@@ -7,7 +7,6 @@
 
 use serde::Serialize;
 
-use crate::design::postgres_dump_statements;
 use crate::driver::table_not_found;
 use crate::error::{CoreError, CoreResult};
 use crate::session::Session;
@@ -39,18 +38,6 @@ pub struct TableDetails {
     pub ddl: String,
     /// 建表语句是按表结构生成的(PostgreSQL),不是数据库给的原文。
     pub ddl_generated: bool,
-}
-
-/// 转储用的建表语句,按执行时机分开:建表在插数据之前;外键、触发器在插完数据之后,
-/// 免得自引用的行顺序不对、还原时每插一行就触发一次。
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct CreateScript {
-    /// 建表、建索引、注释。
-    pub table: Vec<String>,
-    /// PostgreSQL 单独给出的外键;MySQL、SQLite 的外键写在建表语句里。
-    pub foreign_keys: Vec<String>,
-    /// 每条一个 CREATE TRIGGER,末尾不带分号。
-    pub triggers: Vec<String>,
 }
 
 /// 收集属性的小帮手:按顺序记下标签和值。
@@ -143,40 +130,6 @@ impl Session {
             }
             Self::Sqlite(s) => s.table_details(table).await,
         }
-    }
-
-    /// 一张表的建表语句,来源和信息面板一样:MySQL 是 SHOW CREATE TABLE、SQLite 是 `sqlite_master` 的原文
-    /// (连同索引),PostgreSQL 按表结构生成(建表、索引、注释,外键另给);再加上表上的触发器。
-    pub async fn create_script(&self, table: &TableRef) -> CoreResult<CreateScript> {
-        self.check_table(table)?;
-        Ok(match self {
-            Self::Mysql(s) => CreateScript {
-                table: vec![s.show_create(table).await?],
-                foreign_keys: Vec::new(),
-                triggers: s.trigger_statements(table).await?,
-            },
-            Self::Postgres(s) => {
-                let (create, foreign_keys) =
-                    postgres_dump_statements(&self.read_design(table).await?);
-                CreateScript {
-                    table: create,
-                    foreign_keys,
-                    triggers: s.trigger_statements(table).await?,
-                }
-            }
-            Self::Sqlite(s) => {
-                let (triggers, rest): (Vec<_>, Vec<_>) = s
-                    .own_objects(table)
-                    .await?
-                    .into_iter()
-                    .partition(|(kind, _)| kind == "trigger");
-                CreateScript {
-                    table: rest.into_iter().map(|(_, sql)| sql).collect(),
-                    foreign_keys: Vec::new(),
-                    triggers: triggers.into_iter().map(|(_, sql)| sql).collect(),
-                }
-            }
-        })
     }
 }
 

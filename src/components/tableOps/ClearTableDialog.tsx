@@ -1,4 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { catalogKeys } from "../../hooks/useCatalog";
 import { tableDataKeys } from "../../hooks/useTableData";
@@ -16,6 +16,7 @@ import {
   pendingWarning,
   pendingWork,
   qualifiedName,
+  referenceNotes,
   tabsOfTable,
   truncateRefusal,
 } from "./tableOpsModel";
@@ -46,14 +47,27 @@ export function ClearTableDialog({ connection, table, mode: initialMode, onClose
     const work = pendingWork(s, connection.id, table);
     return pendingWarning({ rows: work.rows, designs: 0 }, choice.label);
   });
+  // 别的表上引用它的外键:清空会按规则连带改动那些表,截断会被拒绝。
+  const references = useQuery({
+    queryKey: catalogKeys.references(connection.id, table.database, table.schema, table.table),
+    queryFn: async () => (await getBackend()).tableReferences(connection.id, table),
+    staleTime: 0,
+  });
+  const keys = references.data ?? [];
+  const notes = referenceNotes(table, keys, mode, connection.driver);
 
   const run = async () => {
     setBusy(true);
     setError(undefined);
     try {
       const outcome = await (await getBackend()).clearTable(connection.id, table, mode);
+      // 按外键连带改动的表,开着的数据页也要重读。
+      const touched = [
+        table,
+        ...keys.filter((k) => k.onDelete !== "restrict" && k.onDelete !== "noAction").map((k) => k.table),
+      ];
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: tableDataKeys.table(connection.id, table) }),
+        ...touched.map((t) => queryClient.invalidateQueries({ queryKey: tableDataKeys.table(connection.id, t) })),
         queryClient.invalidateQueries({
           queryKey: catalogKeys.tables(connection.id, table.database, table.schema),
         }),
@@ -66,7 +80,7 @@ export function ClearTableDialog({ connection, table, mode: initialMode, onClose
     } catch (e) {
       const message = errorMessage(e);
       if (isDetached()) useUi.getState().notify(`${choice.label}表「${table.table}」失败：${message}`);
-      else setError(mode === "truncate" ? truncateRefusal(message) : message);
+      else setError(mode === "truncate" ? truncateRefusal(message, table, keys) : message);
     } finally {
       setBusy(false);
     }
@@ -106,6 +120,15 @@ export function ClearTableDialog({ connection, table, mode: initialMode, onClose
           表里的全部行都会删掉，不能撤销；表结构、索引都留着。
           {hasData ? "开着的数据页会重新读取。" : ""}
         </p>
+        {notes.warning && (
+          <p className="transfer-warning" aria-label="外键">
+            {notes.warning}
+          </p>
+        )}
+        {notes.note && <p className="dialog-text is-muted">{notes.note}</p>}
+        {references.error && (
+          <p className="dialog-text is-muted">没能查到别的表上引用它的外键：{errorMessage(references.error)}</p>
+        )}
         {warning && <p className="transfer-warning">{warning}</p>}
       </div>
       {error && (

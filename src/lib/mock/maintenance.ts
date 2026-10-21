@@ -1,5 +1,6 @@
 // mock 后端的表维护:语句、消息、前后大小都照各家真实的样子给,方便在浏览器里看结果对话框。
-import type { CommandError, DriverKind, Maintenance, MaintenanceOutcome, TableRef } from "../types";
+// 也给出示例库里外键的引用关系,清空、截断的确认框据此提醒会波及哪些表。
+import type { CommandError, DriverKind, Maintenance, MaintenanceOutcome, ReferencingKey, TableRef } from "../types";
 
 const AVAILABLE: Record<DriverKind, Maintenance[]> = {
   mysql: ["analyze", "check", "optimize", "repair"],
@@ -57,4 +58,16 @@ export function mockMaintenance(driver: DriverKind, table: TableRef, operation: 
     size: measured ? { before: 1_843_200, after: 614_400 } : null,
     elapsedMs: operation === "analyze" ? 18 : 342,
   };
+}
+
+/** 示例 shop 库:订单引用客户(删客户连带删订单),订单明细引用商品(有明细时不能删商品)。 */
+export function mockReferences(table: TableRef): ReferencingKey[] {
+  const from = (name: string, key: string, onDelete: ReferencingKey["onDelete"]): ReferencingKey => ({
+    table: { ...table, table: name },
+    name: key,
+    onDelete,
+  });
+  if (table.table === "customers") return [from("orders", "fk_orders_customer", "cascade")];
+  if (table.table === "products") return [from("order_items", "fk_items_product", "restrict")];
+  return [];
 }

@@ -1,14 +1,16 @@
 //! 转储 SQL 文件:一张表的建表语句,连同(或不带)全部数据的 INSERT,还原时从头执行一遍即可。
 //!
-//! 建表语句和信息面板同一个来源(见 [`crate::table_info::CreateScript`]);数据走导出同一套流式读取、
+//! 建表语句和信息面板同一个来源(读法见 [`crate::driver`] 的 dump 模块);数据走导出同一套流式读取、
 //! SQL INSERT 写器、进度与取消。开头先删掉同名表(DROP TABLE IF EXISTS),和 Navicat、mysqldump 一样;
 //! DROP 会把表上的触发器一起删掉,所以触发器要重建,一律放在数据之后,免得还原时每插一行就触发一次。
 //! - MySQL:SHOW CREATE TABLE 里的表名不带库名,INSERT 也不带,还原进哪个库看执行时的当前库;
-//!   前后关、开外键检查,被引用的表还没建也建得出来;触发器用 `DELIMITER ;;` 包起来。
+//!   和 mysqldump 一样把会话设置固定下来再恢复:sql_mode(写器管)、外键检查(关掉,被引用的表还没建也建得出来)、
+//!   时区(+00:00,TIMESTAMP 读、写都按 UTC);触发器用 `DELIMITER ;;` 包起来。
 //! - PostgreSQL:建表语句按表结构生成,带 schema;外键在数据之后用 ALTER TABLE 加,自引用的行谁先谁后不碍事。
 //!   serial 列的序列不在建表语句里:先 CREATE SEQUENCE IF NOT EXISTS,建表后再 OWNED BY 回这一列;
 //!   带数据时把标识列、serial 的序列推到已有的最大值。
-//! - SQLite:`sqlite_master` 里的原文。
+//! - SQLite:`sqlite_master` 里的原文。前后关、开外键:Basalt(sqlx)的连接默认开着外键,DROP TABLE 会先隐式
+//!   DELETE,触发别的表的 ON DELETE CASCADE / SET NULL,把别的表的数据也改掉。
 
 use std::io::BufWriter;
 use std::path::Path;
@@ -23,7 +25,7 @@ use crate::error::CoreResult;
 use crate::session::{Session, SessionManager};
 use crate::sql::{Dialect, quote_ident, table_name};
 use crate::table::TableRef;
-use crate::table_info::{CreateScript, join_statements};
+use crate::table_info::join_statements;
 use crate::table_ops::reset_identity_sql;
 
 /// 每条 INSERT 合几行,和导出对话框的默认值一样。
@@ -37,6 +39,36 @@ pub struct DumpRequest {
     /// 为假时只写建表语句。
     pub with_data: bool,
     pub path: String,
+}
+
+/// 转储用的建表语句,按执行时机分开:建表在插数据之前;外键、触发器在插完数据之后,
+/// 免得自引用的行顺序不对、还原时每插一行就触发一次。
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CreateScript {
+    /// 建表、建索引、注释。
+    pub table: Vec<String>,
+    /// PostgreSQL 单独给出的外键;MySQL、SQLite 的外键写在建表语句里。
+    pub foreign_keys: Vec<String>,
+    /// 每条一个 CREATE TRIGGER,末尾不带分号。
+    pub triggers: Vec<String>,
+}
+
+/// MySQL 读数据的那条连接先把时区设成 +00:00:TIMESTAMP 按 UTC 读出来,和文件开头的 TIME_ZONE 对上。
+const MYSQL_READ_SETUP: &str = "SET time_zone = '+00:00'";
+
+impl Session {
+    /// 转储用的建表语句,以及(PostgreSQL)带序列的列。
+    pub async fn dump_script(
+        &self,
+        table: &TableRef,
+    ) -> CoreResult<(CreateScript, Vec<SequenceColumn>)> {
+        self.check_table(table)?;
+        Ok(match self {
+            Self::Mysql(s) => (s.dump_script(table).await?, Vec::new()),
+            Self::Postgres(s) => s.dump_script(table).await?,
+            Self::Sqlite(s) => (s.dump_script(table).await?, Vec::new()),
+        })
+    }
 }
 
 /// PostgreSQL 里带序列的列:标识列,或默认值取自它名下序列的 serial 列。
@@ -96,8 +128,13 @@ pub fn dump_frame(
         )
     }));
     let mut before = String::new();
-    if dialect == Dialect::Mysql {
-        before.push_str("SET FOREIGN_KEY_CHECKS = 0;\n\n");
+    match dialect {
+        Dialect::Mysql => before.push_str(
+            "SET @OLD_FOREIGN_KEY_CHECKS = @@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS = 0;\n\
+             SET @OLD_TIME_ZONE = @@TIME_ZONE, TIME_ZONE = '+00:00';\n\n",
+        ),
+        Dialect::Sqlite => before.push_str("PRAGMA foreign_keys = OFF;\n\n"),
+        Dialect::Postgres => {}
     }
     before.push_str("-- 表结构\n");
     before.push_str(&join_statements(create));
@@ -127,8 +164,13 @@ pub fn dump_frame(
             triggers_sql(dialect, &script.triggers)
         ));
     }
-    if dialect == Dialect::Mysql {
-        after.push("SET FOREIGN_KEY_CHECKS = 1;".into());
+    match dialect {
+        Dialect::Mysql => after.push(
+            "SET TIME_ZONE = @OLD_TIME_ZONE;\nSET FOREIGN_KEY_CHECKS = @OLD_FOREIGN_KEY_CHECKS;"
+                .into(),
+        ),
+        Dialect::Sqlite => after.push("PRAGMA foreign_keys = ON;".into()),
+        Dialect::Postgres => {}
     }
     let after = if after.is_empty() {
         String::new()
@@ -165,11 +207,7 @@ pub async fn run_dump(
     throttle.force(&Progress::new(Phase::Preparing, 0));
     let session = sessions.get(&request.connection_id).await?;
     let table = &request.table;
-    let script = session.create_script(table).await?;
-    let sequences = match &*session {
-        Session::Postgres(s) => s.sequence_columns(table).await?,
-        Session::Mysql(_) | Session::Sqlite(_) => Vec::new(),
-    };
+    let (script, sequences) = session.dump_script(table).await?;
     let dialect = session.dialect();
     let (target, frame) = dump_frame(dialect, table, &script, &sequences, request.with_data);
     let output = OutputFile::new(Path::new(&request.path))?;
@@ -182,6 +220,7 @@ pub async fn run_dump(
             table,
             filter: None,
             sort: None,
+            setup: (dialect == Dialect::Mysql).then_some(MYSQL_READ_SETUP),
         };
         stream_table(sessions, job_id, &source, &mut sink).await?
     } else {
@@ -239,7 +278,9 @@ mod tests {
         assert_eq!(frame.title, "由 Basalt 转储：shop.users");
         assert_eq!(
             frame.before,
-            "SET FOREIGN_KEY_CHECKS = 0;\n\n-- 表结构\nDROP TABLE IF EXISTS `users`;\n\n\
+            "SET @OLD_FOREIGN_KEY_CHECKS = @@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS = 0;\n\
+             SET @OLD_TIME_ZONE = @@TIME_ZONE, TIME_ZONE = '+00:00';\n\n\
+             -- 表结构\nDROP TABLE IF EXISTS `users`;\n\n\
              CREATE TABLE `users` (\n  `id` int\n);\n\n-- 数据\n"
         );
         assert_eq!(
@@ -247,7 +288,8 @@ mod tests {
             "-- 触发器\nDELIMITER ;;\n\
              CREATE TRIGGER `a` BEFORE INSERT ON `users` FOR EACH ROW SET NEW.id = 1;;\n\n\
              CREATE TRIGGER `b` AFTER DELETE ON `users` FOR EACH ROW BEGIN DELETE FROM log; END;;\n\
-             DELIMITER ;\n\nSET FOREIGN_KEY_CHECKS = 1;\n"
+             DELIMITER ;\n\n\
+             SET TIME_ZONE = @OLD_TIME_ZONE;\nSET FOREIGN_KEY_CHECKS = @OLD_FOREIGN_KEY_CHECKS;\n"
         );
         let (_, plain) = dump_frame(
             my,
@@ -256,7 +298,10 @@ mod tests {
             &[],
             false,
         );
-        assert_eq!(plain.after, "SET FOREIGN_KEY_CHECKS = 1;\n");
+        assert_eq!(
+            plain.after,
+            "SET TIME_ZONE = @OLD_TIME_ZONE;\nSET FOREIGN_KEY_CHECKS = @OLD_FOREIGN_KEY_CHECKS;\n"
+        );
     }
 
     #[test]
@@ -328,12 +373,13 @@ mod tests {
         assert_eq!(target, "\"notes\"");
         assert_eq!(
             frame.before,
-            "-- 表结构\nDROP TABLE IF EXISTS \"notes\";\n\nCREATE TABLE notes (id INTEGER);\n\n\
-             CREATE INDEX n ON notes (id);\n\n"
+            "PRAGMA foreign_keys = OFF;\n\n-- 表结构\nDROP TABLE IF EXISTS \"notes\";\n\n\
+             CREATE TABLE notes (id INTEGER);\n\nCREATE INDEX n ON notes (id);\n\n"
         );
         assert_eq!(
             frame.after,
-            "-- 触发器\nCREATE TRIGGER t AFTER INSERT ON notes BEGIN SELECT 1; END;\n"
+            "-- 触发器\nCREATE TRIGGER t AFTER INSERT ON notes BEGIN SELECT 1; END;\n\n\
+             PRAGMA foreign_keys = ON;\n"
         );
     }
 

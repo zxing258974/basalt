@@ -4,6 +4,7 @@
 use basalt_core::table::TableRef;
 use basalt_core::table_info::TableDetails;
 use basalt_core::table_ops::maintenance::{Maintenance, MaintenanceOutcome};
+use basalt_core::table_ops::references::ReferencingKey;
 use basalt_core::table_ops::{ClearMode, ClearOutcome, CopyOutcome};
 
 use super::CommandResult;
@@ -46,6 +47,16 @@ pub async fn rename_table(
 ) -> CommandResult<TableRef> {
     let session = state.sessions.get(id).await?;
     Ok(session.rename_table(table, name).await?)
+}
+
+/// 别的表上引用这张表的外键:清空、截断的确认框要写明会波及哪些表。
+pub async fn table_references(
+    state: &AppState,
+    id: &str,
+    table: &TableRef,
+) -> CommandResult<Vec<ReferencingKey>> {
+    let session = state.sessions.get(id).await?;
+    Ok(session.referencing_keys(table).await?)
 }
 
 pub async fn maintain_table(

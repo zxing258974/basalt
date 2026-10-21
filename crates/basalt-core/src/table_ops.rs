@@ -12,6 +12,7 @@
 //! 用不带条件的 DELETE(SQLite 会走快速清空)再把 `sqlite_sequence` 里的计数删掉。
 
 pub mod maintenance;
+pub mod references;
 mod sqlite_copy;
 
 use serde::{Deserialize, Serialize};
@@ -130,6 +131,24 @@ pub fn reset_identity_sql(target: &TableRef, column: &str) -> String {
     )
 }
 
+/// 表名、库名都不能为空,PostgreSQL 还要有 schema:空的一段拼表名时会被丢掉,
+/// 语句就落到会话的当前库(schema)上,改错了表。
+pub(crate) fn check_target(dialect: Dialect, table: &TableRef) -> CoreResult<()> {
+    if table.table.is_empty() {
+        return Err(table_not_found(""));
+    }
+    if table.database.trim().is_empty() {
+        return Err(CoreError::InvalidData(format!(
+            "没有指定「{}」所在的库。",
+            table.table
+        )));
+    }
+    if dialect == Dialect::Postgres && table.schema.as_deref().is_none_or(|s| s.trim().is_empty()) {
+        return Err(CoreError::Unsupported("PostgreSQL 需要指定 schema".into()));
+    }
+    Ok(())
+}
+
 fn check_name(source: &TableRef, name: &str) -> CoreResult<TableRef> {
     let name = name.trim();
     if name.is_empty() {
@@ -145,15 +164,8 @@ fn check_name(source: &TableRef, name: &str) -> CoreResult<TableRef> {
 }
 
 impl Session {
-    /// 表名不能为空,PostgreSQL 还要有 schema。
     pub(crate) fn check_table(&self, table: &TableRef) -> CoreResult<()> {
-        if table.table.is_empty() {
-            return Err(table_not_found(""));
-        }
-        if matches!(self, Self::Postgres(_)) && table.schema.is_none() {
-            return Err(CoreError::Unsupported("PostgreSQL 需要指定 schema".into()));
-        }
-        Ok(())
+        check_target(self.dialect(), table)
     }
 
     /// 执行改动语句,返回每条影响的行数。MySQL 逐条执行(DDL 会隐式提交),另两家在一个事务里。
@@ -374,6 +386,31 @@ mod tests {
             serde_json::from_value::<ClearMode>(serde_json::json!("truncate")).unwrap(),
             ClearMode::Truncate
         );
+    }
+
+    #[test]
+    fn targets_need_a_database_and_a_postgres_schema() {
+        let my = Dialect::Mysql;
+        assert!(check_target(my, &table(my, "users")).is_ok());
+        let blank = TableRef {
+            database: " ".into(),
+            ..table(my, "users")
+        };
+        assert_eq!(check_target(my, &blank).unwrap_err().code(), "invalid_data");
+        assert_eq!(
+            check_target(Dialect::Sqlite, &blank).unwrap_err().code(),
+            "invalid_data"
+        );
+        let pg = Dialect::Postgres;
+        for schema in [None, Some(String::new())] {
+            let users = TableRef {
+                schema,
+                ..table(pg, "users")
+            };
+            assert_eq!(check_target(pg, &users).unwrap_err().code(), "unsupported");
+        }
+        assert!(check_target(pg, &table(pg, "users")).is_ok());
+        assert!(check_target(pg, &table(pg, "")).is_err());
     }
 
     #[test]

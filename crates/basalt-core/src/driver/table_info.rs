@@ -92,19 +92,27 @@ impl MysqlSession {
 
     /// SHOW CREATE TABLE 的原文。
     pub(crate) async fn show_create(&self, table: &TableRef) -> CoreResult<String> {
-        let show = sqlx::query(&format!(
-            "SHOW CREATE TABLE {}",
-            table_name(Dialect::Mysql, table)
-        ))
-        .persistent(false)
-        .fetch_one(&self.pool)
-        .await?;
-        // 第二列是建表(或建视图)语句;二进制排序规则下会以字节返回。
-        Ok(match show.try_get::<String, _>(1) {
-            Ok(text) => text,
-            Err(_) => String::from_utf8_lossy(&show.try_get::<Vec<u8>, _>(1)?).into_owned(),
-        })
+        show_create_with(&self.pool, table).await
     }
+}
+
+/// SHOW CREATE TABLE 的原文,在给定的连接(或连接池)上读。
+pub(crate) async fn show_create_with<'c, E>(executor: E, table: &TableRef) -> CoreResult<String>
+where
+    E: sqlx::Executor<'c, Database = sqlx::MySql>,
+{
+    let show = sqlx::query(&format!(
+        "SHOW CREATE TABLE {}",
+        table_name(Dialect::Mysql, table)
+    ))
+    .persistent(false)
+    .fetch_one(executor)
+    .await?;
+    // 第二列是建表(或建视图)语句;二进制排序规则下会以字节返回。
+    Ok(match show.try_get::<String, _>(1) {
+        Ok(text) => text,
+        Err(_) => String::from_utf8_lossy(&show.try_get::<Vec<u8>, _>(1)?).into_owned(),
+    })
 }
 
 impl PgSession {

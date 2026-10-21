@@ -44,6 +44,7 @@ import type {
   Maintenance,
   MaintenanceOutcome,
   PageRequest,
+  ReferencingKey,
   RowChange,
   ServerInfo,
   TableInfo,
@@ -75,6 +76,8 @@ export interface Backend {
   clearTable(id: string, table: TableRef, mode: ClearMode): Promise<ClearTableOutcome>;
   /** 改名,留在同一个库(schema)里;返回新表。 */
   renameTable(id: string, table: TableRef, name: string): Promise<TableRef>;
+  /** 别的表上引用这张表的外键:清空、截断的确认框写明会波及哪些表。 */
+  tableReferences(id: string, table: TableRef): Promise<ReferencingKey[]>;
   /** 维护;这种数据库没有这项时以 unsupported reject。 */
   maintainTable(id: string, table: TableRef, operation: Maintenance): Promise<MaintenanceOutcome>;
   /** 信息面板:表或视图的属性和建表语句。 */
@@ -189,6 +192,7 @@ function createTauriBackend(): Backend {
     clearTable: (id, table, mode) => call("clear_table", { id, table, mode }),
     renameTable: (id, table, name) => call("rename_table", { id, table, name }),
     maintainTable: (id, table, operation) => call("maintain_table", { id, table, operation }),
+    tableReferences: (id, table) => call("table_references", { id, table }),
     tableDetails: (id, table) => call("table_details", { id, table }),
     listLlmModels: () => call("list_llm_models"),
     saveLlmModel: (draft) => call("save_llm_model", { draft }),

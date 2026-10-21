@@ -57,14 +57,33 @@ describe("clear and truncate", { timeout: 15_000 }, () => {
     });
     const { user } = await openTableMenu("截断表…", MYSQL_CUSTOMERS, backend);
     const dialog = within(screen.getByRole("dialog", { name: "截断表「customers」？" }));
+    // mock 里 orders 以 ON DELETE CASCADE 引用 customers。
+    expect(await dialog.findByLabelText("外键")).toHaveTextContent("被 orders 的外键引用：截断会被数据库拒绝。");
     await user.click(dialog.getByRole("button", { name: "截断" }));
     const alert = await dialog.findByRole("alert");
     expect(alert).toHaveTextContent("foreign key constraint");
-    expect(alert).toHaveTextContent("被别的表的外键引用时不能截断，可以改用「清空」。");
+    expect(alert).toHaveTextContent("被别的表的外键引用时不能截断。改用「清空」会按外键连带改动 orders 里的行。");
     await user.click(dialog.getByRole("radio", { name: /^清空/ }));
     expect(dialog.queryByRole("alert")).not.toBeInTheDocument();
+    expect(dialog.getByLabelText("外键")).toHaveTextContent("会按外键连带改动别的表：orders 里引用它的行会被删掉。");
     await user.click(dialog.getByRole("button", { name: "清空" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("notes tables that would block a clear and says when it cannot tell", async () => {
+    const backend = createMockBackend();
+    const { user } = await openTableMenu("清空表…", { ...MYSQL_CUSTOMERS, table: "products" }, backend);
+    const dialog = within(screen.getByRole("dialog", { name: "清空表「products」？" }));
+    expect(await dialog.findByText("order_items 也引用这张表：那边还有引用它的行时，会删不掉。")).toBeInTheDocument();
+    expect(dialog.queryByLabelText("外键")).not.toBeInTheDocument();
+    await user.click(dialog.getByRole("button", { name: "取消" }));
+
+    vi.spyOn(backend, "tableReferences").mockRejectedValue({ code: "database", message: "denied", fields: [] });
+    await user.pointer({ keys: "[MouseRight]", target: await findRow("customers") });
+    await user.click(screen.getByRole("menuitem", { name: "清空表…" }));
+    expect(
+      await within(screen.getByRole("dialog")).findByText("没能查到别的表上引用它的外键：denied"),
+    ).toBeInTheDocument();
   });
 
   it("warns that uncommitted edits on the data page will be lost", async () => {

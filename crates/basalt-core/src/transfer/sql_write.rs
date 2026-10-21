@@ -151,8 +151,12 @@ impl<W: Write + Send> RowWriter for SqlWriter<W> {
             self.target,
             list.join(", ")
         );
+        // MySQL 和 mysqldump 一样先把 sql_mode 固定下来(结尾再换回去):自增列的 0 原样写进去、不被换成新编号;
+        // 反斜杠按转义符算(字面量就是这么写的,不怕执行的连接开着 NO_BACKSLASH_ESCAPES);也不开严格模式,零日期能写回去。
         let encoding = match self.dialect {
-            Dialect::Mysql => "SET NAMES utf8mb4;\n\n",
+            Dialect::Mysql => {
+                "SET NAMES utf8mb4;\nSET @OLD_SQL_MODE = @@SQL_MODE, SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO';\n\n"
+            }
             Dialect::Postgres => "SET client_encoding = 'UTF8';\n\n",
             Dialect::Sqlite => "\n",
         };
@@ -194,6 +198,9 @@ impl<W: Write + Send> RowWriter for SqlWriter<W> {
         if !self.frame.after.is_empty() {
             let after = format!("\n{}", self.frame.after);
             self.write(&after)?;
+        }
+        if self.dialect == Dialect::Mysql {
+            self.write("\nSET SQL_MODE = @OLD_SQL_MODE;\n")?;
         }
         self.out.flush().map_err(file_error)
     }
@@ -243,9 +250,11 @@ mod tests {
         );
         assert_eq!(
             text,
-            "-- 由 Basalt 导出\nSET NAMES utf8mb4;\n\n\
+            "-- 由 Basalt 导出\nSET NAMES utf8mb4;\n\
+             SET @OLD_SQL_MODE = @@SQL_MODE, SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO';\n\n\
              INSERT INTO `用户` (`id`, `name`) VALUES\n  (1, 'O''Brien \\\\'),\n  (2, '张三');\n\
-             INSERT INTO `用户` (`id`, `name`) VALUES\n  (3, '李四');\n"
+             INSERT INTO `用户` (`id`, `name`) VALUES\n  (3, '李四');\n\n\
+             SET SQL_MODE = @OLD_SQL_MODE;\n"
         );
         let exact = export(
             Dialect::Sqlite,

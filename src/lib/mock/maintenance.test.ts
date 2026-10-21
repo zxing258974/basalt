@@ -1,6 +1,6 @@
 // mock 的表维护:各家的语句、只有 VACUUM / REINDEX 量大小、没有的维护被拒绝。
 import { describe, expect, it } from "vitest";
-import { mockMaintenance } from "./maintenance";
+import { mockMaintenance, mockReferences } from "./maintenance";
 
 const table = { database: "folio", schema: "public", table: "users" };
 
@@ -22,5 +22,14 @@ describe("mockMaintenance", () => {
     expect(() => mockMaintenance("sqlite", table, "repair")).toThrow(
       expect.objectContaining({ code: "unsupported" }) as Error,
     );
+  });
+
+  it("knows which sample tables reference which", () => {
+    const shop = { database: "shop", schema: null };
+    expect(mockReferences({ ...shop, table: "customers" })).toEqual([
+      { table: { ...shop, table: "orders" }, name: "fk_orders_customer", onDelete: "cascade" },
+    ]);
+    expect(mockReferences({ ...shop, table: "products" })[0]!.onDelete).toBe("restrict");
+    expect(mockReferences({ ...shop, table: "orders" })).toEqual([]);
   });
 });

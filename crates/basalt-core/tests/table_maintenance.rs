@@ -191,6 +191,83 @@ async fn postgres_vacuums_analyzes_and_reindexes() {
     pool.close().await;
 }
 
+/// 库的所有者能清理库里别人的表(共享的系统表除外);分区表的大小是各个分区加起来,不是 0。
+#[tokio::test]
+async fn postgres_database_owners_maintain_and_partitions_are_measured() {
+    if !selected(POSTGRES) {
+        return;
+    }
+    let admin = sqlx::PgPool::connect(&postgres_url("postgres"))
+        .await
+        .unwrap();
+    sqlx::raw_sql(
+        "DO $$ BEGIN
+           IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'basalt_more_owner') THEN
+             CREATE ROLE basalt_more_owner LOGIN PASSWORD 'owner';
+           END IF;
+         END $$;",
+    )
+    .execute(&admin)
+    .await
+    .unwrap();
+    // 别的测试可能已经建过这个库。
+    let _ = sqlx::raw_sql("CREATE DATABASE basalt_more_owned OWNER basalt_more_owner")
+        .execute(&admin)
+        .await;
+    admin.close().await;
+    let owned = sqlx::PgPool::connect(&postgres_url("basalt_more_owned"))
+        .await
+        .unwrap();
+    // 表的所有者是 postgres,不是库的所有者。
+    sqlx::raw_sql(
+        "DROP TABLE IF EXISTS public.more_parted, public.more_plain;
+         CREATE TABLE public.more_plain (id integer);
+         CREATE TABLE public.more_parted (id integer, payload text) PARTITION BY RANGE (id);
+         CREATE TABLE public.more_parted_a PARTITION OF public.more_parted FOR VALUES FROM (0) TO (1000);
+         CREATE TABLE public.more_parted_b PARTITION OF public.more_parted FOR VALUES FROM (1000) TO (2000);
+         INSERT INTO public.more_parted SELECT n, repeat('x', 100) FROM generate_series(0, 1999) n;",
+    )
+    .execute(&owned)
+    .await
+    .unwrap();
+    owned.close().await;
+
+    let sessions = SessionManager::default();
+    let mut connect = params(POSTGRES, "owner", Some("basalt_more_owned"));
+    connect.username = "basalt_more_owner".into();
+    sessions.open(CONNECTION, &connect).await.unwrap();
+    let session = sessions.get(CONNECTION).await.unwrap();
+    let table = |name: &str| TableRef {
+        database: "basalt_more_owned".into(),
+        schema: Some("public".into()),
+        table: name.into(),
+    };
+    for operation in [Maintenance::Vacuum, Maintenance::Analyze] {
+        session
+            .maintain_table(&table("more_plain"), operation)
+            .await
+            .unwrap();
+    }
+
+    let postgres = SessionManager::default();
+    postgres
+        .open(
+            CONNECTION,
+            &params(POSTGRES, TEST_PASSWORD, Some("basalt_more_owned")),
+        )
+        .await
+        .unwrap();
+    let vacuumed = postgres
+        .get(CONNECTION)
+        .await
+        .unwrap()
+        .maintain_table(&table("more_parted"), Maintenance::Vacuum)
+        .await
+        .unwrap();
+    let size = vacuumed.size.expect("VACUUM 量了大小");
+    assert!(size.before > 0 && size.after > 0, "{size:?}");
+}
+
 #[tokio::test]
 async fn sqlite_vacuum_shrinks_the_file_and_analyze_writes_statistics() {
     let dir = tempfile::tempdir().unwrap();

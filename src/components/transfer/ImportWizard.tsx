@@ -10,14 +10,18 @@ import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { ImportFileStep } from "./ImportFileStep";
 import { ImportMappingStep } from "./ImportMappingStep";
+import { ImportModeStep } from "./ImportModeStep";
 import { ImportOptionsStep } from "./ImportOptionsStep";
 import { ImportResultView } from "./ImportResultView";
 import {
   DEFAULT_IMPORT_OPTIONS,
   STEPS,
-  commitNote,
+  confirmation,
+  defaultKeys,
   failuresFileName,
+  keyProblem,
   mappedCount,
+  needsSheetChoice,
   type ImportTarget,
   type WizardStep,
 } from "./importModel";
@@ -33,7 +37,9 @@ export function ImportWizard({ target, onClose }: { target: ImportTarget; onClos
   const [options, setOptions] = useState<ImportOptions>(DEFAULT_IMPORT_OPTIONS);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmClear, setConfirmClear] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  // 有多个工作表的 Excel 要用户亲手选一个,不默认用第一个。
+  const [sheetChosen, setSheetChosen] = useState(false);
   const [report, setReport] = useState<ImportReport | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const { job, run, cancel } = useTransferJob();
@@ -65,7 +71,9 @@ export function ImportWizard({ target, onClose }: { target: ImportTarget; onClos
   const pick = async () => {
     try {
       const path = await (await getBackend()).pickImportFile();
-      if (path) await inspect({ path, format: null, hasHeader: spec?.hasHeader ?? true });
+      if (!path) return;
+      setSheetChosen(false);
+      await inspect({ path, format: null, hasHeader: spec?.hasHeader ?? true });
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -73,7 +81,7 @@ export function ImportWizard({ target, onClose }: { target: ImportTarget; onClos
 
   const start = async () => {
     if (!spec || !preview) return;
-    setConfirmClear(false);
+    setConfirming(false);
     setError(null);
     const request = { connectionId: target.connectionId, table: target.table, source: spec, mapping, options };
     try {
@@ -122,13 +130,28 @@ export function ImportWizard({ target, onClose }: { target: ImportTarget; onClos
           </>
         }
       >
-        <ImportResultView report={report} />
+        <ImportResultView report={report} mode={options.mode} />
       </Dialog>
     );
   }
 
   const index = STEPS.findIndex((s) => s.step === step);
-  const canNext = step === "file" ? Boolean(preview) && !loading : mappedCount(mapping) > 0;
+  const keysProblem = preview ? keyProblem(options.mode, options.keyColumns, preview.uniqueKeys, mapping) : null;
+  const canNext =
+    step === "file"
+      ? Boolean(preview) && !loading && !(preview && needsSheetChoice(preview.source) && !sheetChosen)
+      : step === "mode"
+        ? true
+        : mappedCount(mapping) > 0 && keysProblem === null;
+  const goNext = () => {
+    const next = STEPS[index + 1]!.step;
+    // 进映射这一步时按模式给默认的匹配键;已经选过的、还能用的不动。
+    if (next === "mapping" && preview && keyProblem(options.mode, options.keyColumns, preview.uniqueKeys, mapping)) {
+      setOptions({ ...options, keyColumns: defaultKeys(options.mode, preview.uniqueKeys, mapping) });
+    }
+    setStep(next);
+  };
+  const confirm = confirmation(options.mode, target.title, target.driver);
   return (
     <Dialog
       open
@@ -159,13 +182,13 @@ export function ImportWizard({ target, onClose }: { target: ImportTarget; onClos
             )}
             {step === "options" ? (
               <Button
-                variant={options.clearTable ? "danger" : "primary"}
-                onClick={() => (options.clearTable ? setConfirmClear(true) : void start())}
+                variant={confirm ? "danger" : "primary"}
+                onClick={() => (confirm ? setConfirming(true) : void start())}
               >
                 开始导入
               </Button>
             ) : (
-              <Button variant="primary" disabled={!canNext} onClick={() => setStep(STEPS[index + 1]!.step)}>
+              <Button variant="primary" disabled={!canNext} onClick={goNext}>
                 下一步
               </Button>
             )}
@@ -182,21 +205,31 @@ export function ImportWizard({ target, onClose }: { target: ImportTarget; onClos
               spec={spec}
               preview={preview}
               loading={loading}
+              sheetChosen={sheetChosen}
               onPick={() => void pick()}
               onSpecChange={(next) => void inspect(next)}
+              onSheetChosen={() => setSheetChosen(true)}
+            />
+          )}
+          {step === "mode" && preview && (
+            <ImportModeStep
+              mode={options.mode}
+              uniqueKeys={preview.uniqueKeys}
+              onChange={(mode) => setOptions({ ...options, mode })}
             />
           )}
           {step === "mapping" && preview && (
-            <ImportMappingStep preview={preview} mapping={mapping} onChange={setMapping} />
-          )}
-          {step === "options" && (
-            <ImportOptionsStep
-              options={options}
+            <ImportMappingStep
+              preview={preview}
+              mapping={mapping}
               driver={target.driver}
-              tableTitle={target.title}
-              onChange={setOptions}
+              mode={options.mode}
+              keys={options.keyColumns}
+              onChange={setMapping}
+              onKeysChange={(keyColumns) => setOptions({ ...options, keyColumns })}
             />
           )}
+          {step === "options" && <ImportOptionsStep options={options} driver={target.driver} onChange={setOptions} />}
           {error && (
             <p className="transfer-error" role="alert">
               {error}
@@ -204,27 +237,25 @@ export function ImportWizard({ target, onClose }: { target: ImportTarget; onClos
           )}
         </>
       )}
-      {confirmClear && (
+      {confirming && confirm && (
         <Dialog
           open
-          title="清空表再导入？"
+          title={confirm.title}
           width={440}
-          onClose={() => setConfirmClear(false)}
+          onClose={() => setConfirming(false)}
           footer={
             <>
               <span className="footer-spacer" />
-              <Button variant="ghost" autoFocus onClick={() => setConfirmClear(false)}>
+              <Button variant="ghost" autoFocus onClick={() => setConfirming(false)}>
                 取消
               </Button>
               <Button variant="danger" onClick={() => void start()}>
-                清空并导入
+                {confirm.action}
               </Button>
             </>
           }
         >
-          <p className="transfer-confirm">
-            会先删掉「{target.title}」里现有的全部行，再导入文件里的数据。{commitNote(target.driver)}
-          </p>
+          <p className="transfer-confirm">{confirm.text}</p>
         </Dialog>
       )}
     </Dialog>

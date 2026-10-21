@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use basalt_core::config::{ConnectionDraft, DriverKind, Endpoint};
 use basalt_core::secret::MemorySecretStore;
-use basalt_core::transfer::import::{ImportOptions, ImportStatus, OnError};
+use basalt_core::transfer::import::{ImportMode, ImportOptions, ImportStatus, OnError};
 use basalt_core::transfer::progress::{Phase, Progress};
 use basalt_core::transfer::{BinaryEncoding, CsvOptions, ExportFormat, ExportOptions};
 
@@ -113,7 +113,8 @@ async fn export_then_import_through_the_service_and_report_progress() {
         options: ImportOptions {
             on_error: OnError::Stop,
             batch_size: 100,
-            clear_table: false,
+            mode: ImportMode::Append,
+            key_columns: Vec::new(),
             binary: BinaryEncoding::Hex,
         },
     };
@@ -121,7 +122,7 @@ async fn export_then_import_through_the_service_and_report_progress() {
         .await
         .unwrap();
     assert_eq!(
-        (report.status, report.inserted),
+        (report.status, report.affected),
         (ImportStatus::Completed, 2)
     );
 }

@@ -75,6 +75,40 @@ test("new connection: MySQL form", async ({ page }) => {
   await snapshot(page, "new-connection-form");
 });
 
+/** 选中 customers:右侧信息面板显示它的属性(窄窗口默认收着,点工具栏的「信息」打开)。 */
+async function inspectCustomers(page: Page) {
+  await openWelcome(page);
+  await expandShop(page);
+  await row(page, "customers").click();
+  const toggle = page.getByRole("banner").getByRole("button", { name: "信息" });
+  if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
+  const panel = page.getByRole("complementary", { name: "信息" });
+  await expect(panel.getByRole("heading", { name: "customers" })).toBeVisible();
+  await expect(panel.getByText("InnoDB")).toBeVisible();
+  return panel;
+}
+
+test("inspector: table properties", async ({ page }) => {
+  await inspectCustomers(page);
+  await snapshot(page, "inspector-properties");
+});
+
+test("inspector: table DDL", async ({ page }) => {
+  const panel = await inspectCustomers(page);
+  await panel.getByRole("tab", { name: "DDL" }).click();
+  await expect(panel.getByLabel("建表语句")).toContainText("CREATE TABLE");
+  await snapshot(page, "inspector-ddl");
+});
+
+test("copy table dialog", async ({ page }) => {
+  await openWelcome(page);
+  await expandShop(page);
+  await row(page, "customers").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "复制表…" }).click();
+  await expect(page.getByRole("dialog", { name: "复制表" }).getByLabel("新表名")).toHaveValue("customers_copy1");
+  await snapshot(page, "copy-table");
+});
+
 /** 在 shop 上右键「新建查询」,写三条语句后全部执行。 */
 async function runShopQuery(page: Page) {
   await openWelcome(page);
@@ -175,17 +209,26 @@ test("import: file", async ({ page }) => {
   await snapshot(page, "import-file");
 });
 
-test("import: mapping", async ({ page }) => {
+test("import: mode", async ({ page }) => {
   const dialog = await importMapping(page);
   await dialog.getByRole("button", { name: "下一步" }).click();
-  await expect(dialog.getByRole("table", { name: "列映射" })).toBeVisible();
+  await dialog.getByRole("radio", { name: /^追加或更新/ }).click();
+  await expect(dialog.getByRole("radio", { name: /^追加或更新/ })).toHaveAttribute("aria-checked", "true");
+  await snapshot(page, "import-mode");
+});
+
+test("import: mapping with match keys", async ({ page }) => {
+  const dialog = await importMapping(page);
+  await dialog.getByRole("button", { name: "下一步" }).click();
+  await dialog.getByRole("radio", { name: /^更新/ }).click();
+  await dialog.getByRole("button", { name: "下一步" }).click();
+  await expect(dialog.getByRole("checkbox", { name: "按 id 匹配" })).toBeChecked();
   await snapshot(page, "import-mapping");
 });
 
 test("import: result with failures", async ({ page }) => {
   const dialog = await importMapping(page);
-  await dialog.getByRole("button", { name: "下一步" }).click();
-  await dialog.getByRole("button", { name: "下一步" }).click();
+  for (let step = 0; step < 3; step += 1) await dialog.getByRole("button", { name: "下一步" }).click();
   await dialog.getByRole("radio", { name: /跳过并记录/ }).click();
   await dialog.getByRole("button", { name: "开始导入" }).click();
   await expect(dialog.getByRole("table", { name: "失败的行" })).toBeVisible();

@@ -3,8 +3,11 @@ import { act, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Backend } from "../../lib/api";
 import { createMockBackend } from "../../lib/mockBackend";
+import { useInspector } from "../../stores/inspector";
 import { objectsTab, useTabs } from "../../stores/tabs";
 import { renderApp } from "../../test/renderApp";
+import { tableKey } from "../sidebar/treeKeys";
+import { useUi } from "../../stores/ui";
 
 async function showObjects(
   connectionId: string,
@@ -79,6 +82,20 @@ describe("listing", () => {
     expect(await screen.findByRole("heading", { name: "folio.diku_mod_inventory_storage" })).toBeInTheDocument();
     expect(await screen.findByText("物化视图")).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "引擎" })).not.toBeInTheDocument();
+  });
+});
+
+describe("selection", () => {
+  it("selecting a row shows that table in the info panel", async () => {
+    const { user } = await showObjects("mock-mysql", "shop");
+    act(() => useInspector.setState({ open: true }));
+    await screen.findByText("4 张表 · 1 个视图");
+    const orders = within(screen.getByRole("table")).getByRole("row", { name: /orders 表/ });
+    await user.click(orders);
+    expect(orders).toHaveAttribute("aria-selected", "true");
+    expect(useUi.getState().selectedKey).toBe(tableKey("mock-mysql", "shop", null, "orders"));
+    const panel = within(screen.getByRole("complementary", { name: "信息" }));
+    expect(await panel.findByRole("heading", { name: "orders" })).toBeInTheDocument();
   });
 });
 

@@ -106,7 +106,9 @@ export function createMockTransfer(wait: (ms?: number) => Promise<unknown>): Tra
           const index = file.headers.findIndex((h) => h.toLowerCase() === column.name.toLowerCase());
           return { column: column.name, source: index >= 0 ? index : null };
         });
-      return { source: file, columns, mapping };
+      const primary = columns.filter((c) => c.isPrimaryKey).map((c) => c.name);
+      const uniqueKeys = primary.length > 0 ? [{ name: null, columns: primary }] : [];
+      return { source: file, columns, uniqueKeys, mapping };
     },
     async importData(jobId, request) {
       const total = 1_280;
@@ -115,7 +117,8 @@ export function createMockTransfer(wait: (ms?: number) => Promise<unknown>): Tra
       } catch (error) {
         const report: ImportReport = {
           status: "cancelled",
-          inserted: 0,
+          affected: 0,
+          unmatched: 0,
           failed: 0,
           failures: [],
           summary: "已取消。整个导入已经回滚，表没有变化。",
@@ -130,15 +133,28 @@ export function createMockTransfer(wait: (ms?: number) => Promise<unknown>): Tra
               { row: 205, column: null, value: null, reason: "Duplicate entry '205' for key 'PRIMARY'" },
             ]
           : [];
-      const inserted = total - failures.length;
-      const cleared = request.options.clearTable ? "导入前清空了表（删掉 12 行）。" : "";
+      const { mode } = request.options;
+      const keyed = mode === "update" || mode === "delete";
+      const unmatched = keyed ? 12 : 0;
+      const affected = total - failures.length - unmatched;
+      const cleared = mode === "replace" ? "导入前清空了表（删掉 12 行）。" : "";
       const tail = failures.length ? `，${failures.length} 行失败（见下面的明细）` : "";
+      const missed = unmatched ? `，文件里 ${unmatched} 行在表里没找到对应的行` : "";
+      const done =
+        mode === "update"
+          ? `更新完成：改了表里 ${affected} 行${missed}`
+          : mode === "delete"
+            ? `删除完成：删掉表里 ${affected} 行${missed}`
+            : mode === "upsert"
+              ? `导入完成：处理 ${affected} 行（表里已有的更新，没有的新增）`
+              : `导入完成：成功 ${affected} 行`;
       return {
         status: "completed",
-        inserted,
+        affected,
+        unmatched,
         failed: failures.length,
         failures,
-        summary: `${cleared}导入完成：成功 ${inserted} 行${tail}。`,
+        summary: `${cleared}${done}${tail}。`,
       };
     },
     cancelTransfer(jobId) {

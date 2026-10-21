@@ -17,6 +17,8 @@ mod sqlite_ddl;
 mod sqlite_design;
 mod sqlite_query;
 mod stream;
+mod table_info;
+mod table_ops;
 
 use std::fmt;
 use std::time::Duration;

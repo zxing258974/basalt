@@ -146,6 +146,9 @@
 .objects-table tbody tr:hover td {
   background: var(--surface-hover);
 }
+.objects-table tbody tr.is-selected td {
+  background: var(--surface-selected);
+}
 .objects-table .is-numeric {
   text-align: right;
 }

@@ -10,6 +10,8 @@ use basalt_core::query::history::HistoryEntry;
 use basalt_core::query::saved::{SavedQueryInfo, SavedQueryRef};
 use basalt_core::query::{QueryScope, StatementOutcome};
 use basalt_core::table::{ApplyOutcome, ColumnInfo, PageRequest, RowChange, TablePage, TableRef};
+use basalt_core::table_info::TableDetails;
+use basalt_core::table_ops::CopyOutcome;
 use basalt_core::transfer::export::{ExportOutcome, ExportRequest};
 use basalt_core::transfer::import::{self as transfer_import, ImportPreview, ImportRequest};
 use basalt_core::transfer::progress::Progress;
@@ -165,6 +167,35 @@ pub async fn apply_table_design(
     expected: Vec<String>,
 ) -> CommandResult<DdlOutcome> {
     service::apply_table_design(&state, &id, original.as_ref(), &design, &expected).await
+}
+
+#[tauri::command]
+pub async fn drop_table(
+    state: State<'_, AppState>,
+    id: String,
+    table: TableRef,
+) -> CommandResult<()> {
+    service::drop_table(&state, &id, &table).await
+}
+
+#[tauri::command]
+pub async fn copy_table(
+    state: State<'_, AppState>,
+    id: String,
+    table: TableRef,
+    name: String,
+    with_data: bool,
+) -> CommandResult<CopyOutcome> {
+    service::copy_table(&state, &id, &table, &name, with_data).await
+}
+
+#[tauri::command]
+pub async fn table_details(
+    state: State<'_, AppState>,
+    id: String,
+    table: TableRef,
+) -> CommandResult<TableDetails> {
+    service::table_details(&state, &id, &table).await
 }
 
 /// 本机 Navicat 的配置在用户主目录下;找不到主目录只影响本机来源,不妨碍导入 .ncx。

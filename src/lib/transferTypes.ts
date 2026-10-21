@@ -91,18 +91,31 @@ export interface ColumnMapping {
   source: number | null;
 }
 
+/** 表上的主键(name 为 null)或一个唯一索引:「追加或更新」只能按它们匹配。 */
+export interface UniqueKey {
+  name: string | null;
+  columns: string[];
+}
+
 export interface ImportPreview {
   source: SourcePreview;
   columns: ColumnInfo[];
+  /** 主键在前。 */
+  uniqueKeys: UniqueKey[];
   mapping: ColumnMapping[];
 }
 
 export type OnError = "stop" | "skip";
 
+/** 追加、更新、追加或更新、删除、复制(先清空表再追加)。 */
+export type ImportMode = "append" | "update" | "upsert" | "delete" | "replace";
+
 export interface ImportOptions {
   onError: OnError;
   batchSize: number;
-  clearTable: boolean;
+  mode: ImportMode;
+  /** 匹配键(列名):更新、追加或更新、删除用。 */
+  keyColumns: string[];
   binary: BinaryEncoding;
 }
 
@@ -126,8 +139,10 @@ export interface ImportFailure {
 
 export interface ImportReport {
   status: ImportStatus;
-  /** 已经在表里生效的行数。 */
-  inserted: number;
+  /** 已经生效的表行数:插入、更新或删除了多少行。 */
+  affected: number;
+  /** 更新、删除时在表里找不到对应行的文件行数。 */
+  unmatched: number;
   failed: number;
   /** 最多带回 10000 条明细。 */
   failures: ImportFailure[];

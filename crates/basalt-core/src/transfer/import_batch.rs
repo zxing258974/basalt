@@ -4,15 +4,21 @@
 //! (大事务会撑满 binlog 缓存、拖住 undo,MyISAM 这类引擎本来就没有事务),所以中途出错时
 //! 前面已经提交的批次留在库里,报告里写清楚。
 //!
-//! 每批先整批插入;数据库拒绝了就回到这批开头的保存点,再一行一行插,找出是哪几行,
+//! 每批先整批写;数据库拒绝了就回到这批开头的保存点,再一行一行写,找出是哪几行,
 //! 其余的照常写进去(遇错即停时找到第一行就停)。不支持事务的引擎一行一条语句,
 //! 成功一行就生效一行。
+//!
+//! 追加、复制、追加或更新是多行 INSERT;更新、删除按匹配键一行一条语句。
 
+use super::import::ImportMode;
 use super::report::{Failures, ImportFailure};
 use crate::query::lease::{EditorLease, ExecError};
 use crate::sql::Dialect;
 use crate::sql::bind::BindValue;
-use crate::sql::insert::{clear_table, insert_rows, rows_per_statement};
+use crate::sql::dml::Statement;
+use crate::sql::insert::{
+    clear_table, delete_row, insert_rows, rows_per_statement, update_row, upsert_rows,
+};
 use crate::table::{ColumnInfo, TableRef};
 
 /// 一批里的一行:文件行号与转换好的值。
@@ -46,15 +52,21 @@ pub(crate) struct BatchWriter<'a> {
     pub dialect: Dialect,
     pub table: &'a TableRef,
     pub columns: Vec<&'a ColumnInfo>,
+    pub mode: ImportMode,
+    /// 匹配键在 `columns` 里的位置(更新、追加或更新、删除)。
+    pub keys: Vec<usize>,
     /// MySQL:每批提交。
     pub commit_each_batch: bool,
     /// MySQL 的 MyISAM、MEMORY 等不支持事务的引擎。
     pub transactional: bool,
     pub stop_on_error: bool,
-    /// 写进去的行数(含还没提交的)。
-    pub inserted: u64,
-    /// 已经提交的行数、批数,以及最后一批提交到文件的哪一行(MySQL 报告用)。
+    /// 插入、更新或删除的表行数(含还没提交的)。
+    pub affected: u64,
+    /// 在表里找不到对应行的文件行数(更新、删除),含还没提交的。
+    pub unmatched: u64,
+    /// 已经提交的行数、未匹配行数、批数,以及最后一批提交到文件的哪一行(MySQL 报告用)。
     pub committed: u64,
+    pub committed_unmatched: u64,
     pub committed_batches: u64,
     pub committed_through: Option<u64>,
     /// 清空表时删掉的行数。
@@ -66,28 +78,70 @@ impl BatchWriter<'_> {
         self.lease.execute_sql(sql).await
     }
 
-    /// 开事务;要清空表就在同一个事务里先 DELETE。
-    pub async fn begin(&mut self, clear: bool) -> Result<(), Abort> {
+    /// 开事务;「复制」模式在同一个事务里先清空表。
+    pub async fn begin(&mut self) -> Result<(), Abort> {
         if self.transactional {
             self.sql("BEGIN").await?;
         }
-        if clear {
+        if self.mode == ImportMode::Replace {
             let sql = clear_table(self.dialect, self.table);
             self.cleared = Some(self.sql(&sql).await?);
         }
         Ok(())
     }
 
-    /// 把语句拆成不超过参数上限的几条,依次执行,返回插入的行数。
-    async fn insert(&mut self, rows: &[Row]) -> Result<u64, ExecError> {
-        let per = rows_per_statement(self.dialect, self.columns.len(), rows.len());
-        let mut inserted = 0;
-        for chunk in rows.chunks(per) {
-            let values = chunk.iter().map(|(_, values)| values.clone()).collect();
-            let statement = insert_rows(self.dialect, self.table, &self.columns, values);
-            inserted += self.lease.execute(&statement).await?;
+    /// 写一批(或一行),返回 (生效的表行数, 没匹配上的文件行数)。
+    async fn apply(&mut self, rows: &[Row]) -> Result<(u64, u64), ExecError> {
+        match self.mode {
+            ImportMode::Append | ImportMode::Replace | ImportMode::Upsert => {
+                let per = rows_per_statement(self.dialect, self.columns.len(), rows.len());
+                let mut affected = 0;
+                for chunk in rows.chunks(per) {
+                    let values = chunk.iter().map(|(_, values)| values.clone()).collect();
+                    let statement = if self.mode == ImportMode::Upsert {
+                        upsert_rows(self.dialect, self.table, &self.columns, &self.keys, values)
+                    } else {
+                        insert_rows(self.dialect, self.table, &self.columns, values)
+                    };
+                    let count = self.lease.execute(&statement).await?;
+                    // MySQL 的 upsert 更新一行算 2;一行文件就算一行。
+                    affected += if self.mode == ImportMode::Upsert {
+                        chunk.len() as u64
+                    } else {
+                        count
+                    };
+                }
+                Ok((affected, 0))
+            }
+            ImportMode::Update | ImportMode::Delete => {
+                let (mut affected, mut unmatched) = (0, 0);
+                for (_, values) in rows {
+                    let statement = self.keyed(values);
+                    match self.lease.execute(&statement).await? {
+                        0 => unmatched += 1,
+                        count => affected += count,
+                    }
+                }
+                Ok((affected, unmatched))
+            }
         }
-        Ok(inserted)
+    }
+
+    /// 更新、删除的一行:按匹配键找到表里对应的行。
+    fn keyed(&self, values: &[BindValue]) -> Statement {
+        let pick = |key: bool| -> Vec<(&ColumnInfo, BindValue)> {
+            self.columns
+                .iter()
+                .zip(values)
+                .enumerate()
+                .filter(|(index, _)| self.keys.contains(index) == key)
+                .map(|(_, (column, value))| (*column, value.clone()))
+                .collect()
+        };
+        match self.mode {
+            ImportMode::Update => update_row(self.dialect, self.table, &pick(false), &pick(true)),
+            _ => delete_row(self.dialect, self.table, &pick(true)),
+        }
     }
 
     /// 写一批。被拒绝的行记进 `failures`;遇错即停时返回 [`Abort::Stopped`]。
@@ -97,14 +151,15 @@ impl BatchWriter<'_> {
         }
         let whole = if self.transactional {
             self.sql("SAVEPOINT basalt_batch").await?;
-            self.insert(&rows).await
+            self.apply(&rows).await
         } else {
             Err(ExecError::Rejected(String::new()))
         };
         match whole {
-            Ok(count) => {
+            Ok((affected, unmatched)) => {
                 self.sql("RELEASE SAVEPOINT basalt_batch").await?;
-                self.inserted += count;
+                self.affected += affected;
+                self.unmatched += unmatched;
             }
             Err(ExecError::Rejected(_)) => {
                 if self.transactional {
@@ -130,12 +185,13 @@ impl BatchWriter<'_> {
             if self.transactional {
                 self.sql("SAVEPOINT basalt_row").await?;
             }
-            match self.insert(std::slice::from_ref(row)).await {
-                Ok(count) => {
+            match self.apply(std::slice::from_ref(row)).await {
+                Ok((affected, unmatched)) => {
                     if self.transactional {
                         self.sql("RELEASE SAVEPOINT basalt_row").await?;
                     }
-                    self.inserted += count;
+                    self.affected += affected;
+                    self.unmatched += unmatched;
                 }
                 Err(ExecError::Rejected(reason)) => {
                     if self.transactional {
@@ -171,7 +227,8 @@ impl BatchWriter<'_> {
                     }
                 })?;
         }
-        self.committed = self.inserted;
+        self.committed = self.affected;
+        self.committed_unmatched = self.unmatched;
         self.committed_batches += 1;
         Ok(())
     }
@@ -190,8 +247,10 @@ impl BatchWriter<'_> {
         }
         if !self.transactional {
             // 没有事务:写进去的就是生效了。
-            self.committed = self.inserted;
+            self.committed = self.affected;
+            self.committed_unmatched = self.unmatched;
         }
-        self.inserted = self.committed;
+        self.affected = self.committed;
+        self.unmatched = self.committed_unmatched;
     }
 }

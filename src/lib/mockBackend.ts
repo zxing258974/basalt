@@ -4,6 +4,7 @@ import { createMockQueries } from "./mock/queryMock";
 import { seedTable } from "./mock/seedTables";
 import { createMockTables } from "./mock/tableData";
 import { createMockDesigns } from "./mock/tableDesign";
+import { mockTableDetails } from "./mock/tableDetails";
 import { createMockTransfer } from "./mock/transferMock";
 import { classifyMockImport, mockImportSources, planMockImport } from "./mockImport";
 import type {
@@ -184,6 +185,17 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
     if (!open.has(id)) fail("not_connected", `连接尚未打开：${id}`);
     return config;
   };
+  /** 对象树里的表和视图:种子数据叠加建表、改名、删除、复制的结果。 */
+  const tablesOf = (id: string, database: string, schema: string | null) => {
+    const config = requireOpen(id);
+    const base =
+      config.driver === "sqlite"
+        ? [table("notes"), table("tags"), table("recent_notes", { kind: "view" })]
+        : config.driver === "postgres"
+          ? (PG_TABLES[schema ?? ""] ?? [])
+          : (MYSQL_TABLES[database] ?? []);
+    return designs.tables(id, database, schema, base);
+  };
 
   return {
     async listConnections() {
@@ -276,14 +288,31 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
     },
     async listTables(id, database, schema) {
       await wait();
+      return tablesOf(id, database, schema ?? null);
+    },
+    async dropTable(id, ref) {
+      await wait(120);
+      if (!tablesOf(id, ref.database, ref.schema).some((t) => t.name === ref.table)) {
+        fail("table_not_found", `找不到表：${ref.table}`);
+      }
+      designs.drop(id, ref);
+    },
+    async tableDetails(id, ref) {
+      await wait();
       const config = requireOpen(id);
-      const base =
-        config.driver === "sqlite"
-          ? [table("notes"), table("tags"), table("recent_notes", { kind: "view" })]
-          : config.driver === "postgres"
-            ? (PG_TABLES[schema ?? ""] ?? [])
-            : (MYSQL_TABLES[database] ?? []);
-      return designs.tables(id, database, schema ?? null, base);
+      const info = tablesOf(id, ref.database, ref.schema).find((t) => t.name === ref.table);
+      if (!info) fail("database", `找不到表「${ref.table}」，可能已被删除或没有权限。`);
+      return mockTableDetails(config.driver, info, designs.ddl(id, config.driver, ref));
+    },
+    async copyTable(id, ref, name, withData) {
+      await wait(160);
+      const config = requireOpen(id);
+      const target = name.trim();
+      if (!target) fail("invalid_data", "新表名不能为空。");
+      const existing = tablesOf(id, ref.database, ref.schema);
+      if (existing.some((t) => t.name === target)) fail("database", `Table '${target}' already exists`);
+      designs.copy(id, config.driver, ref, target);
+      return { table: { ...ref, table: target }, rows: withData ? seedTable(ref.table).rows.length : null };
     },
     async readTablePage(id, table, request) {
       await wait();

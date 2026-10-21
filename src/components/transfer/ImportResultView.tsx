@@ -1,7 +1,7 @@
 import { CircleAlert, CircleCheck, TriangleAlert } from "lucide-react";
-import type { ImportReport } from "../../lib/transferTypes";
+import type { ImportMode, ImportReport } from "../../lib/transferTypes";
 import { formatCount } from "./exportModel";
-import { reportTitle, reportTone } from "./importModel";
+import { affectedLabel, reportTitle, reportTone, usesKeys } from "./importModel";
 import { previewRows } from "./PreviewTable";
 
 /** 明细表里最多列这么多条,其余导出成 CSV 看。 */
@@ -9,7 +9,7 @@ export const SHOWN_FAILURES = 200;
 
 const ICONS = { success: CircleCheck, warning: TriangleAlert, error: CircleAlert };
 
-export function ImportResultView({ report }: { report: ImportReport }) {
+export function ImportResultView({ report, mode }: { report: ImportReport; mode: ImportMode }) {
   const tone = reportTone(report);
   const Icon = ICONS[tone];
   const shown = report.failures.slice(0, SHOWN_FAILURES);
@@ -22,8 +22,13 @@ export function ImportResultView({ report }: { report: ImportReport }) {
           <p className="transfer-result-summary selectable">{report.summary}</p>
           <p className="transfer-result-stats">
             <span>
-              生效 <strong className="mono">{formatCount(report.inserted)}</strong> 行
+              {affectedLabel(mode)} <strong className="mono">{formatCount(report.affected)}</strong> 行
             </span>
+            {usesKeys(mode) && mode !== "upsert" && (
+              <span>
+                未匹配 <strong className="mono">{formatCount(report.unmatched)}</strong> 行
+              </span>
+            )}
             <span>
               失败 <strong className="mono">{formatCount(report.failed)}</strong> 行
             </span>

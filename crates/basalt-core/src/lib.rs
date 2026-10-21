@@ -11,6 +11,8 @@ pub mod secret;
 pub mod session;
 pub mod sql;
 pub mod table;
+pub mod table_info;
+pub mod table_ops;
 pub mod transfer;
 pub mod value;
 

@@ -346,6 +346,12 @@ impl DdlContext {
     }
 }
 
+/// PostgreSQL 的建表语句(建表、建索引、注释),给信息面板看:PostgreSQL 没有 SHOW CREATE TABLE。
+/// 只是展示,不做设计器的校验。
+pub fn postgres_create_statements(design: &TableDesign) -> Vec<String> {
+    postgres::create_table(design)
+}
+
 /// 由「原结构 + 新结构」生成要执行的语句。`original` 为 `None` 表示新建表。
 pub fn plan(
     context: &DdlContext,

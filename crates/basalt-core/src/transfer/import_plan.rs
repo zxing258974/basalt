@@ -30,6 +30,9 @@ pub(super) struct Plan {
     binary: BinaryEncoding,
     /// CSV 的每一行字段数都应该和列名行一样;Excel 的行末尾空着的格子本来就不算。
     csv: bool,
+    /// 不能是空值的目标列(更新、删除的匹配键):`WHERE 键 = NULL` 永远找不到行,
+    /// 不当作「表里没有」悄悄跳过,而是记成失败说清楚。
+    pub non_null: Vec<usize>,
 }
 
 impl Plan {
@@ -72,6 +75,7 @@ impl Plan {
             targets,
             binary,
             csv,
+            non_null: Vec::new(),
         })
     }
 
@@ -116,7 +120,8 @@ impl Plan {
                 ),
             });
         }
-        self.targets
+        let values: Vec<BindValue> = self
+            .targets
             .iter()
             .map(|target| {
                 let value = record
@@ -137,7 +142,20 @@ impl Plan {
                     reason,
                 })
             })
-            .collect()
+            .collect::<Result<_, _>>()?;
+        if let Some(&index) = self
+            .non_null
+            .iter()
+            .find(|&&i| values[i] == BindValue::Null)
+        {
+            return Err(ImportFailure {
+                row: record.row,
+                column: Some(self.targets[index].column.name.clone()),
+                value: None,
+                reason: "匹配键是空值，按它找不到表里对应的行".into(),
+            });
+        }
+        Ok(values)
     }
 }
 

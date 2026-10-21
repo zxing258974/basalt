@@ -11,7 +11,12 @@ fn options(on_error: OnError, batch_size: u32, clear_table: bool) -> ImportOptio
     ImportOptions {
         on_error,
         batch_size,
-        clear_table,
+        mode: if clear_table {
+            ImportMode::Replace
+        } else {
+            ImportMode::Append
+        },
+        key_columns: Vec::new(),
         binary: BinaryEncoding::Hex,
     }
 }
@@ -126,7 +131,7 @@ async fn csv_and_excel_round_trip_null_chinese_binary_and_big_numbers() {
             "{name}：{}",
             report.summary
         );
-        assert_eq!(report.inserted, 3, "{name}");
+        assert_eq!(report.affected, 3, "{name}");
         assert_eq!(
             query(&sessions, SAME).await,
             [[CellValue::Int(0)]],
@@ -174,7 +179,7 @@ async fn skipping_records_bad_values_rejected_rows_and_misaligned_rows() {
     )
     .await;
     assert_eq!(report.status, ImportStatus::Completed, "{}", report.summary);
-    assert_eq!((report.inserted, report.failed), (3, 3));
+    assert_eq!((report.affected, report.failed), (3, 3));
     let mut failures = report.failures.clone();
     failures.sort_by_key(|f| f.row);
     assert_eq!(failures[0].row, 3);
@@ -224,7 +229,7 @@ async fn stopping_checks_the_whole_file_before_writing_anything() {
     )
     .await;
     assert_eq!(report.status, ImportStatus::Stopped);
-    assert_eq!((report.inserted, report.failed), (0, 2));
+    assert_eq!((report.affected, report.failed), (0, 2));
     assert_eq!(
         report.failures.iter().map(|f| f.row).collect::<Vec<_>>(),
         [3, 5]
@@ -251,7 +256,7 @@ async fn a_rejected_row_rolls_back_everything_including_the_clear() {
     )
     .await;
     assert_eq!(report.status, ImportStatus::Stopped);
-    assert_eq!(report.inserted, 0);
+    assert_eq!(report.affected, 0);
     assert_eq!(report.failures[0].row, 4);
     assert!(report.summary.contains("回滚"), "{}", report.summary);
     assert_eq!(
@@ -285,7 +290,7 @@ async fn cancelling_rolls_back() {
     )
     .await;
     assert_eq!(report.status, ImportStatus::Cancelled);
-    assert_eq!(report.inserted, 0);
+    assert_eq!(report.affected, 0);
     assert!(report.summary.contains("已取消"), "{}", report.summary);
     assert_eq!(count(&sessions, "people_copy").await, 0);
 }
@@ -360,7 +365,7 @@ async fn all_null_rows_are_kept_and_short_rows_are_reported() {
     )
     .await;
     assert_eq!(
-        (report.inserted, report.failed),
+        (report.affected, report.failed),
         (1, 2),
         "{}",
         report.summary

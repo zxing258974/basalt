@@ -1,4 +1,4 @@
-// 导入向导的主流程(mock 后端):选文件、改编码分隔符、调映射、清空表的二次确认、进度与取消、失败明细另存。
+// 导入向导的主流程(mock 后端):选文件、选工作表、导入模式与匹配键、调映射、清空表的二次确认、进度与取消、失败明细另存。
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Backend } from "../../lib/api";
@@ -52,7 +52,11 @@ describe("importing", { timeout: 15_000 }, () => {
     await waitFor(() => expect(preview).toHaveBeenCalledTimes(4));
 
     await user.click(view.getByRole("button", { name: "下一步" }));
+    expect(view.getByRole("radio", { name: /^追加把/ })).toHaveAttribute("aria-checked", "true");
+    await user.click(view.getByRole("radio", { name: /^复制/ }));
+    await user.click(view.getByRole("button", { name: "下一步" }));
     const mapping = view.getByRole("table", { name: "列映射" });
+    expect(within(mapping).queryByRole("columnheader", { name: "匹配键" })).not.toBeInTheDocument();
     expect(within(mapping).getByRole("combobox", { name: "name 的来源" })).toHaveDisplayValue("NAME");
     expect(within(mapping).getByRole("combobox", { name: "note 的来源" })).toHaveDisplayValue("不导入");
     await user.selectOptions(within(mapping).getByRole("combobox", { name: "name 的来源" }), "skip");
@@ -66,10 +70,9 @@ describe("importing", { timeout: 15_000 }, () => {
     const batch = view.getByRole("spinbutton", { name: "每批的行数" });
     await user.clear(batch);
     await user.type(batch, "200");
-    await user.click(view.getByRole("checkbox", { name: /导入前清空/ }));
     await user.click(view.getByRole("button", { name: "开始导入" }));
     const confirm = within(await screen.findByRole("dialog", { name: "清空表再导入？" }));
-    expect(confirm.getByText(/每批单独提交/)).toBeInTheDocument();
+    expect(confirm.getByText(/清空和导入在同一个事务里/)).toBeInTheDocument();
     await user.click(confirm.getByRole("button", { name: "清空并导入" }));
 
     expect(await view.findByText("导入完成，有些行失败了")).toBeInTheDocument();
@@ -77,7 +80,7 @@ describe("importing", { timeout: 15_000 }, () => {
       connectionId: "mock-mysql",
       table: { database: "shop", table: "customers" },
       source: { path: "/Users/me/Downloads/customers.csv", hasHeader: true },
-      options: { onError: "skip", batchSize: 200, clearTable: true, binary: "hex" },
+      options: { onError: "skip", batchSize: 200, mode: "replace", keyColumns: [], binary: "hex" },
     });
     const failures = view.getByRole("table", { name: "失败的行" });
     expect(within(failures).getByText("不是有效的整数")).toBeInTheDocument();
@@ -100,8 +103,9 @@ describe("importing", { timeout: 15_000 }, () => {
     await user.click(view.getByRole("button", { name: "上一步" }));
     expect(view.getByRole("table", { name: "文件预览" })).toBeInTheDocument();
     await user.click(view.getByRole("button", { name: "下一步" }));
+    await user.click(view.getByRole("radio", { name: /^复制/ }));
     await user.click(view.getByRole("button", { name: "下一步" }));
-    await user.click(view.getByRole("checkbox", { name: /导入前清空/ }));
+    await user.click(view.getByRole("button", { name: "下一步" }));
     await user.click(view.getByRole("button", { name: "开始导入" }));
     const confirm = within(await screen.findByRole("dialog", { name: "清空表再导入？" }));
     await user.click(confirm.getByRole("button", { name: "取消" }));
@@ -129,7 +133,8 @@ describe("importing", { timeout: 15_000 }, () => {
       cancelTransfer: vi.fn(() => {
         finish?.({
           status: "cancelled",
-          inserted: 0,
+          affected: 0,
+          unmatched: 0,
           failed: 0,
           failures: [],
           summary: "已取消。整个导入已经回滚，表没有变化。",
@@ -139,8 +144,7 @@ describe("importing", { timeout: 15_000 }, () => {
     };
     const { user, view } = await importCustomers(controlled);
     await pickFile(user);
-    await user.click(view.getByRole("button", { name: "下一步" }));
-    await user.click(view.getByRole("button", { name: "下一步" }));
+    for (let step = 0; step < 3; step += 1) await user.click(view.getByRole("button", { name: "下一步" }));
     await user.click(view.getByRole("button", { name: "开始导入" }));
     const status = await view.findByRole("status");
     expect(within(status).getByText("600")).toBeInTheDocument();
@@ -168,14 +172,113 @@ describe("importing", { timeout: 15_000 }, () => {
     expect(view.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("switches sheets of an Excel file", async () => {
+  it("makes the user pick one sheet of a workbook that has several", async () => {
     const backend = createMockBackend();
     vi.spyOn(backend, "pickImportFile").mockResolvedValue("/Users/me/Downloads/book.xlsx");
     const preview = vi.spyOn(backend, "previewImport");
     const { user, view } = await importCustomers(backend);
-    await pickFile(user);
-    expect(view.getByText("Excel · 工作表「Sheet1」")).toBeInTheDocument();
-    await user.selectOptions(view.getByRole("combobox", { name: "工作表" }), "说明");
+    await user.click(view.getByRole("button", { name: "选择文件…" }));
+    const sheets = within(await view.findByRole("radiogroup", { name: "工作表" }));
+    expect(view.getByText(/有 2 个工作表，先选要导入的那一个/)).toBeInTheDocument();
+    expect(view.queryByRole("table", { name: "文件预览" })).not.toBeInTheDocument();
+    expect(view.getByRole("button", { name: "下一步" })).toBeDisabled();
+
+    await user.click(sheets.getByRole("radio", { name: "说明" }));
     await waitFor(() => expect(preview.mock.calls[1]![2].format).toEqual({ kind: "excel", sheet: "说明" }));
+    expect(await view.findByRole("table", { name: "文件预览" })).toBeInTheDocument();
+    expect(sheets.getByRole("radio", { name: "说明" })).toHaveAttribute("aria-checked", "true");
+    expect(view.getByRole("button", { name: "下一步" })).toBeEnabled();
+
+    // 选回第一个:已经读过的就不必再读,但仍然算选过了。
+    await user.click(sheets.getByRole("radio", { name: "Sheet1" }));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(3));
+    expect(view.getByRole("button", { name: "下一步" })).toBeEnabled();
+  });
+
+  it("loads the sheet clicked last even if an earlier preview is still loading", async () => {
+    const backend = createMockBackend();
+    vi.spyOn(backend, "pickImportFile").mockResolvedValue("/Users/me/Downloads/book.xlsx");
+    const real = backend.previewImport.bind(backend);
+    const pending: (() => void)[] = [];
+    const preview = vi.spyOn(backend, "previewImport").mockImplementation(async (...args) => {
+      const result = await real(...args);
+      // 第一次(选文件)立刻返回;之后的每次都等测试放行。
+      if (preview.mock.calls.length > 1) await new Promise<void>((resolve) => pending.push(resolve));
+      return result;
+    });
+    const { user, view } = await importCustomers(backend);
+    await user.click(view.getByRole("button", { name: "选择文件…" }));
+    const sheets = within(await view.findByRole("radiogroup", { name: "工作表" }));
+    await user.click(sheets.getByRole("radio", { name: "说明" }));
+    await user.click(sheets.getByRole("radio", { name: "Sheet1" }));
+    await waitFor(() => expect(preview).toHaveBeenCalledTimes(3));
+    expect(preview.mock.calls[2]![2].format).toEqual({ kind: "excel", sheet: "Sheet1" });
+    for (const resolve of pending) resolve();
+    expect(await view.findByText("Excel · 工作表「Sheet1」")).toBeInTheDocument();
+  });
+
+  it("matches rows by the primary key when updating", async () => {
+    const backend = createMockBackend();
+    const importData = vi.spyOn(backend, "importData");
+    const { user, view } = await importCustomers(backend);
+    await pickFile(user);
+    await user.click(view.getByRole("button", { name: "下一步" }));
+    expect(view.getByText(/能用来匹配的键：主键（id）/)).toBeInTheDocument();
+    await user.click(view.getByRole("radio", { name: /^更新/ }));
+    await user.click(view.getByRole("button", { name: "下一步" }));
+
+    const mapping = within(view.getByRole("table", { name: "列映射" }));
+    expect(mapping.getByRole("checkbox", { name: "按 id 匹配" })).toBeChecked();
+    await user.click(mapping.getByRole("checkbox", { name: "按 id 匹配" }));
+    expect(view.getByRole("note")).toHaveTextContent("要勾选匹配键");
+    expect(view.getByRole("button", { name: "下一步" })).toBeDisabled();
+    await user.click(mapping.getByRole("checkbox", { name: "按 email 匹配" }));
+    expect(view.queryByRole("note")).not.toBeInTheDocument();
+
+    await user.click(view.getByRole("button", { name: "下一步" }));
+    await user.click(view.getByRole("button", { name: "开始导入" }));
+    expect(await view.findByText(/更新完成/)).toBeInTheDocument();
+    expect(view.getByText(/未匹配/)).toHaveTextContent("未匹配 12 行");
+    expect(importData.mock.calls[0]![1].options).toMatchObject({ mode: "update", keyColumns: ["email"] });
+  });
+
+  it("only offers upsert on unique keys and confirms deleting", async () => {
+    const backend = createMockBackend();
+    const importData = vi.spyOn(backend, "importData");
+    const { user, view } = await importCustomers(backend);
+    await pickFile(user);
+    await user.click(view.getByRole("button", { name: "下一步" }));
+    await user.click(view.getByRole("radio", { name: /^追加或更新/ }));
+    await user.click(view.getByRole("button", { name: "下一步" }));
+    const mapping = within(view.getByRole("table", { name: "列映射" }));
+    expect(mapping.getByRole("checkbox", { name: "按 id 匹配" })).toBeChecked();
+    await user.click(mapping.getByRole("checkbox", { name: "按 name 匹配" }));
+    expect(view.getByRole("note")).toHaveTextContent("只能按主键或一个唯一索引");
+    await user.click(within(view.getByRole("group", { name: "可用的键" })).getByRole("button", { name: /主键/ }));
+    expect(mapping.getByRole("checkbox", { name: "按 name 匹配" })).not.toBeChecked();
+
+    await user.click(view.getByRole("button", { name: "上一步" }));
+    await user.click(view.getByRole("radio", { name: /^删除/ }));
+    await user.click(view.getByRole("button", { name: "下一步" }));
+    await user.click(view.getByRole("button", { name: "下一步" }));
+    await user.click(view.getByRole("button", { name: "开始导入" }));
+    const confirm = within(await screen.findByRole("dialog", { name: "按文件删除表里的行？" }));
+    await user.click(confirm.getByRole("button", { name: "删除" }));
+    expect(await view.findByText(/删除完成/)).toBeInTheDocument();
+    expect(importData.mock.calls[0]![1].options).toMatchObject({ mode: "delete", keyColumns: ["id"] });
+  });
+
+  it("cannot upsert into a table without a primary key or unique index", async () => {
+    const backend = createMockBackend();
+    const real = backend.previewImport.bind(backend);
+    vi.spyOn(backend, "previewImport").mockImplementation(async (...args) => ({
+      ...(await real(...args)),
+      uniqueKeys: [],
+    }));
+    const { user, view } = await importCustomers(backend);
+    await pickFile(user);
+    await user.click(view.getByRole("button", { name: "下一步" }));
+    expect(view.getByRole("radio", { name: /^追加或更新/ })).toBeDisabled();
+    expect(view.getByText(/没有主键，也没有唯一索引/)).toBeInTheDocument();
   });
 });

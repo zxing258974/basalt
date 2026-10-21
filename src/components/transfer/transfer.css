@@ -353,3 +353,36 @@
   display: flex;
   justify-content: flex-end;
 }
+
+/* 多工作表的 Excel:一排可点的工作表名,选中的铺淡余烬 */
+.transfer-sheets {
+  display: grid;
+  gap: var(--space-3);
+}
+.transfer-sheet-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.transfer-sheet {
+  height: 28px;
+  padding: 0 var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-strong);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.transfer-sheet:hover {
+  background: var(--surface-hover);
+}
+.transfer-sheet:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.transfer-sheet.is-checked {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}

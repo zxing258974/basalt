@@ -13,7 +13,7 @@ use basalt_core::session::SessionManager;
 use basalt_core::table::TableRef;
 use basalt_core::transfer::export::{ExportRequest, ExportSource, run_export, transfer_editor_id};
 use basalt_core::transfer::import::{
-    ImportOptions, ImportRequest, ImportStatus, OnError, preview_import, run_import,
+    ImportMode, ImportOptions, ImportRequest, ImportStatus, OnError, preview_import, run_import,
 };
 use basalt_core::transfer::progress::{CancelFlag, Progress, ignore};
 use basalt_core::transfer::source::SourceSpec;
@@ -158,13 +158,12 @@ async fn rows_where(sessions: &SessionManager, table: &TableRef, filter: &str) -
         .rows
 }
 
-/// 10 万行 CSV 导回空表;再导一次并在中途取消:PostgreSQL、SQLite 整体回滚,MySQL 报告已提交的批次。
+/// 10 万行 CSV 导回空表;再用「复制」模式导一次并在中途取消:各家都整体回滚,清空也撤回。
 async fn imports_and_cancels(
     sessions: &SessionManager,
     table: &TableRef,
     copy: &TableRef,
     label: &str,
-    mysql: bool,
 ) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("big.csv");
@@ -179,11 +178,11 @@ async fn imports_and_cancels(
     let report = import_file_in_batches(sessions, copy, &path, 1000).await;
     println!(
         "{label} 导入 {} 行：{:.1} 秒",
-        report.inserted,
+        report.affected,
         started.elapsed().as_secs_f64()
     );
     assert_eq!(
-        (report.status, report.inserted, report.failed),
+        (report.status, report.affected, report.failed),
         (ImportStatus::Completed, ROWS, 0),
         "{label}：{}",
         report.summary
@@ -208,7 +207,8 @@ async fn imports_and_cancels(
         options: ImportOptions {
             on_error: OnError::Skip,
             batch_size: 1000,
-            clear_table: true,
+            mode: ImportMode::Replace,
+            key_columns: Vec::new(),
             binary: BinaryEncoding::Hex,
         },
     };
@@ -225,28 +225,18 @@ async fn imports_and_cancels(
     println!("{label} 取消导入：{}", report.summary);
     assert_eq!(report.status, ImportStatus::Cancelled, "{label}");
     let left = rows_where(sessions, copy, "1 = 1").await;
-    if mysql {
-        assert!(
-            report.inserted >= 20_000 && report.inserted < ROWS,
-            "{label}：{}",
-            report.summary
-        );
-        assert_eq!(
-            left, report.inserted,
-            "{label}：报告里说的已生效行数要和表里一致"
-        );
-        assert!(
-            report.summary.contains("已经生效"),
-            "{label}：{}",
-            report.summary
-        );
-    } else {
-        assert_eq!(
-            (report.inserted, left),
-            (0, ROWS),
-            "{label}：整体回滚，清空也撤回"
-        );
-    }
+    // 「复制」模式的清空和插入在一个事务里,MySQL 也不按批提交:取消后整体撤回,原来的行都在。
+    assert_eq!(
+        (report.affected, left),
+        (0, ROWS),
+        "{label}：整体回滚，清空也撤回：{}",
+        report.summary
+    );
+    assert!(
+        report.summary.contains("整个导入已经回滚"),
+        "{label}：{}",
+        report.summary
+    );
 }
 
 // 多线程运行时:和应用里一样,导出在别的线程上跑,取消请求能插进来。
@@ -279,14 +269,7 @@ async fn hundred_thousand_rows() {
     };
     exports_without_growing_memory(&sessions, &table("big"), "sqlite").await;
     export_can_be_cancelled_midway(&sessions, &table("big"), "sqlite").await;
-    imports_and_cancels(
-        &sessions,
-        &table("big"),
-        &table("big_copy"),
-        "sqlite",
-        false,
-    )
-    .await;
+    imports_and_cancels(&sessions, &table("big"), &table("big_copy"), "sqlite").await;
     sessions.close(CONNECTION).await;
 
     for target in MYSQL_FAMILY.into_iter().filter(|t| selected(*t)) {
@@ -321,14 +304,7 @@ async fn hundred_thousand_rows() {
         };
         exports_without_growing_memory(&sessions, &table("big"), target.name).await;
         export_can_be_cancelled_midway(&sessions, &table("big"), target.name).await;
-        imports_and_cancels(
-            &sessions,
-            &table("big"),
-            &table("big_copy"),
-            target.name,
-            true,
-        )
-        .await;
+        imports_and_cancels(&sessions, &table("big"), &table("big_copy"), target.name).await;
         sessions.close(CONNECTION).await;
     }
 
@@ -369,7 +345,6 @@ async fn hundred_thousand_rows() {
             &table("m6_big"),
             &table("m6_big_copy"),
             "postgres",
-            false,
         )
         .await;
         sessions.close(CONNECTION).await;

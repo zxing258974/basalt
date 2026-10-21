@@ -1,13 +1,21 @@
 import { describe, expect, it } from "vitest";
-import type { ImportReport, SourcePreview } from "../../lib/transferTypes";
+import type { ImportReport, SourcePreview, UniqueKey } from "../../lib/transferTypes";
 import type { ColumnInfo } from "../../lib/types";
 import {
+  affectedLabel,
   commitNote,
+  confirmation,
+  defaultKeys,
   describeFormat,
+  describeKey,
   failuresFileName,
+  isDestructive,
+  keyProblem,
   mappedCount,
   mappedPreview,
   missingRequired,
+  mysqlUpsertNote,
+  needsSheetChoice,
   reportTitle,
   reportTone,
   setSource,
@@ -38,8 +46,14 @@ const preview: SourcePreview = {
 };
 
 function report(partial: Partial<ImportReport>): ImportReport {
-  return { status: "completed", inserted: 1, failed: 0, failures: [], summary: "", ...partial };
+  return { status: "completed", affected: 1, unmatched: 0, failed: 0, failures: [], summary: "", ...partial };
 }
+
+const keys: UniqueKey[] = [
+  { name: null, columns: ["id"] },
+  { name: "uk_code", columns: ["code", "region"] },
+];
+const mapping = (...columns: string[]) => columns.map((column, source) => ({ column, source }));
 
 describe("importModel", () => {
   it("changes one mapping at a time without touching the rest", () => {
@@ -89,6 +103,62 @@ describe("importModel", () => {
       "CSV · GBK · 制表符分隔",
     );
     expect(describeFormat({ kind: "excel", sheet: "数据" })).toBe("Excel · 工作表「数据」");
+  });
+
+  it("defaults the match key to the primary key, or the first fully mapped unique key for upsert", () => {
+    expect(defaultKeys("append", keys, mapping("id"))).toEqual([]);
+    expect(defaultKeys("update", keys, mapping("id", "name"))).toEqual(["id"]);
+    expect(defaultKeys("delete", keys, mapping("name"))).toEqual([]);
+    // 复合主键只映射了一部分:不默认,免得按半个主键删掉一大片。
+    const composite: UniqueKey[] = [{ name: null, columns: ["order_id", "line_no"] }];
+    expect(defaultKeys("delete", composite, mapping("order_id", "qty"))).toEqual([]);
+    expect(defaultKeys("delete", composite, mapping("order_id", "line_no"))).toEqual(["order_id", "line_no"]);
+    expect(defaultKeys("upsert", keys, mapping("code", "region", "name"))).toEqual(["code", "region"]);
+    expect(defaultKeys("upsert", [], mapping("id"))).toEqual([]);
+  });
+
+  it("explains what is wrong with the chosen match keys", () => {
+    expect(keyProblem("append", [], keys, mapping("id"))).toBeNull();
+    expect(keyProblem("update", [], keys, mapping("id", "name"))).toContain("要勾选匹配键");
+    expect(keyProblem("delete", ["id"], keys, mapping("name"))).toBe("匹配键「id」没有选来源列。");
+    expect(keyProblem("upsert", ["code"], keys, mapping("code", "region"))).toContain("只能按主键或一个唯一索引");
+    expect(keyProblem("upsert", ["region", "code"], keys, mapping("code", "region"))).toBeNull();
+    expect(keyProblem("update", ["id"], keys, mapping("id"))).toContain("至少还要给一列");
+    expect(keyProblem("update", ["id"], keys, mapping("id", "name"))).toBeNull();
+    expect(keyProblem("delete", ["name"], keys, mapping("name"))).toBeNull();
+  });
+
+  it("describes keys, confirmations and counts per mode", () => {
+    expect(keys.map(describeKey)).toEqual(["主键（id）", "唯一索引 uk_code（code、region）"]);
+    expect(confirmation("append", "shop.users", "mysql")).toBeNull();
+    expect(confirmation("replace", "shop.users", "mysql")?.action).toBe("清空并导入");
+    // MySQL 的「复制」整体一个事务,不按批提交;删除仍按批提交。
+    expect(confirmation("replace", "shop.users", "mysql")?.text).toContain("同一个事务");
+    expect(confirmation("delete", "shop.users", "mariadb")?.text).toContain("每批单独提交");
+    expect(confirmation("delete", "shop.users", "sqlite")?.text).toContain("「shop.users」");
+    expect(commitNote("postgres", "replace")).toContain("全部回滚");
+    expect([isDestructive("replace"), isDestructive("delete"), isDestructive("upsert")]).toEqual([true, true, false]);
+    expect((["append", "update", "upsert", "delete", "replace"] as const).map(affectedLabel)).toEqual([
+      "插入",
+      "更新",
+      "处理",
+      "删除",
+      "插入",
+    ]);
+  });
+
+  it("asks to choose a sheet only when a workbook has several", () => {
+    const excel = (sheets: string[]): SourcePreview => ({ ...preview, format: { kind: "excel", sheet: null }, sheets });
+    expect(needsSheetChoice(excel(["Sheet1", "说明"]))).toBe(true);
+    expect(needsSheetChoice(excel(["Sheet1"]))).toBe(false);
+    expect(needsSheetChoice(preview)).toBe(false);
+  });
+
+  it("warns that MySQL upserts on every unique key", () => {
+    expect(mysqlUpsertNote("mysql", "upsert", keys)).toContain("看所有唯一键");
+    expect(mysqlUpsertNote("mysql", "upsert", keys.slice(0, 1))).toBeNull();
+    expect(mysqlUpsertNote("postgres", "upsert", keys)).toBeNull();
+    expect(mysqlUpsertNote("mariadb", "update", keys)).toBeNull();
   });
 
   it("titles and tones follow the report", () => {

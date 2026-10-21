@@ -1,6 +1,5 @@
 import type { ImportOptions, OnError } from "../../lib/transferTypes";
 import type { DriverKind } from "../../lib/types";
-import { Checkbox } from "../ui/Field";
 import { Choice } from "./ExportOptionsForm";
 import { BINARY_CHOICES } from "./exportModel";
 import { MAX_BATCH_SIZE, commitNote } from "./importModel";
@@ -22,11 +21,10 @@ const ON_ERROR: { value: OnError; label: string; detail: string }[] = [
 interface ImportOptionsStepProps {
   options: ImportOptions;
   driver: DriverKind;
-  tableTitle: string;
   onChange(options: ImportOptions): void;
 }
 
-export function ImportOptionsStep({ options, driver, tableTitle, onChange }: ImportOptionsStepProps) {
+export function ImportOptionsStep({ options, driver, onChange }: ImportOptionsStepProps) {
   return (
     <div className="transfer-body">
       <section className="transfer-section" aria-label="遇到错误时">
@@ -68,15 +66,8 @@ export function ImportOptionsStep({ options, driver, tableTitle, onChange }: Imp
             options={BINARY_CHOICES}
             onChange={(binary) => onChange({ ...options, binary })}
           />
-          <div className="transfer-field is-check is-danger">
-            <Checkbox
-              label={`导入前清空「${tableTitle}」`}
-              checked={options.clearTable}
-              onCheckedChange={(clearTable) => onChange({ ...options, clearTable })}
-            />
-          </div>
         </div>
-        <p className="transfer-note">一律参数化执行。{commitNote(driver)}</p>
+        <p className="transfer-note">一律参数化执行。{commitNote(driver, options.mode)}</p>
       </section>
     </div>
   );

@@ -9,7 +9,7 @@ use basalt_core::session::SessionManager;
 use basalt_core::table::{PageRequest, TableRef};
 use basalt_core::transfer::export::{ExportRequest, ExportSource, run_export};
 use basalt_core::transfer::import::{
-    ImportOptions, ImportReport, ImportRequest, OnError, preview_import, run_import,
+    ImportMode, ImportOptions, ImportReport, ImportRequest, OnError, preview_import, run_import,
 };
 use basalt_core::transfer::progress::{CancelFlag, ignore};
 use basalt_core::transfer::source::SourceSpec;
@@ -75,6 +75,17 @@ pub async fn import_file_in_batches(
     path: &Path,
     batch_size: u32,
 ) -> ImportReport {
+    import_file_with_mode(sessions, table, path, batch_size, ImportMode::Replace).await
+}
+
+/// 遇错即停、按 `mode` 导入。
+pub async fn import_file_with_mode(
+    sessions: &SessionManager,
+    table: &TableRef,
+    path: &Path,
+    batch_size: u32,
+    mode: ImportMode,
+) -> ImportReport {
     let spec = SourceSpec {
         path: path.to_string_lossy().into_owned(),
         format: None,
@@ -94,7 +105,8 @@ pub async fn import_file_in_batches(
         options: ImportOptions {
             on_error: OnError::Stop,
             batch_size,
-            clear_table: true,
+            mode,
+            key_columns: Vec::new(),
             binary: BinaryEncoding::Hex,
         },
     };
@@ -173,7 +185,7 @@ pub async fn round_trip(
         }
         let report = import_file(sessions, copy, &path).await;
         assert_eq!(
-            (report.failed, report.inserted as usize),
+            (report.failed, report.affected as usize),
             (0, expected.len()),
             "{label} {extension}：{}\n{:#?}",
             report.summary,

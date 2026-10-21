@@ -46,3 +46,14 @@ export function connectionIdFromKey(key: string | null): string | null {
   if (!first?.startsWith("c:")) return null;
   return decodeURIComponent(first.slice(2));
 }
+
+/** 表或视图节点的 key → 它是哪个连接、哪个库(schema)里的哪张表;别的节点返回 null。 */
+export function tableFromKey(
+  key: string | null,
+): { connectionId: string; database: string; schema: string | null; table: string } | null {
+  const last = key?.split("/").at(-1);
+  const connectionId = connectionIdFromKey(key);
+  const { database, schema } = locationFromKey(key);
+  if (!last?.startsWith("t:") || connectionId === null || database === null) return null;
+  return { connectionId, database, schema, table: decodeURIComponent(last.slice(2)) };
+}

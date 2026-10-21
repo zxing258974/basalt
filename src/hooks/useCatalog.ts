@@ -1,6 +1,6 @@
 // 连接与元数据的读取(TanStack Query)。查询键集中在这里,方便统一失效。
 import { skipToken, useQuery } from "@tanstack/react-query";
-import type { ServerInfo } from "../lib/types";
+import type { ServerInfo, TableRef } from "../lib/types";
 import { getBackend } from "../lib/api";
 
 export const catalogKeys = {
@@ -11,6 +11,9 @@ export const catalogKeys = {
   schemas: (id: string, database: string) => ["catalog", id, "schemas", database] as const,
   tables: (id: string, database: string, schema: string | null) =>
     ["catalog", id, "tables", database, schema ?? ""] as const,
+  /** 信息面板:一张表的属性和建表语句。 */
+  details: (id: string, database: string, schema: string | null, table: string) =>
+    ["catalog", id, "details", database, schema ?? "", table] as const,
   /** 补全用的列名,只在用到时才取。 */
   columns: (id: string, database: string, schema: string | null, table: string) =>
     ["catalog", id, "columns", database, schema ?? "", table] as const,
@@ -60,4 +63,12 @@ export function useSchemas(id: string, database: string, enabled: boolean) {
 
 export function useTables(id: string, database: string, schema: string | null, enabled: boolean) {
   return useQuery({ ...catalogQueries.tables(id, database, schema), enabled });
+}
+
+/** 信息面板要的属性和建表语句;没选中表时不取。刷新连接时随 catalog 一起失效。 */
+export function useTableDetails(id: string | null, table: TableRef | null) {
+  return useQuery({
+    queryKey: catalogKeys.details(id ?? "", table?.database ?? "", table?.schema ?? null, table?.table ?? ""),
+    queryFn: id && table ? async () => (await getBackend()).tableDetails(id, table) : skipToken,
+  });
 }

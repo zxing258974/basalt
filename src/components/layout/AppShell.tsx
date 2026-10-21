@@ -1,8 +1,10 @@
 import { lazy, Suspense, useCallback, useRef, useState, type PointerEvent } from "react";
 import { useConnections } from "../../hooks/useCatalog";
+import { useInspector } from "../../stores/inspector";
 import { useTabs, type Tab } from "../../stores/tabs";
 import { TableDesignView } from "../design/TableDesignView";
 import { TableDataView } from "../data/TableDataView";
+import { InspectorPanel } from "../inspector/InspectorPanel";
 import { ObjectListView } from "../objects/ObjectListView";
 import { EmptyState } from "../ui/EmptyState";
 import { ObjectTree } from "../sidebar/ObjectTree";
@@ -43,6 +45,7 @@ export function AppShell() {
   const [width, setWidth] = useState(readSidebarWidth);
   const drag = useRef<{ startX: number; startWidth: number; latest: number } | null>(null);
   const connectionCount = useConnections().data?.length ?? 0;
+  const inspectorOpen = useInspector((s) => s.open);
 
   const onPointerDown = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
@@ -64,7 +67,10 @@ export function AppShell() {
   }, []);
 
   return (
-    <div className="app-shell" style={{ "--sidebar-width": `${width}px` } as React.CSSProperties}>
+    <div
+      className={inspectorOpen ? "app-shell has-inspector" : "app-shell"}
+      style={{ "--sidebar-width": `${width}px` } as React.CSSProperties}
+    >
       <Toolbar />
       <aside className="sidebar" aria-label="对象树">
         <div className="sidebar-header">
@@ -97,6 +103,7 @@ export function AppShell() {
           <TabPanels />
         </div>
       </main>
+      {inspectorOpen && <InspectorPanel />}
       <StatusBar />
     </div>
   );

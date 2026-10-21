@@ -241,3 +241,21 @@
   align-self: center;
   margin-left: auto;
 }
+
+/* 匹配键:映射表最右一列的勾选框,和下面可一键套用的主键、唯一索引 */
+.transfer-mapping-key {
+  width: 1%;
+  text-align: center;
+}
+.transfer-mapping-key input {
+  accent-color: var(--accent);
+}
+.transfer-keys {
+  display: grid;
+  gap: var(--space-3);
+}
+.transfer-key-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

@@ -35,7 +35,7 @@ fn schema(design: &TableDesign) -> &str {
     design.table.schema.as_deref().unwrap_or_default()
 }
 
-fn create_table(target: &TableDesign) -> Vec<String> {
+pub(super) fn create_table(target: &TableDesign) -> Vec<String> {
     let mut lines: Vec<String> = target.columns.iter().map(column_definition).collect();
     if !target.primary_key.is_empty() {
         let name = target.primary_key_name.as_deref().unwrap_or_default();

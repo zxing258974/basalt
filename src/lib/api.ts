@@ -25,6 +25,8 @@ import type {
   ConnectionConfig,
   ConnectionDraft,
   ConnectionView,
+  CopyTableOutcome,
+  TableDetails,
   DeletedConnection,
   PageRequest,
   RowChange,
@@ -50,6 +52,12 @@ export interface Backend {
   listSchemas(id: string, database: string): Promise<string[]>;
   listTables(id: string, database: string, schema?: string | null): Promise<TableInfo[]>;
   readTablePage(id: string, table: TableRef, request: PageRequest): Promise<TablePage>;
+  /** DROP TABLE;被外键、视图依赖时数据库会拒绝,原样报错。 */
+  dropTable(id: string, table: TableRef): Promise<void>;
+  /** 复制到同一个库(schema)里;withData 为假时只复制结构。 */
+  copyTable(id: string, table: TableRef, name: string, withData: boolean): Promise<CopyTableOutcome>;
+  /** 信息面板:表或视图的属性和建表语句。 */
+  tableDetails(id: string, table: TableRef): Promise<TableDetails>;
   /** 将要执行的语句(参数内联成字面量),提交前给用户确认。 */
   previewTableChanges(id: string, table: TableRef, changes: RowChange[]): Promise<string[]>;
   /** 一个事务里提交,任何一条失败都整体回滚。`expected` 是用户确认过的预览,后端生成的不一样就拒绝。 */
@@ -137,6 +145,9 @@ function createTauriBackend(): Backend {
     listDatabases: (id) => call("list_databases", { id }),
     listSchemas: (id, database) => call("list_schemas", { id, database }),
     listTables: (id, database, schema) => call("list_tables", { id, database, schema: schema ?? null }),
+    dropTable: (id, table) => call("drop_table", { id, table }),
+    copyTable: (id, table, name, withData) => call("copy_table", { id, table, name, withData }),
+    tableDetails: (id, table) => call("table_details", { id, table }),
     readTablePage: (id, table, request) => call("read_table_page", { id, table, request }),
     previewTableChanges: (id, table, changes) => call("preview_table_changes", { id, table, changes }),
     applyTableChanges: (id, table, changes, expected) => call("apply_table_changes", { id, table, changes, expected }),

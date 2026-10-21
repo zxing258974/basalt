@@ -265,6 +265,31 @@ export function createMockDesigns() {
       const outcome: DdlOutcome = { statements: statements.length, table: design.table };
       return outcome;
     },
+    /** 信息面板的建表语句:按 mock 的表结构生成。 */
+    ddl(id: string, driver: DriverKind, table: TableRef): string[] {
+      return createTable(driver, read(id, driver, table));
+    },
+    /** 删除表:对象列表里去掉它,结构也忘掉。 */
+    drop(id: string, table: TableRef) {
+      const scope = scopeOf(id, table.database, table.schema);
+      designs.delete(keyOf(id, table));
+      removed.set(scope, [...(removed.get(scope) ?? []), table.table]);
+      added.set(
+        scope,
+        (added.get(scope) ?? []).filter((t) => t !== table.table),
+      );
+    },
+    /** 复制表:新表的结构和原表一样。 */
+    copy(id: string, driver: DriverKind, table: TableRef, name: string) {
+      const scope = scopeOf(id, table.database, table.schema);
+      const design = read(id, driver, table);
+      designs.set(keyOf(id, { ...table, table: name }), { ...design, table: { ...design.table, table: name } });
+      removed.set(
+        scope,
+        (removed.get(scope) ?? []).filter((t) => t !== name),
+      );
+      added.set(scope, [...(added.get(scope) ?? []), name]);
+    },
     /** 对象列表叠加建表、改名的结果。 */
     tables(id: string, database: string, schema: string | null, base: TableInfo[]): TableInfo[] {
       const scope = scopeOf(id, database, schema);

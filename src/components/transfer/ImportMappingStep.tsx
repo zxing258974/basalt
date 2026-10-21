@@ -1,7 +1,18 @@
 import { RotateCcw, TriangleAlert } from "lucide-react";
-import type { ColumnMapping, ImportPreview } from "../../lib/transferTypes";
+import type { ColumnMapping, ImportMode, ImportPreview } from "../../lib/transferTypes";
+import type { DriverKind } from "../../lib/types";
 import { Button } from "../ui/Button";
-import { mappedCount, mappedPreview, missingRequired, setSource } from "./importModel";
+import {
+  describeKey,
+  keyProblem,
+  mappedCount,
+  mappedPreview,
+  missingRequired,
+  modeLabel,
+  mysqlUpsertNote,
+  setSource,
+  usesKeys,
+} from "./importModel";
 import { PreviewTable } from "./PreviewTable";
 
 const SKIP = "skip";
@@ -9,12 +20,31 @@ const SKIP = "skip";
 interface ImportMappingStepProps {
   preview: ImportPreview;
   mapping: ColumnMapping[];
+  driver: DriverKind;
+  mode: ImportMode;
+  /** 匹配键(列名),更新、追加或更新、删除用。 */
+  keys: string[];
   onChange(mapping: ColumnMapping[]): void;
+  onKeysChange(keys: string[]): void;
 }
 
-export function ImportMappingStep({ preview, mapping, onChange }: ImportMappingStepProps) {
-  const { columns, source } = preview;
-  const missing = missingRequired(columns, mapping);
+export function ImportMappingStep({
+  preview,
+  mapping,
+  driver,
+  mode,
+  keys,
+  onChange,
+  onKeysChange,
+}: ImportMappingStepProps) {
+  const { columns, source, uniqueKeys } = preview;
+  const keyed = usesKeys(mode);
+  // 删除只用匹配键,别的列空着也不会失败;必填提示只对插入、更新有意义。
+  const missing = mode === "delete" || mode === "update" ? [] : missingRequired(columns, mapping);
+  const problem = keyProblem(mode, keys, uniqueKeys, mapping);
+  const mysqlNote = mysqlUpsertNote(driver, mode, uniqueKeys);
+  const toggleKey = (column: string, on: boolean) =>
+    onKeysChange(on ? [...keys, column] : keys.filter((k) => k !== column));
   const shown = mappedPreview(source, mapping);
   const typeOf = (name: string) => columns.find((c) => c.name === name);
   return (
@@ -34,6 +64,7 @@ export function ImportMappingStep({ preview, mapping, onChange }: ImportMappingS
               <th scope="col">目标列</th>
               <th scope="col">类型</th>
               <th scope="col">取文件里的</th>
+              {keyed && <th scope="col">匹配键</th>}
             </tr>
           </thead>
           <tbody>
@@ -66,12 +97,51 @@ export function ImportMappingStep({ preview, mapping, onChange }: ImportMappingS
                       ))}
                     </select>
                   </td>
+                  {keyed && (
+                    <td className="transfer-mapping-key">
+                      <input
+                        type="checkbox"
+                        aria-label={`按 ${item.column} 匹配`}
+                        checked={keys.includes(item.column)}
+                        onChange={(event) => toggleKey(item.column, event.target.checked)}
+                      />
+                    </td>
+                  )}
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
+      {keyed && (
+        <div className="transfer-keys">
+          <p className="transfer-note">
+            「{modeLabel(mode)}」按勾选的匹配键找到表里对应的行
+            {mode === "delete" ? "，其余列的映射不影响结果" : ""}。
+          </p>
+          {mode === "upsert" && (
+            <div className="transfer-key-choices" role="group" aria-label="可用的键">
+              {uniqueKeys.map((key) => (
+                <Button
+                  key={key.name ?? "primary"}
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onKeysChange(key.columns)}
+                >
+                  按{describeKey(key)}
+                </Button>
+              ))}
+            </div>
+          )}
+          {mysqlNote && <p className="transfer-note">{mysqlNote}</p>}
+          {problem && (
+            <p className="transfer-warning" role="note">
+              <TriangleAlert aria-hidden />
+              {problem}
+            </p>
+          )}
+        </div>
+      )}
       {missing.length > 0 && (
         <p className="transfer-warning" role="note">
           <TriangleAlert aria-hidden />

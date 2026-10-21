@@ -1,0 +1,9 @@
+/* 复制表对话框:表名、复制内容、各家带不过去的东西,上下排开 */
+.table-ops-form {
+  display: grid;
+  gap: var(--space-5);
+}
+.dialog-text.is-muted {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}

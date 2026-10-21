@@ -1,5 +1,6 @@
-//! 导入用的多行 INSERT 与清空表。值已经按目标列转换好(见 [`crate::transfer::convert`]),
-//! 这里只拼语句:一律参数化,PostgreSQL 的参数带 `::列类型`,和表格编辑一样。
+//! 导入用的语句:多行 INSERT、追加或更新(upsert)、按匹配键 UPDATE / DELETE 与清空表。
+//! 值已经按目标列转换好(见 [`crate::transfer::convert`]),这里只拼语句:一律参数化,
+//! PostgreSQL 的参数带 `::列类型`,和表格编辑一样。
 
 use super::bind::BindValue;
 use super::dml::{Builder, Statement};
@@ -21,13 +22,20 @@ pub fn rows_per_statement(dialect: Dialect, column_count: usize, wanted: usize) 
     wanted.min(by_params).max(1)
 }
 
-/// `INSERT INTO 表 (列…) VALUES (…), (…)`。每行的值个数必须和列数相同。
-pub fn insert_rows(
+/// PostgreSQL 的参数按列类型转换;MySQL、SQLite 不用。
+fn cast(dialect: Dialect, column: &ColumnInfo) -> Option<String> {
+    match dialect {
+        Dialect::Postgres => column.write_cast.clone(),
+        Dialect::Mysql | Dialect::Sqlite => None,
+    }
+}
+
+fn values_clause(
     dialect: Dialect,
     table: &TableRef,
     columns: &[&ColumnInfo],
     rows: Vec<Vec<BindValue>>,
-) -> Statement {
+) -> Builder {
     let names: Vec<String> = columns
         .iter()
         .map(|c| quote_ident(dialect, &c.name))
@@ -45,14 +53,112 @@ pub fn insert_rows(
             if index > 0 {
                 builder.sql(", ");
             }
-            let cast = match dialect {
-                Dialect::Postgres => column.write_cast.clone(),
-                Dialect::Mysql | Dialect::Sqlite => None,
-            };
-            builder.param((value, cast));
+            builder.param((value, cast(dialect, column)));
         }
         builder.sql(")");
     }
+    builder
+}
+
+/// `INSERT INTO 表 (列…) VALUES (…), (…)`。每行的值个数必须和列数相同。
+pub fn insert_rows(
+    dialect: Dialect,
+    table: &TableRef,
+    columns: &[&ColumnInfo],
+    rows: Vec<Vec<BindValue>>,
+) -> Statement {
+    values_clause(dialect, table, columns, rows).finish()
+}
+
+/// 追加或更新:按 `keys`(主键或唯一键在 `columns` 里的位置)已有的行改掉其余的列,没有的插入。
+/// 除键以外没有别的列时,已有的行保持不变。
+///
+/// MySQL 的 `ON DUPLICATE KEY UPDATE` 不指定键:任何一个唯一键冲突都算「已有」。
+pub fn upsert_rows(
+    dialect: Dialect,
+    table: &TableRef,
+    columns: &[&ColumnInfo],
+    keys: &[usize],
+    rows: Vec<Vec<BindValue>>,
+) -> Statement {
+    let quoted = |index: usize| quote_ident(dialect, &columns[index].name);
+    let rest: Vec<usize> = (0..columns.len()).filter(|i| !keys.contains(i)).collect();
+    let mut builder = values_clause(dialect, table, columns, rows);
+    let tail = match dialect {
+        Dialect::Mysql => {
+            // 没有别的列可改时让键等于自己:语句合法,已有的行不变。
+            let assignments: Vec<String> = if rest.is_empty() {
+                keys.iter()
+                    .map(|&i| format!("{0} = {0}", quoted(i)))
+                    .collect()
+            } else {
+                rest.iter()
+                    .map(|&i| format!("{0} = VALUES({0})", quoted(i)))
+                    .collect()
+            };
+            format!(" ON DUPLICATE KEY UPDATE {}", assignments.join(", "))
+        }
+        Dialect::Postgres | Dialect::Sqlite => {
+            let target: Vec<String> = keys.iter().map(|&i| quoted(i)).collect();
+            let action = if rest.is_empty() {
+                "DO NOTHING".to_owned()
+            } else {
+                let assignments: Vec<String> = rest
+                    .iter()
+                    .map(|&i| format!("{0} = excluded.{0}", quoted(i)))
+                    .collect();
+                format!("DO UPDATE SET {}", assignments.join(", "))
+            };
+            format!(" ON CONFLICT ({}) {action}", target.join(", "))
+        }
+    };
+    builder.sql(&tail);
+    builder.finish()
+}
+
+/// `… WHERE 键1 = ? AND 键2 = ?`。
+fn key_condition(builder: &mut Builder, dialect: Dialect, keys: &[(&ColumnInfo, BindValue)]) {
+    builder.sql(" WHERE ");
+    for (index, (column, value)) in keys.iter().enumerate() {
+        if index > 0 {
+            builder.sql(" AND ");
+        }
+        builder.sql(&format!("{} = ", quote_ident(dialect, &column.name)));
+        builder.param((value.clone(), cast(dialect, column)));
+    }
+}
+
+/// 更新:按匹配键改一行(键不唯一时可能改到多行)。`set` 不能为空。
+pub fn update_row(
+    dialect: Dialect,
+    table: &TableRef,
+    set: &[(&ColumnInfo, BindValue)],
+    keys: &[(&ColumnInfo, BindValue)],
+) -> Statement {
+    debug_assert!(!set.is_empty() && !keys.is_empty());
+    let mut builder = Builder::new(dialect);
+    builder.sql(&format!("UPDATE {} SET ", table_name(dialect, table)));
+    for (index, (column, value)) in set.iter().enumerate() {
+        if index > 0 {
+            builder.sql(", ");
+        }
+        builder.sql(&format!("{} = ", quote_ident(dialect, &column.name)));
+        builder.param((value.clone(), cast(dialect, column)));
+    }
+    key_condition(&mut builder, dialect, keys);
+    builder.finish()
+}
+
+/// 删除:按匹配键删掉对应的行。
+pub fn delete_row(
+    dialect: Dialect,
+    table: &TableRef,
+    keys: &[(&ColumnInfo, BindValue)],
+) -> Statement {
+    debug_assert!(!keys.is_empty());
+    let mut builder = Builder::new(dialect);
+    builder.sql(&format!("DELETE FROM {}", table_name(dialect, table)));
+    key_condition(&mut builder, dialect, keys);
     builder.finish()
 }
 
@@ -117,6 +223,79 @@ mod tests {
         assert_eq!(
             statement.sql(),
             "INSERT INTO \"public\".\"users\" (\"id\", \"note\") VALUES ($1::integer, $2), ($3::integer, $4)"
+        );
+    }
+
+    #[test]
+    fn upsert_follows_each_dialect() {
+        let id = ColumnInfo::new("id", "int");
+        let name = ColumnInfo::new("name", "text");
+        let rows = || vec![vec![BindValue::Int(1), BindValue::Text("a".into())]];
+        let mysql = upsert_rows(
+            Dialect::Mysql,
+            &table(Dialect::Mysql),
+            &[&id, &name],
+            &[0],
+            rows(),
+        );
+        assert_eq!(
+            mysql.sql(),
+            "INSERT INTO `shop`.`users` (`id`, `name`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `name` = VALUES(`name`)"
+        );
+        let pg = upsert_rows(
+            Dialect::Postgres,
+            &table(Dialect::Postgres),
+            &[&id, &name],
+            &[0],
+            rows(),
+        );
+        assert_eq!(
+            pg.sql(),
+            "INSERT INTO \"public\".\"users\" (\"id\", \"name\") VALUES ($1, $2) ON CONFLICT (\"id\") DO UPDATE SET \"name\" = excluded.\"name\""
+        );
+        // 只有键:已有的行不动。
+        let only_key = || vec![vec![BindValue::Int(1)]];
+        let mysql = upsert_rows(
+            Dialect::Mysql,
+            &table(Dialect::Mysql),
+            &[&id],
+            &[0],
+            only_key(),
+        );
+        assert!(mysql.sql().ends_with("ON DUPLICATE KEY UPDATE `id` = `id`"));
+        let sqlite = upsert_rows(
+            Dialect::Sqlite,
+            &table(Dialect::Sqlite),
+            &[&id],
+            &[0],
+            only_key(),
+        );
+        assert!(sqlite.sql().ends_with("ON CONFLICT (\"id\") DO NOTHING"));
+    }
+
+    #[test]
+    fn update_and_delete_match_on_every_key_column() {
+        let a = ColumnInfo {
+            write_cast: Some("integer".into()),
+            ..ColumnInfo::new("a", "integer")
+        };
+        let b = ColumnInfo::new("b", "text");
+        let note = ColumnInfo::new("note", "text");
+        let keys = [(&a, BindValue::Int(1)), (&b, BindValue::Text("x".into()))];
+        let update = update_row(
+            Dialect::Postgres,
+            &table(Dialect::Postgres),
+            &[(&note, BindValue::Null)],
+            &keys,
+        );
+        assert_eq!(
+            update.sql(),
+            "UPDATE \"public\".\"users\" SET \"note\" = $1 WHERE \"a\" = $2::integer AND \"b\" = $3"
+        );
+        let delete = delete_row(Dialect::Mysql, &table(Dialect::Mysql), &keys);
+        assert_eq!(
+            delete.preview(),
+            "DELETE FROM `shop`.`users` WHERE `a` = 1 AND `b` = 'x'"
         );
     }
 

@@ -1,12 +1,16 @@
 .app-shell {
+  --inspector-width: 0px;
   display: grid;
-  grid-template-columns: var(--sidebar-width) 0 minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width) 0 minmax(0, 1fr) var(--inspector-width);
   grid-template-rows: var(--toolbar-height) minmax(0, 1fr) var(--statusbar-height);
   grid-template-areas:
-    "toolbar toolbar toolbar"
-    "sidebar resizer workspace"
-    "status status status";
+    "toolbar toolbar toolbar toolbar"
+    "sidebar resizer workspace inspector"
+    "status status status status";
   height: 100vh;
+}
+.app-shell.has-inspector {
+  --inspector-width: 280px;
 }
 
 /* ---------- 工具栏:Overlay 标题栏,左侧让出红绿灯 ---------- */
@@ -49,6 +53,13 @@
 }
 .toolbar-button:disabled {
   color: var(--text-faint);
+}
+/* 开着的开关:铺一层淡余烬,图标用余烬色 */
+.toolbar-button.is-pressed {
+  background: var(--accent-soft);
+}
+.toolbar-button.is-pressed .toolbar-button-icon {
+  color: var(--accent);
 }
 .toolbar-button-icon {
   display: inline-grid;

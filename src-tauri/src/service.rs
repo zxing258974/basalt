@@ -15,6 +15,8 @@ mod import;
 pub use import::{ImportReport, ImportSource, import_connections, scan_import_source};
 pub mod query;
 mod query_import;
+mod table_ops;
+pub use table_ops::{copy_table, drop_table, table_details};
 pub mod transfer;
 pub use query_import::{import_navicat_queries, scan_navicat_queries};
 

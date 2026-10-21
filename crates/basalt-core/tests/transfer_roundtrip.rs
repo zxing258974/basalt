@@ -7,6 +7,7 @@ mod transfer_support;
 use basalt_core::session::SessionManager;
 use basalt_core::table::TableRef;
 use basalt_core::transfer::ExportFormat;
+use basalt_core::transfer::import::ImportMode;
 use common::*;
 use transfer_support::*;
 
@@ -291,14 +292,22 @@ async fn mysql_reports_exactly_what_was_committed() {
         let path = dir.path().join("dup.csv");
         std::fs::write(&path, "id,name\n1,a\n2,b\n3,c\n4,d\n3,重复\n6,f\n").unwrap();
 
-        let report = import_file(&sessions, &mysql_table("batches"), &path).await;
+        // 追加:每批单独提交,前两批留下,原有的 99 不动。
+        let report = import_file_with_mode(
+            &sessions,
+            &mysql_table("batches"),
+            &path,
+            2,
+            ImportMode::Append,
+        )
+        .await;
         assert_eq!(report.failures[0].row, 6, "{}", target.name);
         assert!(
             report.failures[0].reason.contains("Duplicate"),
             "{}",
             report.failures[0].reason
         );
-        assert_eq!(report.inserted, 4, "{}：{}", target.name, report.summary);
+        assert_eq!(report.affected, 4, "{}：{}", target.name, report.summary);
         assert!(
             report
                 .summary
@@ -306,21 +315,30 @@ async fn mysql_reports_exactly_what_was_committed() {
             "{}",
             report.summary
         );
+        assert_eq!(
+            rows(&sessions, &mysql_table("batches")).await.len(),
+            5,
+            "{}：原有的 99 和前两批",
+            target.name
+        );
+
+        // 复制:清空和插入在一个事务里,第 3 批被拒绝时整体撤回,表保持原样。
+        let report = import_file(&sessions, &mysql_table("batches"), &path).await;
+        assert_eq!(report.affected, 0, "{}：{}", target.name, report.summary);
         assert!(
-            report.summary.contains("清空也已生效"),
+            report.summary.contains("整个导入已经回滚"),
             "{}",
             report.summary
         );
-        let left = rows(&sessions, &mysql_table("batches")).await;
         assert_eq!(
-            left.len(),
-            4,
-            "{}：原有的 99 被清空，前两批留下",
+            rows(&sessions, &mysql_table("batches")).await.len(),
+            5,
+            "{}：清空也撤回了",
             target.name
         );
 
         let report = import_file(&sessions, &mysql_table("legacy"), &path).await;
-        assert_eq!(report.inserted, 4, "{}：{}", target.name, report.summary);
+        assert_eq!(report.affected, 4, "{}：{}", target.name, report.summary);
         assert!(report.summary.contains("不支持事务"), "{}", report.summary);
         assert_eq!(
             rows(&sessions, &mysql_table("legacy")).await.len(),

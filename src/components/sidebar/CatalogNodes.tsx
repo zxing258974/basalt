@@ -12,6 +12,7 @@ import { useTreeMenu } from "./treeMenu";
 import { TreeRow, TreeStatusRow } from "./TreeRow";
 import { designTableItem, newTableItem } from "../design/designMenu";
 import { exportTableItem, importTableItem } from "../transfer/transferMenu";
+import { copyTableItem, dropTableItem } from "../tableOps/tableOpsMenu";
 
 interface QueryLike<T> {
   data?: T;
@@ -235,7 +236,14 @@ function ObjectGroups({
                       : []),
                     "separator",
                     exportTableItem(connection, ref),
-                    ...(table.kind === "table" ? [importTableItem(connection, ref)] : []),
+                    ...(table.kind === "table"
+                      ? [
+                          importTableItem(connection, ref),
+                          "separator" as const,
+                          copyTableItem(connection, ref),
+                          dropTableItem(connection, ref),
+                        ]
+                      : []),
                   ]);
                 }}
               />

@@ -15,6 +15,32 @@ export interface ConnectionConfig {
   savePassword: boolean;
 }
 
+/** 信息面板里一个属性的值;数字交给前端排版。 */
+export type PropertyValue =
+  | { kind: "text"; value: string }
+  | { kind: "count"; value: number }
+  | { kind: "bytes"; value: number }
+  | { kind: "dateTime"; value: string };
+
+export interface TableProperty {
+  label: string;
+  /** null:数据库没给,显示「—」。 */
+  value: PropertyValue | null;
+}
+
+/** 信息面板:属性和建表语句。ddlGenerated:按表结构生成的(PostgreSQL),不是数据库给的原文。 */
+export interface TableDetails {
+  properties: TableProperty[];
+  ddl: string;
+  ddlGenerated: boolean;
+}
+
+/** 复制表的结果。rows:复制了多少行;只复制结构时为 null。 */
+export interface CopyTableOutcome {
+  table: TableRef;
+  rows: number | null;
+}
+
 /** 删除连接的结果。passwordLeft:密码要授权才能从钥匙串删(旧版 Basalt 存的),或钥匙串出错,还留在钥匙串里。 */
 export interface DeletedConnection {
   passwordLeft: boolean;

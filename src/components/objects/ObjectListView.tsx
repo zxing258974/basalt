@@ -5,7 +5,9 @@ import { useConnectionActions } from "../../hooks/useConnectionActions";
 import { formatBytes, formatCount } from "../../lib/format";
 import { errorMessage, type TableInfo, type TableKind } from "../../lib/types";
 import { tableDataTab, useTabs, type ObjectsTab } from "../../stores/tabs";
+import { useUi } from "../../stores/ui";
 import { DriverBadge } from "../connection/DriverBadge";
+import { tableKey } from "../sidebar/treeKeys";
 import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/EmptyState";
 import {
@@ -64,6 +66,9 @@ export function ObjectListView({ tab }: { tab: ObjectsTab }) {
   const tableCount = all.filter((t) => t.kind === "table").length;
   const openTab = useTabs((s) => s.open);
   const openData = (table: TableInfo) => openTab(tableDataTab(tab.connectionId, tab.database, tab.schema, table.name));
+  // 选中一行就是选中对象树里的这张表:右侧信息面板跟着它走。
+  const selectedKey = useUi((s) => s.selectedKey);
+  const keyOf = (table: TableInfo) => tableKey(tab.connectionId, tab.database, tab.schema, table.name);
 
   const toggleSort = (key: SortKey) =>
     setSort((current) =>
@@ -166,6 +171,9 @@ export function ObjectListView({ tab }: { tab: ObjectsTab }) {
                   key={table.name}
                   tabIndex={0}
                   title="双击打开数据"
+                  aria-selected={selectedKey === keyOf(table)}
+                  className={selectedKey === keyOf(table) ? "is-selected" : undefined}
+                  onFocus={() => useUi.getState().select(keyOf(table))}
                   onDoubleClick={() => openData(table)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") openData(table);

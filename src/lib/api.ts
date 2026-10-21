@@ -25,6 +25,7 @@ import type {
   ConnectionConfig,
   ConnectionDraft,
   ConnectionView,
+  DeletedConnection,
   PageRequest,
   RowChange,
   ServerInfo,
@@ -39,7 +40,8 @@ export interface Backend {
   saveConnection(draft: ConnectionDraft): Promise<ConnectionConfig>;
   /** 连接成功后记住临时输入的密码;不断开会话。 */
   rememberPassword(id: string, password: string): Promise<void>;
-  deleteConnection(id: string): Promise<void>;
+  /** 不会弹钥匙串授权框;删不掉的密码留在钥匙串里,由 passwordLeft 报告。 */
+  deleteConnection(id: string): Promise<DeletedConnection>;
   duplicateConnection(id: string): Promise<ConnectionConfig>;
   testConnection(draft: ConnectionDraft): Promise<ServerInfo>;
   openConnection(id: string, password?: string): Promise<ServerInfo>;

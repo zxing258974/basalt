@@ -28,5 +28,9 @@ calamine.workspace = true
 encoding_rs.workspace = true
 base64.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation.workspace = true
+security-framework-sys.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true

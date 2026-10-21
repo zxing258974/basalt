@@ -2,7 +2,7 @@
 
 use basalt_core::config::{ConnectionConfig, ConnectionDraft};
 use basalt_core::driver::{ConnectParams, ServerInfo, TableInfo};
-use basalt_core::secret::password_key;
+use basalt_core::secret::{QuietDelete, password_key};
 use basalt_core::table::{ApplyOutcome, PageRequest, RowChange, TablePage, TableRef};
 use basalt_core::{CoreError, FieldError, session};
 use serde::Serialize;
@@ -177,21 +177,37 @@ pub async fn remember_password(state: &AppState, id: &str, password: String) -> 
     Ok(())
 }
 
-/// 配置删掉就算成功;之后清理钥匙串失败只留警告,不让用户看到「删除失败」却已经删了。
-pub async fn delete_connection(state: &AppState, id: &str) -> CommandResult<()> {
-    {
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletedConnection {
+    /// 密码没能从钥匙串里删掉,还留在那里。
+    pub password_left: bool,
+}
+
+/// 配置删掉就算成功。之后清理钥匙串不弹授权框:删连接不该要用户输登录密码,
+/// 何况配置已经没了,拒绝授权也挽回不了;删不掉的密码留在钥匙串里,如实告诉前端。
+pub async fn delete_connection(state: &AppState, id: &str) -> CommandResult<DeletedConnection> {
+    let password_left = {
         let store = state.store().await;
         let list = store.load()?;
         if list.get(id).is_none() {
             return Err(CoreError::ConnectionNotFound(id.to_owned()).into());
         }
         store.save(&list.removed(id))?;
-        if let Err(error) = state.secrets.delete(&password_key(id)) {
-            log::warn!("连接 {id} 已删除，但清理钥匙串失败：{error}");
+        match state.secrets.delete_quietly(&password_key(id)) {
+            Ok(QuietDelete::Removed) => false,
+            Ok(QuietDelete::NeedsAuthorization) => {
+                log::warn!("连接 {id} 已删除，它的密码要授权才能删，留在了钥匙串里");
+                true
+            }
+            Err(error) => {
+                log::warn!("连接 {id} 已删除，但清理钥匙串失败：{error}");
+                true
+            }
         }
-    }
+    };
     state.sessions.close(id).await;
-    Ok(())
+    Ok(DeletedConnection { password_left })
 }
 
 pub async fn duplicate_connection(state: &AppState, id: &str) -> CommandResult<ConnectionConfig> {

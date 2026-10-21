@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use basalt_core::config::{ConnectionDraft, DriverKind, Endpoint};
-use basalt_core::secret::{MemorySecretStore, SecretStore, password_key};
+use basalt_core::secret::{MemorySecretStore, QuietDelete, SecretStore, password_key};
 
 use crate::service;
 use crate::state::AppState;
@@ -176,9 +176,10 @@ async fn duplicate_copies_password_and_delete_cleans_up() {
         Some("pw")
     );
 
-    service::delete_connection(&h.state, &saved.id)
+    let deleted = service::delete_connection(&h.state, &saved.id)
         .await
         .unwrap();
+    assert!(!deleted.password_left);
     assert_eq!(h.secrets.get(&password_key(&saved.id)).unwrap(), None);
     let remaining: Vec<_> = service::list_connections(&h.state)
         .await
@@ -325,7 +326,42 @@ async fn keychain_failure_on_delete_still_removes_the_connection() {
         .await
         .unwrap();
 
-    service::delete_connection(&state, &saved.id).await.unwrap();
+    let deleted = service::delete_connection(&state, &saved.id).await.unwrap();
+    assert!(deleted.password_left, "钥匙串出错时密码可能还在,要如实报告");
+    assert!(service::list_connections(&state).await.unwrap().is_empty());
+}
+
+/// 密码是旧版 Basalt 存的:要授权才能删。会弹框的 `delete` 一被调用就算测试失败。
+struct ForeignKeychain;
+
+impl SecretStore for ForeignKeychain {
+    fn get(&self, _key: &str) -> basalt_core::CoreResult<Option<String>> {
+        Ok(None)
+    }
+    fn set(&self, _key: &str, _secret: &str) -> basalt_core::CoreResult<()> {
+        Ok(())
+    }
+    fn delete(&self, _key: &str) -> basalt_core::CoreResult<()> {
+        panic!("删除连接不该用会弹授权框的删除(keyring 删除前会先读出密码)");
+    }
+    fn delete_quietly(&self, _key: &str) -> basalt_core::CoreResult<QuietDelete> {
+        Ok(QuietDelete::NeedsAuthorization)
+    }
+}
+
+#[tokio::test]
+async fn deleting_never_prompts_and_reports_a_password_it_could_not_remove() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = AppState::new(
+        dir.path().join("connections.json"),
+        Arc::new(ForeignKeychain),
+    );
+    let saved = service::save_connection(&state, pg_draft(Some("pw"), true))
+        .await
+        .unwrap();
+
+    let deleted = service::delete_connection(&state, &saved.id).await.unwrap();
+    assert!(deleted.password_left);
     assert!(service::list_connections(&state).await.unwrap().is_empty());
 }
 

@@ -44,7 +44,10 @@ pub async fn remember_password(
 }
 
 #[tauri::command]
-pub async fn delete_connection(state: State<'_, AppState>, id: String) -> CommandResult<()> {
+pub async fn delete_connection(
+    state: State<'_, AppState>,
+    id: String,
+) -> CommandResult<service::DeletedConnection> {
     service::delete_connection(&state, &id).await
 }
 

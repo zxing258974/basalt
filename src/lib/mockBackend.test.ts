@@ -112,7 +112,7 @@ describe("connections", () => {
   it("deletes a connection and rejects unknown ids", async () => {
     const backend = createMockBackend([mysql]);
     await backend.openConnection("my");
-    await backend.deleteConnection("my");
+    expect(await backend.deleteConnection("my")).toEqual({ passwordLeft: false });
     expect(await backend.listConnections()).toEqual([]);
     await expect(backend.deleteConnection("my")).rejects.toMatchObject({ code: "connection_not_found" });
   });

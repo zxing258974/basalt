@@ -29,6 +29,9 @@ chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 keyring = { version = "3", features = ["apple-native"] }
+# 删连接时不弹框地删钥匙串条目:keyring 删除前会先读出密码,读密码就要授权
+core-foundation = "0.10"
+security-framework-sys = "2.17"
 tempfile = "3"
 log = "0.4"
 futures-util = "0.3"

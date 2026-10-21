@@ -229,6 +229,7 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       connections = connections.filter((c) => c.id !== id);
       open.delete(id);
       passwords.delete(id);
+      return { passwordLeft: false };
     },
     async duplicateConnection(id) {
       await wait();

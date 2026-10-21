@@ -10,6 +10,10 @@ import { useTabs } from "../stores/tabs";
 import { useUi } from "../stores/ui";
 import { catalogKeys, connectionsQuery } from "./useCatalog";
 
+/** 删连接不弹钥匙串授权框;密码删不掉时如实说一声。 */
+export const PASSWORD_LEFT_NOTICE =
+  "连接已删除，但密码还留在钥匙串里（多半是旧版 Basalt 存的，删除要授权）；可在「钥匙串访问」里搜索 dev.basalt.app 手动删。";
+
 export function useConnectionActions() {
   const queryClient = useQueryClient();
   const closeConnectionTabs = useTabs((s) => s.closeConnection);
@@ -132,11 +136,12 @@ export function useConnectionActions() {
 
   const remove = useCallback(
     async (id: string) => {
-      await (await getBackend()).deleteConnection(id);
+      const { passwordLeft } = await (await getBackend()).deleteConnection(id);
       forget(id, true);
       await refreshConnections();
+      if (passwordLeft) notify(PASSWORD_LEFT_NOTICE);
     },
-    [forget, refreshConnections],
+    [forget, refreshConnections, notify],
   );
 
   const refresh = useCallback(

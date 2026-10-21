@@ -48,7 +48,7 @@
 basalt/
 ├── crates/basalt-core/      纯 Rust 核心:不依赖 Tauri,可单测、可集成测
 │   ├── config/              连接配置模型 + JSON 仓库(不可变更新)
-│   ├── secret.rs            SecretStore trait;钥匙串实现 + 内存实现(测试用)
+│   ├── secret.rs            SecretStore trait;钥匙串实现 + 内存实现(测试用);secret/macos.rs 是不弹框的删除
 │   ├── driver/              三种库的连接、元数据查询;*_data.rs 是表数据(列信息、按类型解码、事务执行);
 │   │                        *_query.rs 是查询标签页的连接(文本协议执行、解码、取消),editor.rs 把三种统一起来
 │   ├── value.rs             CellValue:统一的单元格值表示

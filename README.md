@@ -41,6 +41,8 @@ pnpm dev                # 只起前端;浏览器里自动使用 mock 后端,方�
 连接配置存放在 `~/Library/Application Support/dev.basalt.app/connections.json`(不含密码),
 密码存在钥匙串的 `dev.basalt.app` 服务下。同一目录下还有执行历史 `history.jsonl`(最近 2000 条)
 和保存的查询 `queries/<连接 id>/<库>/[<schema>/]<名字>.sql`(删除连接不会删它的查询)。
+删除连接不会弹钥匙串授权框:钥匙串条目只归存它的那份程序,每次重新打包签名都会变,
+旧版存的密码新版删不掉,这时密码留在钥匙串里,状态栏会提示,可在「钥匙串访问」里搜 `dev.basalt.app` 手动删。
 
 从 Navicat 迁移保存的查询:工具栏「导入」→「Navicat 保存的查询」。只读 Navicat 的
 `~/Library/Application Support/PremiumSoft CyberTech/Navicat CC/Common/Settings` 下的 .sql 文件,不改它;

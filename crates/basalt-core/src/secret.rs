@@ -5,11 +5,28 @@ use std::sync::Mutex;
 
 use crate::error::{CoreError, CoreResult};
 
+#[cfg(target_os = "macos")]
+mod macos;
+
+/// [`SecretStore::delete_quietly`] 的结果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuietDelete {
+    /// 删掉了,或者本来就没有。
+    Removed,
+    /// 要用户授权才能删,条目原样留着。钥匙串条目只归存它的那份程序所有,
+    /// 每次重新打包临时签名都不一样,旧版 Basalt 存的密码新版删不了。
+    NeedsAuthorization,
+}
+
 pub trait SecretStore: Send + Sync {
     fn get(&self, key: &str) -> CoreResult<Option<String>>;
     fn set(&self, key: &str, secret: &str) -> CoreResult<()>;
     /// 不存在也算成功。
     fn delete(&self, key: &str) -> CoreResult<()>;
+    /// 删除但绝不弹授权框。默认就是 [`delete`](Self::delete);会弹框的实现要覆盖它。
+    fn delete_quietly(&self, key: &str) -> CoreResult<QuietDelete> {
+        self.delete(key).map(|()| QuietDelete::Removed)
+    }
 }
 
 /// 连接密码在钥匙串里的账户名。
@@ -51,6 +68,12 @@ impl SecretStore for KeychainStore {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(secret_error(e)),
         }
+    }
+
+    /// keyring 的删除会先把密码读出来,读别的程序存的密码就要弹框;这里只删不读。
+    #[cfg(target_os = "macos")]
+    fn delete_quietly(&self, key: &str) -> CoreResult<QuietDelete> {
+        macos::delete_generic_password(&self.service, key)
     }
 }
 
@@ -100,6 +123,10 @@ mod tests {
         assert_eq!(store.get(&key).unwrap().as_deref(), Some("pw"));
         store.delete(&key).unwrap();
         store.delete(&key).unwrap();
+        assert_eq!(store.get(&key).unwrap(), None);
+
+        store.set(&key, "pw").unwrap();
+        assert_eq!(store.delete_quietly(&key).unwrap(), QuietDelete::Removed);
         assert_eq!(store.get(&key).unwrap(), None);
     }
 

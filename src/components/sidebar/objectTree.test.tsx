@@ -147,6 +147,20 @@ describe("context menu", () => {
     await user.click(within(dialog).getByRole("button", { name: "删除" }));
     await waitFor(() => expect(tree().queryByRole("treeitem", { name: "笔记" })).not.toBeInTheDocument());
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("says so when the password could not be removed from the keychain", async () => {
+    const backend = createMockBackend();
+    vi.spyOn(backend, "deleteConnection").mockResolvedValue({ passwordLeft: true });
+    const context = renderApp(backend);
+    await findItem("笔记");
+    await context.user.pointer({ keys: "[MouseRight]", target: rowOf("笔记") });
+    await context.user.click(screen.getByRole("menuitem", { name: "删除连接…" }));
+    await context.user.click(screen.getByRole("button", { name: "删除" }));
+    const notice = await within(screen.getByRole("contentinfo")).findByRole("alert");
+    expect(notice).toHaveTextContent("密码还留在钥匙串里");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("keeps the delete dialog open and shows why deleting failed", async () => {

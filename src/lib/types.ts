@@ -15,6 +15,11 @@ export interface ConnectionConfig {
   savePassword: boolean;
 }
 
+/** 删除连接的结果。passwordLeft:密码要授权才能从钥匙串删(旧版 Basalt 存的),或钥匙串出错,还留在钥匙串里。 */
+export interface DeletedConnection {
+  passwordLeft: boolean;
+}
+
 export interface ConnectionView extends ConnectionConfig {
   isOpen: boolean;
 }

@@ -12,7 +12,16 @@ import { useTreeMenu } from "./treeMenu";
 import { TreeRow, TreeStatusRow } from "./TreeRow";
 import { designTableItem, newTableItem } from "../design/designMenu";
 import { exportTableItem, importTableItem } from "../transfer/transferMenu";
-import { copyTableItem, dropTableItem } from "../tableOps/tableOpsMenu";
+import {
+  clearTableItem,
+  copyNameItem,
+  copyTableItem,
+  dropTableItem,
+  dumpTableItem,
+  maintainTableItem,
+  renameTableItem,
+  truncateTableItem,
+} from "../tableOps/tableOpsMenu";
 import { keyLabel, shortcut } from "../../lib/platform";
 
 interface QueryLike<T> {
@@ -245,11 +254,18 @@ function ObjectGroups({
                     ...(table.kind === "table"
                       ? [
                           importTableItem(connection, ref),
+                          dumpTableItem(connection, ref),
                           "separator" as const,
                           copyTableItem(connection, ref),
+                          renameTableItem(connection, ref),
+                          copyNameItem(table.name),
+                          maintainTableItem(connection, ref),
+                          "separator" as const,
+                          clearTableItem(connection, ref),
+                          truncateTableItem(connection, ref),
                           dropTableItem(connection, ref),
                         ]
-                      : []),
+                      : ["separator" as const, copyNameItem(table.name, "复制视图名")]),
                   ]);
                 }}
               />

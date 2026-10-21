@@ -9,6 +9,7 @@ type TransferApi = Pick<
   | "pickSavePath"
   | "pickImportFile"
   | "exportData"
+  | "dumpTable"
   | "previewImport"
   | "importData"
   | "cancelTransfer"
@@ -94,6 +95,11 @@ export function createMockTransfer(wait: (ms?: number) => Promise<unknown>): Tra
         source.kind === "rows" ? source.rows.length : source.kind === "table" ? tableRows(source.table) : 12_480;
       await simulate(jobId, "exporting", rows);
       return { rows, bytes: rows * 96 + 64, path: request.path, notice: null };
+    },
+    async dumpTable(jobId, request) {
+      const rows = request.withData ? tableRows(request.table) : 0;
+      await simulate(jobId, "exporting", rows);
+      return { rows, bytes: rows * 112 + 1_024, path: request.path, notice: null };
     },
     async previewImport(_connectionId, table, source) {
       await wait();

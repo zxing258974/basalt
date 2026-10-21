@@ -72,6 +72,35 @@ test("copy table dialog", async ({ page }) => {
   await snapshot(page, "copy-table");
 });
 
+test("table context menu", async ({ page }) => {
+  await openWelcome(page);
+  await expandShop(page);
+  await row(page, "customers").click({ button: "right" });
+  await expect(page.getByRole("menuitem", { name: "截断表…" })).toBeVisible();
+  await snapshot(page, "table-menu");
+});
+
+test("clear table dialog", async ({ page }) => {
+  await openWelcome(page);
+  await expandShop(page);
+  await row(page, "customers").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "截断表…" }).click();
+  await expect(page.getByRole("dialog", { name: "截断表「customers」？" })).toBeVisible();
+  await snapshot(page, "clear-table");
+});
+
+test("maintenance result", async ({ page }) => {
+  await openWelcome(page);
+  await expandShop(page);
+  await row(page, "customers").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "维护…" }).click();
+  const dialog = page.getByRole("dialog", { name: "维护表" });
+  await dialog.getByRole("radio", { name: /^优化/ }).click();
+  await dialog.getByRole("button", { name: "执行" }).click();
+  await expect(page.getByRole("dialog", { name: "优化完成" }).getByText("状态")).toBeVisible();
+  await snapshot(page, "maintenance-result");
+});
+
 /** 在 shop 上右键「新建查询」,写三条语句后全部执行。 */
 async function runShopQuery(page: Page) {
   await openWelcome(page);

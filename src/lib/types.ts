@@ -41,6 +41,31 @@ export interface CopyTableOutcome {
   rows: number | null;
 }
 
+/** 清空表:delete 是 DELETE FROM(保留自增计数),truncate 是 TRUNCATE(自增计数从头开始)。 */
+export type ClearMode = "delete" | "truncate";
+
+/** 清空表的结果。rows:删了多少行;MySQL、PostgreSQL 的截断不报行数,为 null。 */
+export interface ClearTableOutcome {
+  rows: number | null;
+}
+
+/** 表的维护,各家能做的不一样(见 tableOpsModel 的 MAINTENANCE)。 */
+export type Maintenance = "analyze" | "check" | "optimize" | "repair" | "vacuum" | "reindex";
+
+/** 数据库返回的一条消息。level 是 MySQL 的 Msg_type:status、error、info、note、warning。 */
+export interface MaintenanceMessage {
+  level: string;
+  text: string;
+}
+
+/** 维护的结果。PostgreSQL、SQLite 不返回消息;size 只有 VACUUM、REINDEX 才有(字节)。 */
+export interface MaintenanceOutcome {
+  sql: string;
+  messages: MaintenanceMessage[];
+  size: { before: number; after: number } | null;
+  elapsedMs: number;
+}
+
 /** 删除连接的结果。passwordLeft:密码要授权才能从钥匙串删(旧版 Basalt 存的),或钥匙串出错,还留在钥匙串里。 */
 export interface DeletedConnection {
   passwordLeft: boolean;

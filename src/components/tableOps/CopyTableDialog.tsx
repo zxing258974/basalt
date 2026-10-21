@@ -8,6 +8,7 @@ import { tableKey } from "../sidebar/treeKeys";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Field } from "../ui/Field";
+import { ChoiceList, type Choice } from "./ChoiceList";
 import { COPY_LIMITS, copiedNotice, copyName, qualifiedName } from "./tableOpsModel";
 
 interface CopyTableDialogProps {
@@ -16,9 +17,9 @@ interface CopyTableDialogProps {
   onClose(): void;
 }
 
-const CHOICES = [
-  { withData: true, label: "结构和数据", detail: "建一张结构相同的新表，再把全部行复制过去。" },
-  { withData: false, label: "仅结构", detail: "只建一张结构相同的空表。" },
+const CHOICES: Choice<boolean>[] = [
+  { value: true, label: "结构和数据", detail: "建一张结构相同的新表，再把全部行复制过去。" },
+  { value: false, label: "仅结构", detail: "只建一张结构相同的空表。" },
 ];
 
 /** 复制表:新表和原表在同一个库(schema)里。 */
@@ -79,22 +80,7 @@ export function CopyTableDialog({ connection, table, onClose }: CopyTableDialogP
         }}
       >
         <Field label="新表名" value={name} autoFocus spellCheck={false} onValueChange={setName} />
-        <div className="transfer-range" role="radiogroup" aria-label="复制内容">
-          {CHOICES.map((choice) => (
-            <button
-              key={choice.label}
-              type="button"
-              role="radio"
-              aria-checked={withData === choice.withData}
-              className={withData === choice.withData ? "transfer-range-option is-checked" : "transfer-range-option"}
-              onClick={() => setWithData(choice.withData)}
-            >
-              <span className="transfer-radio" aria-hidden />
-              <span className="transfer-range-label">{choice.label}</span>
-              <span className="transfer-range-text">{choice.detail}</span>
-            </button>
-          ))}
-        </div>
+        <ChoiceList label="复制内容" choices={CHOICES} value={withData} onChange={setWithData} />
         <p className="dialog-text is-muted">{COPY_LIMITS[connection.driver]}</p>
       </form>
       {error && (

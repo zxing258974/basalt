@@ -58,7 +58,8 @@ basalt/
 │   ├── query/               SQL 编辑器:查询标签页的专用连接与执行(editor / collect)、执行历史(history)、保存的查询(saved)
 │   ├── import/              导入 Navicat 的连接(navicat/conn_plist、ncx)和保存的查询(navicat/queries)
 │   ├── design/              表结构设计:模型、校验、按方言生成 DDL(纯函数);驱动里 *_design.rs 读结构、执行 DDL
-│   ├── transfer/            导入导出:四种写器、CSV / Excel 读取、列映射、按目标列转换(纯函数);export / import 编排
+│   ├── transfer/            导入导出:四种写器、CSV / Excel 读取、列映射、按目标列转换(纯函数);export / import / dump 编排
+│   ├── table_ops/           表级操作:删除、复制、清空 / 截断、改名、维护(maintenance);table_info.rs 是信息面板与建表语句
 │   └── tunnel.rs            (M4)SSH 本地端口转发
 ├── src-tauri/               Tauri 外壳:命令层只做参数校验、调 core、错误转换
 └── src/                     前端
@@ -128,6 +129,15 @@ PostgreSQL 一个连接只能连一个库,所以会话里按「库名」懒建�
 - **前端**:导出对话框(范围、四种格式的选项、二进制写法、保存对话框选路径、进度与取消、完成后在访达中显示)和导入向导(选文件、映射列、选项;清空表二次确认;进度与取消;结果与失败明细另存 CSV)挂在应用最外层,对象树、表数据页、查询结果都从 `stores/transfer` 打开。进行中按 Esc 不关对话框;对话框被关掉时任务一起取消。导入完成后让这张表的表数据页、对象列表重读。
 
 **已知限制(M6)**:驱动解不了的类型(MySQL 的 GEOMETRY 等)所在的表没法导出,要先在查询里转成文本;重新执行查询导出全部结果时,只按语句写法判断有没有副作用,函数里的副作用(如取序列值)看不出来;MySQL 查询结果里二进制列是有效 UTF-8 时按文本导出(和 M3 的显示一样,结果集里拿不到列的字符集);CSV 不做公式注入防护(以 = + - @ 开头的值原样写出,不改数据);导入不能把空单元格当空字符串(一律是 NULL;NOT NULL 的文本列遇到会进失败报告);Excel 里的时长格式([h]:mm:ss)按文本导入;JSON、SQL 文件不能导入(执行 SQL 文件请用查询标签页);只有一列的表里值为 NULL 的行导出成 CSV 是一个空行,导回时和空行分不开,会被跳过。
+
+**表操作(对象树右键)**:表节点的菜单按「打开 / 设计 / 导入导出与转储 / 复制、改名、复制表名、维护 / 清空、截断、删除」分组,危险的放最后、标红,确认按钮不默认聚焦。
+- 清空与截断是同一个对话框,两种做法并排讲清区别:清空是 `DELETE FROM`(出错整体回滚、触发器照常、自增计数保留),截断是 `TRUNCATE`(快、自增从头开始;MySQL 隐式提交不能回滚;PostgreSQL 带 `RESTART IDENTITY`)。被别的表的外键引用时截断被数据库拒绝,原话后面补一句「可以改用清空」。SQLite 没有 TRUNCATE,截断是不带条件的 DELETE 再删掉 `sqlite_sequence` 里的计数。开着的数据页重读;它还有没提交的修改时确认框里先说会丢。
+- 改名:MySQL `RENAME TABLE`,另两家 `ALTER TABLE … RENAME TO`。这张表开着的数据页、设计器换成新名字的标签页(id 跟着变),对象树里选中新名字。
+- 转储 SQL 文件:建表语句和信息面板同一个来源(MySQL 的 SHOW CREATE TABLE、SQLite 的 `sqlite_master` 原文、PostgreSQL 按表结构生成),数据走导出同一套流式读取、SQL INSERT 写器、进度与取消。文件开头 `DROP TABLE IF EXISTS`;MySQL 表名不带库名、前后关开外键检查;PostgreSQL 先 `CREATE SEQUENCE IF NOT EXISTS` 再建表、`OWNED BY` 回 serial 列,带数据时最后把序列推到最大值;SQLite 的触发器放在数据之后,免得还原时触发。表名写进注释前去掉换行,不会被拼成可执行的语句。
+- 维护:MySQL 的 ANALYZE / CHECK / OPTIMIZE / REPAIR TABLE 走文本协议(CHECK TABLE 不能预备执行),结果集里的消息原样列出(表不存在、引擎不支持也是消息);PostgreSQL 的 VACUUM / ANALYZE / REINDEX、SQLite 的 ANALYZE / VACUUM 不返回消息,VACUUM、REINDEX 给出前后大小(PostgreSQL 是表连同索引,SQLite 是整个库文件)。VACUUM 不能在事务里,单独一条走简单查询协议。
+- 复制表名:只复制名字,不带库名和引号;视图节点是「复制视图名」。
+
+**已知限制(表操作)**:转储一次只转一张表;PostgreSQL 的建表语句按表结构生成,不含 CHECK 约束、触发器、分区、权限,外键写在 CREATE TABLE 里(被引用的表不在库里时建不出来),GENERATED ALWAYS 的标识列转储成 BY DEFAULT,只重建归这张表所有的序列;MySQL 转储不含触发器(SHOW CREATE TABLE 里没有);截断不带 CASCADE;维护没有取消按钮(大表的 OPTIMIZE、VACUUM 要等它做完);PostgreSQL 的 VACUUM 在不是表的所有者时只发警告不报错,而警告(NOTICE)拿不到,界面上看起来像成功了;MySQL 改名后视图、存储过程里写的旧表名不会跟着改。
 
 **错误**:core 用 thiserror 定义错误;命令层统一转成 `{ code, message }` 给前端,message 写人话(连不上、认证失败、超时、SQL 错误原文)。
 

@@ -1,37 +1,21 @@
 // 复制表、删除表(mock 后端):默认名字、只复制结构、重名报错、删表前关掉相关的标签页。
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Backend } from "../../lib/api";
 import { createMockBackend } from "../../lib/mockBackend";
 import { tableDataTab, useTabs } from "../../stores/tabs";
 import { useUi } from "../../stores/ui";
-import { renderApp } from "../../test/renderApp";
+import { MYSQL_CUSTOMERS, openTableMenu, tree } from "../../test/tableMenu";
 import { tableKey } from "../sidebar/treeKeys";
 import { copiedNotice, copyName, qualifiedName, tabsOfTable } from "./tableOpsModel";
 
-const tree = () => within(screen.getByRole("tree", { name: "连接" }));
-const findRow = async (name: string) =>
-  (await tree().findByRole("treeitem", { name })).firstElementChild as HTMLElement;
-
 /** 展开「开发 → 本地 MySQL → shop → 表」,在 `table` 上右键选 `item`。 */
-async function tableMenu(
+const tableMenu = (
   item: string,
   table = "customers",
   backend: Backend = createMockBackend(),
   before: () => void = () => undefined,
-) {
-  const app = renderApp(backend);
-  act(before);
-  const { user } = app;
-  await user.dblClick(await findRow("开发"));
-  await user.dblClick(await findRow("本地 MySQL"));
-  await user.click(await findRow("shop"));
-  await user.keyboard("{ArrowRight}");
-  await user.dblClick(await findRow("表"));
-  await user.pointer({ keys: "[MouseRight]", target: await findRow(table) });
-  await user.click(screen.getByRole("menuitem", { name: item }));
-  return app;
-}
+) => openTableMenu(item, { ...MYSQL_CUSTOMERS, table }, backend, before);
 
 describe("table operations", { timeout: 15_000 }, () => {
   it("copies only the structure under a fresh name and selects the new table", async () => {

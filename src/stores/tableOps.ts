@@ -1,8 +1,16 @@
-// 删除表、复制表的对话框开着哪一个。对象树右键打开,对话框挂在应用最外层。
+// 表操作的对话框开着哪一个。对象树右键打开,对话框挂在应用最外层。
 import { create } from "zustand";
-import type { ConnectionView, TableRef } from "../lib/types";
+import type { ClearMode, ConnectionView, TableRef } from "../lib/types";
 
-export type TableOpsDialog = { kind: "drop" | "copy"; connection: ConnectionView; table: TableRef };
+interface DialogTarget {
+  connection: ConnectionView;
+  table: TableRef;
+}
+
+export type TableOpsDialog =
+  | ({ kind: "drop" | "copy" | "rename" | "dump" | "maintain" } & DialogTarget)
+  /** 清空、截断是同一个对话框,`mode` 是打开时选中的做法。 */
+  | ({ kind: "clear"; mode: ClearMode } & DialogTarget);
 
 interface TableOpsStore {
   dialog: TableOpsDialog | null;

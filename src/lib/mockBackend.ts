@@ -4,6 +4,7 @@ import { createMockQueries } from "./mock/queryMock";
 import { seedTable } from "./mock/seedTables";
 import { createMockTables } from "./mock/tableData";
 import { createMockDesigns } from "./mock/tableDesign";
+import { mockMaintenance } from "./mock/maintenance";
 import { mockTableDetails } from "./mock/tableDetails";
 import { createMockTransfer } from "./mock/transferMock";
 import { createMockLlm } from "./mock/llmMock";
@@ -316,6 +317,33 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       designs.copy(id, config.driver, ref, target);
       return { table: { ...ref, table: target }, rows: withData ? seedTable(ref.table).rows.length : null };
     },
+    async clearTable(id, ref, mode) {
+      await wait(120);
+      const config = requireOpen(id);
+      if (!tablesOf(id, ref.database, ref.schema).some((t) => t.name === ref.table)) {
+        fail("table_not_found", `找不到表：${ref.table}`);
+      }
+      const rows = tableData.clear(id, ref);
+      // 和 Rust 端一样:MySQL、PostgreSQL 的 TRUNCATE 不报行数。
+      return { rows: mode === "truncate" && config.driver !== "sqlite" ? null : rows };
+    },
+    async renameTable(id, ref, name) {
+      await wait(120);
+      const config = requireOpen(id);
+      const target = name.trim();
+      if (!target) fail("invalid_data", "新表名不能为空。");
+      if (target === ref.table) fail("invalid_data", "新表名不能和原表一样。");
+      if (tablesOf(id, ref.database, ref.schema).some((t) => t.name === target)) {
+        fail("database", `Table '${target}' already exists`);
+      }
+      designs.rename(id, config.driver, ref, target);
+      tableData.rename(id, ref, target);
+      return { ...ref, table: target };
+    },
+    async maintainTable(id, ref, operation) {
+      await wait(200);
+      return mockMaintenance(requireOpen(id).driver, ref, operation);
+    },
     async readTablePage(id, table, request) {
       await wait();
       const config = requireOpen(id);
@@ -410,6 +438,10 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
     async exportData(jobId, request) {
       requireOpen(request.connectionId);
       return transfer.exportData(jobId, request);
+    },
+    async dumpTable(jobId, request) {
+      requireOpen(request.connectionId);
+      return transfer.dumpTable(jobId, request);
     },
     async previewImport(connectionId, table, source) {
       requireOpen(connectionId);

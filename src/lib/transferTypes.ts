@@ -42,6 +42,14 @@ export interface ExportRequest {
   path: string;
 }
 
+/** 转储 SQL 文件:建表语句,withData 时连同全部数据的 INSERT。 */
+export interface DumpRequest {
+  connectionId: string;
+  table: TableRef;
+  withData: boolean;
+  path: string;
+}
+
 export interface ExportOutcome {
   rows: number;
   bytes: number;

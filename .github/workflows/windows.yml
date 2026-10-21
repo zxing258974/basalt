@@ -49,5 +49,6 @@ jobs:
 
       # 放在上传之后:测试挂了也拿得到安装包。不设 BASALT_IT:要数据库容器的集成测试跳过,
       # SQLite 和单元测试在 Windows 上真跑。src-tauri 的测试程序靠 build.rs 嵌的清单才启动得了。
+      # --no-fail-fast:一个测试程序失败也接着跑完其余的,一次看全。
       - name: Rust 测试
-        run: cargo test --workspace
+        run: cargo test --workspace --no-fail-fast

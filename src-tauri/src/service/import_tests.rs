@@ -335,10 +335,16 @@ async fn ncx_import_does_not_need_the_home_folder() {
         .unwrap();
     assert_eq!(report.imported.len(), 1);
 
+    // 没有主目录:macOS 上是找不到目录;Windows 上本机来源本来就不支持。
     let error = scan_import_source(&h.state, &ImportSource::LocalNavicat, None)
         .await
         .unwrap_err();
-    assert_eq!(error.code, "storage");
+    let expected = if cfg!(target_os = "macos") {
+        "storage"
+    } else {
+        "unsupported"
+    };
+    assert_eq!(error.code, expected);
 }
 
 /// 第二次写钥匙串时失败,模拟用户在第二个弹窗里点了「拒绝」。

@@ -156,8 +156,14 @@ async fn missing_navicat_folders_are_reported() {
         .await
         .unwrap_err();
     assert_eq!(error.code, "storage");
+    // 没有主目录:macOS 上是找不到目录;Windows 上本机来源本来就不支持。
     let error = scan_navicat_queries(&h.state, None).await.unwrap_err();
-    assert_eq!(error.code, "storage");
+    let expected = if cfg!(target_os = "macos") {
+        "storage"
+    } else {
+        "unsupported"
+    };
+    assert_eq!(error.code, expected);
 }
 
 #[tokio::test]

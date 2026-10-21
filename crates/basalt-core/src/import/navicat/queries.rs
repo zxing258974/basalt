@@ -78,11 +78,14 @@ pub fn scan_queries(settings: &Path) -> CoreResult<Vec<NavicatQuery>> {
         for connection in visible_children(&type_dir, true) {
             for database in visible_children(&connection, true) {
                 let at = |schema: Option<&Path>, file: PathBuf| NavicatQuery {
+                    // 一律用「/」连:前端和导入时按这个 id 找,不能随平台的路径分隔符变。
                     id: file
                         .strip_prefix(settings)
                         .unwrap_or(&file)
-                        .to_string_lossy()
-                        .into_owned(),
+                        .components()
+                        .map(|part| part.as_os_str().to_string_lossy())
+                        .collect::<Vec<_>>()
+                        .join("/"),
                     conn_type: name_of(&type_dir),
                     connection: name_of(&connection),
                     database: name_of(&database),

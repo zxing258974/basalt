@@ -96,7 +96,11 @@ impl AppState {
         }
     }
 
-    pub fn saved_password(&self, id: &str) -> CoreResult<Option<String>> {
-        self.secrets.get(&password_key(id))
+    /// 只有存过密码的连接才去读钥匙串:没存的(SQLite、每次手输)读了也是空,还可能弹授权框。
+    pub fn saved_password(&self, config: &ConnectionConfig) -> CoreResult<Option<String>> {
+        if !config.save_password {
+            return Ok(None);
+        }
+        self.secrets.get(&password_key(&config.id))
     }
 }

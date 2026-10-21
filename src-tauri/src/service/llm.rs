@@ -184,8 +184,14 @@ fn key_for(state: &AppState, draft: &LlmModelDraft) -> CommandResult<Option<Stri
         None => match &draft.id {
             Some(id) => {
                 let settings = state.llm.load()?;
-                check_key_origin(settings.get(id), draft)?;
-                Ok(state.secrets.get(&api_key_slot(id))?)
+                let saved = settings.get(id);
+                check_key_origin(saved, draft)?;
+                // 没存过 Key 的模型不去读钥匙串,免得白弹一次授权框。
+                if saved.is_some_and(|m| m.has_api_key) {
+                    Ok(state.secrets.get(&api_key_slot(id))?)
+                } else {
+                    Ok(None)
+                }
             }
             None => Ok(None),
         },

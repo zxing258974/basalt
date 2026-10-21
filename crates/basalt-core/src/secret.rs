@@ -8,8 +8,10 @@ use crate::error::{CoreError, CoreResult};
 mod cached;
 #[cfg(target_os = "macos")]
 mod macos;
+mod vault;
 
 pub use cached::CachedSecretStore;
+pub use vault::VaultSecretStore;
 
 /// [`SecretStore::delete_quietly`] 的结果。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

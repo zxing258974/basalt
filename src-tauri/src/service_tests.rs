@@ -333,6 +333,54 @@ async fn keychain_failure_on_delete_still_removes_the_connection() {
 }
 
 /// 密码是旧版 Basalt 存的:要授权才能删。会弹框的 `delete` 一被调用就算测试失败。
+/// 一读就算测试失败:没存密码的连接,保存、打开、测试、复制都不该去读钥匙串(读就可能弹授权框)。
+struct UnreadableKeychain;
+
+impl SecretStore for UnreadableKeychain {
+    fn get(&self, key: &str) -> basalt_core::CoreResult<Option<String>> {
+        panic!("不该读钥匙串:{key}");
+    }
+    fn set(&self, key: &str, _secret: &str) -> basalt_core::CoreResult<()> {
+        panic!("不该写钥匙串:{key}");
+    }
+    fn delete(&self, key: &str) -> basalt_core::CoreResult<()> {
+        panic!("不该删钥匙串:{key}");
+    }
+    fn delete_quietly(&self, _key: &str) -> basalt_core::CoreResult<QuietDelete> {
+        Ok(QuietDelete::Removed)
+    }
+}
+
+#[tokio::test]
+async fn connections_without_a_saved_password_never_read_the_keychain() {
+    let h = harness().await;
+    let state = AppState::new(
+        h._dir.path().join("quiet/connections.json"),
+        Arc::new(UnreadableKeychain),
+    );
+    let saved = service::save_connection(&state, sqlite_draft(&h.sqlite_path))
+        .await
+        .unwrap();
+    let renamed = ConnectionDraft {
+        id: Some(saved.id.clone()),
+        name: "改个名".into(),
+        ..sqlite_draft(&h.sqlite_path)
+    };
+    service::save_connection(&state, renamed).await.unwrap();
+    service::open_connection(&state, &saved.id, None)
+        .await
+        .unwrap();
+    let draft = ConnectionDraft {
+        id: Some(saved.id.clone()),
+        ..sqlite_draft(&h.sqlite_path)
+    };
+    service::test_connection(&state, draft).await.unwrap();
+    let copy = service::duplicate_connection(&state, &saved.id)
+        .await
+        .unwrap();
+    service::delete_connection(&state, &copy.id).await.unwrap();
+}
+
 struct ForeignKeychain;
 
 impl SecretStore for ForeignKeychain {

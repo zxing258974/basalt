@@ -11,11 +11,26 @@ mod webview_windows;
 
 use std::sync::Arc;
 
-use basalt_core::secret::{CachedSecretStore, KeychainStore};
+use basalt_core::secret::{CachedSecretStore, KeychainStore, SecretStore};
 use tauri::Manager;
 
 /// 钥匙串里的服务名。
 const KEYCHAIN_SERVICE: &str = "dev.basalt.app";
+
+/// 密码和 API Key 放哪儿。两边都在内存里缓存读到的结果:同一条一次运行只读一次,不会每发一句话都弹框。
+/// macOS 上全部合成钥匙串里的一条:包是临时签名,每次重装都要重新放行,条目越少问得越少。
+/// Windows 凭据管理器单条有长度上限,还是一条连接一条(那边也不会弹框)。
+fn secret_store(config_dir: &std::path::Path) -> Arc<dyn SecretStore> {
+    let keychain = KeychainStore::new(KEYCHAIN_SERVICE);
+    #[cfg(target_os = "macos")]
+    let keychain = basalt_core::secret::VaultSecretStore::new(
+        keychain,
+        config_dir.join("pending-secret-deletes.json"),
+    );
+    #[cfg(not(target_os = "macos"))]
+    let _ = config_dir;
+    Arc::new(CachedSecretStore::new(keychain))
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -41,11 +56,10 @@ pub fn run() {
             {
                 webview_windows::disable_browser_shortcuts(&window);
             }
-            let config_path = app.path().app_config_dir()?.join("connections.json");
+            let config_dir = app.path().app_config_dir()?;
             app.manage(state::AppState::new(
-                config_path,
-                // 同一条密码 / API Key 一次运行里只读一次钥匙串,免得每发一句话都弹授权框。
-                Arc::new(CachedSecretStore::new(KeychainStore::new(KEYCHAIN_SERVICE))),
+                config_dir.join("connections.json"),
+                secret_store(&config_dir),
             ));
             Ok(())
         })

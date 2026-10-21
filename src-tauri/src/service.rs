@@ -127,11 +127,14 @@ pub async fn save_connection(
         None => None,
     };
 
+    // 原来就没存密码(或者是新建的连接)时钥匙串里没有它的密码,不用去读:
+    // 不需要密码的连接(如 SQLite)保存时不会触发钥匙串授权。
+    let had_password = previous.as_ref().is_some_and(|p| p.save_password);
     let old_secret = match change {
         SecretChange::Keep => None,
+        _ if !had_password => None,
         _ => state.secrets.get(&key)?,
     };
-    // 本来就没存密码时不去碰钥匙串,不需要密码的连接(如 SQLite)不会触发钥匙串授权。
     let change = match change {
         SecretChange::Delete if old_secret.is_none() => SecretChange::Keep,
         other => other,
@@ -221,7 +224,11 @@ pub async fn duplicate_connection(state: &AppState, id: &str) -> CommandResult<C
         .duplicated(id, new_id.clone())
         .ok_or_else(|| CoreError::ConnectionNotFound(id.to_owned()))?;
     let new_key = password_key(&new_id);
-    let copied_secret = match state.saved_password(id)? {
+    let source = list
+        .get(id)
+        .cloned()
+        .ok_or_else(|| CoreError::ConnectionNotFound(id.to_owned()))?;
+    let copied_secret = match state.saved_password(&source)? {
         Some(password) => {
             state.secrets.set(&new_key, &password)?;
             true
@@ -243,7 +250,10 @@ pub async fn test_connection(
     draft: ConnectionDraft,
 ) -> CommandResult<ServerInfo> {
     let saved = match (&draft.id, &draft.password) {
-        (Some(id), None) => state.saved_password(id)?,
+        (Some(id), None) => match state.find(id) {
+            Ok(saved) => state.saved_password(&saved)?,
+            Err(_) => None,
+        },
         _ => None,
     };
     let password = draft.password.clone().or(saved);
@@ -261,7 +271,7 @@ pub async fn open_connection(
     let config = state.find(id)?;
     let password = match password {
         Some(p) => Some(p),
-        None => state.saved_password(id)?,
+        None => state.saved_password(&config)?,
     };
     let params = ConnectParams::from_config(&config, password);
     let session = state.sessions.open(id, &params).await?;

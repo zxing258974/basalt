@@ -397,3 +397,42 @@ async fn committing_edits_gives_up_on_rows_a_tab_has_locked() {
     assert!(error.contains("行锁"), "{error}");
     assert!(started.elapsed() < Duration::from_secs(20));
 }
+
+#[tokio::test]
+async fn notices_raised_by_a_statement_come_back_with_it() {
+    let Some(manager) = manager().await else {
+        return;
+    };
+    let outcome = run(
+        &manager,
+        "notices",
+        "DO $$ BEGIN RAISE NOTICE '处理了 % 行', 3; RAISE WARNING '有一行跳过了'; END $$",
+    )
+    .await;
+    assert_eq!(outcome.status, OutcomeStatus::Ok, "{:?}", outcome.message);
+    let messages: Vec<_> = outcome
+        .messages
+        .iter()
+        .map(|m| (m.level.as_str(), m.text.as_str()))
+        .collect();
+    assert_eq!(
+        messages,
+        [("NOTICE", "处理了 3 行"), ("WARNING", "有一行跳过了")]
+    );
+    // 下一条语句不带上一条的消息。
+    let quiet = run(&manager, "notices", "SELECT 1").await;
+    assert!(quiet.messages.is_empty());
+}
+
+#[tokio::test]
+async fn errors_say_where_in_the_statement_they_are() {
+    let Some(manager) = manager().await else {
+        return;
+    };
+    let outcome = run(&manager, "where", "SELECT id,\n  nope FROM items").await;
+    assert_eq!(outcome.status, OutcomeStatus::Error);
+    assert_eq!(outcome.error_position, Some(13), "{:?}", outcome.message);
+    // PostgreSQL 按字符数,前端按 UTF-16 数:emoji 是一个字符、两个 UTF-16 单元。
+    let wide = run(&manager, "where", "SELECT '😀', nope FROM items").await;
+    assert_eq!(wide.error_position, Some(13), "{:?}", wide.message);
+}

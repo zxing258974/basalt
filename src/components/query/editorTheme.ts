@@ -18,6 +18,13 @@ const theme = EditorView.theme({
   "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, ::selection": {
     backgroundColor: "var(--surface-selected)",
   },
+  ".cm-sql-error": {
+    textDecoration: "underline wavy var(--danger)",
+    textDecorationSkipInk: "none",
+    textUnderlineOffset: "3px",
+    backgroundColor: "var(--danger-soft)",
+    borderRadius: "var(--radius-xs)",
+  },
   ".cm-activeLine": { backgroundColor: "color-mix(in oklch, var(--surface-hover) 45%, transparent)" },
   ".cm-gutters": {
     backgroundColor: "var(--surface-canvas)",

@@ -18,9 +18,10 @@ import { Button } from "../ui/Button";
 import { HistoryPanel } from "./HistoryPanel";
 import { QueryHeader } from "./QueryHeader";
 import { MESSAGES, ResultPanel } from "./ResultPanel";
-import { resultTabs, statementsToRun, type ResultTab, type RunMode } from "./runModel";
+import { resultTabs, statementsToRun, type ResultTab, type RunMode, type RunState } from "./runModel";
 import { SaveQueryDialog } from "./SaveQueryDialog";
 import { editorDialect, SqlEditor, type SqlEditorHandle } from "./SqlEditor";
+import type { SqlStatement } from "./splitStatements";
 import { useCompletionProvider } from "./useCompletionProvider";
 import { useEditorHeight } from "./useEditorHeight";
 import { usePanelWidth, type PanelWidthOptions } from "../../hooks/usePanelWidth";
@@ -47,6 +48,18 @@ const ASSISTANT_PANEL: PanelWidthOptions = {
   edge: "left",
   label: "调整 SQL 助手宽度",
 };
+
+/**
+ * 第一条出错的语句,数据库说了错在哪就在编辑器里标出来。执行期间改过编辑器就不标:位置已经对不上了。
+ */
+function markFirstError(handle: SqlEditorHandle, done: RunState, statements: SqlStatement[], textAtRun: string) {
+  if (handle.getText() !== textAtRun) return;
+  const index = done.entries.findIndex((entry) => entry.outcome?.status === "error");
+  const outcome = done.entries[index]?.outcome;
+  const statement = statements[index];
+  if (!outcome || outcome.errorPosition === null || !statement) return;
+  handle.markError({ at: statement.from + outcome.errorPosition, end: statement.to, message: outcome.message ?? "" });
+}
 
 export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
   const connection = useConnections().data?.find((c) => c.id === tab.connectionId);
@@ -138,7 +151,10 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
       setResultNotice(null);
       setActiveResult(null);
       pickedDuringRun.current = false;
+      handle.markError(null);
+      const textAtRun = handle.getText();
       void execute(statements).then((done) => {
+        if (done && editor.current) markFirstError(editor.current, done, statements, textAtRun);
         if (!done || pickedDuringRun.current) return;
         const failed = done.entries.some((e) => e.failure !== null || e.outcome?.status !== "ok");
         const first = resultTabs(done.entries)[0];

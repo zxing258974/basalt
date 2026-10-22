@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 use super::collect::{Collected, CollectedSet};
+use super::error_position::error_position;
+use super::notices;
 use super::results::{FIRST_BATCH, RELEASED, ResultSort, ResultStore};
 use super::{
     OutcomeStatus, QueryScope, ResultColumn, ResultSet, StatementOutcome, is_ddl, is_dml,
@@ -263,7 +265,7 @@ async fn execute(
         });
     }
     let started = Instant::now();
-    let collected = open.conn.run(sql, &handle).await;
+    let (collected, messages) = notices::collecting(open.conn.run(sql, &handle)).await;
     let elapsed = started.elapsed();
     open.last_used = Instant::now();
     // 取消请求进行到一半时要等它说完(它持着这把锁),免得 KILL 落到下一条语句上。
@@ -272,6 +274,7 @@ async fn execute(
     let broken = collected.error.as_ref().is_some_and(is_connection_lost);
     let mut outcome = finish(open, slot, sql, collected, cancelled, elapsed).await;
     outcome.notice = notice;
+    outcome.messages = messages;
     if broken {
         // 连接已经断了:丢掉它,下一次执行时重新连。
         if let Some(open) = state.take() {
@@ -290,6 +293,8 @@ fn cancelled_before_start(scope: QueryScope, notice: Option<String>) -> Statemen
         elapsed_ms: 0,
         scope,
         notice,
+        messages: Vec::new(),
+        error_position: None,
     }
 }
 
@@ -394,6 +399,10 @@ async fn finish(
         open.conn.clear_cached_statements().await;
     }
     let result_sets = keep(open, slot, result_sets, error.is_none()).await;
+    let error_position = error
+        .as_ref()
+        .filter(|_| !cancelled)
+        .and_then(|error| error_position(error, sql));
     let (status, message) = match error {
         None => (OutcomeStatus::Ok, None),
         Some(error) => (
@@ -419,6 +428,8 @@ async fn finish(
         elapsed_ms: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
         scope: open.scope.clone(),
         notice: None,
+        messages: Vec::new(),
+        error_position,
     }
 }
 

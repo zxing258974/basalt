@@ -328,3 +328,28 @@ async fn temporary_tables_are_flagged_read_only() {
         assert_eq!(real.result_sets[0].read_only, None, "{}", target.name);
     }
 }
+
+#[tokio::test]
+async fn syntax_errors_say_where_in_the_statement_they_are() {
+    for (index, target) in targets() {
+        let manager = manager_for(index, target).await;
+        let outcome = run(&manager, "where", "SELECT id,\nFROM items").await;
+        assert_eq!(outcome.status, OutcomeStatus::Error, "{}", target.name);
+        assert_eq!(
+            outcome.error_position,
+            Some(11),
+            "{}: {:?}",
+            target.name,
+            outcome.message
+        );
+        let unknown = run(&manager, "where", "SELECT id, nope FROM items").await;
+        assert_eq!(
+            unknown.error_position,
+            Some(11),
+            "{}: {:?}",
+            target.name,
+            unknown.message
+        );
+        assert!(unknown.messages.is_empty());
+    }
+}

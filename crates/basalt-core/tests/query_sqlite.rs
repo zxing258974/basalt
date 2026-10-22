@@ -289,3 +289,14 @@ async fn temporary_tables_are_flagged_read_only() {
         None
     );
 }
+
+#[tokio::test]
+async fn errors_say_where_in_the_statement_they_are() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = manager(&dir).await;
+    let outcome = run(&manager, "where", "SELECT * FORM items").await;
+    assert_eq!(outcome.status, OutcomeStatus::Error);
+    assert_eq!(outcome.error_position, Some(9), "{:?}", outcome.message);
+    let missing = run(&manager, "where", "SELECT * FROM missing").await;
+    assert_eq!(missing.error_position, Some(14), "{:?}", missing.message);
+}

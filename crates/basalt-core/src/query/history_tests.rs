@@ -11,6 +11,8 @@ fn outcome(status: OutcomeStatus) -> StatementOutcome {
         elapsed_ms: 7,
         scope: QueryScope::default(),
         notice: None,
+        messages: Vec::new(),
+        error_position: None,
     }
 }
 

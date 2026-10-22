@@ -73,6 +73,41 @@ describe("running statements", { timeout: FLOW_TIMEOUT }, () => {
     ).toEqual(["复制⌘C"]);
   });
 
+  it("marks where a statement went wrong", async () => {
+    const { user, view } = await openShopQuery();
+    setSql(view, "SELECT 1 AS ok;\nSELECT * FROM missing;");
+    await user.click(header().getByRole("button", { name: "全部执行" }));
+    await screen.findByText(/第 2 条出错/);
+    const mark = view.contentDOM.querySelector(".cm-sql-error");
+    expect(mark?.textContent).toBe("missing");
+    expect(mark?.getAttribute("title")).toContain("doesn't exist");
+
+    // 改到标出来的地方,标记就去掉。
+    view.dispatch({ changes: { from: view.state.doc.length - 2, insert: "x" } });
+    expect(view.contentDOM.querySelector(".cm-sql-error")).toBeNull();
+  });
+
+  it("lists what PostgreSQL said while running a statement", async () => {
+    const { user } = renderApp();
+    await user.dblClick(await findRow("开发"));
+    await user.dblClick(await findRow("FOLIO 测试库"));
+    const prompt = await screen.findByRole("dialog", { name: "连接到「FOLIO 测试库」" });
+    await user.type(within(prompt).getByLabelText("密码"), "folio");
+    await user.click(within(prompt).getByRole("button", { name: "连接" }));
+    await user.pointer({ keys: "[MouseRight]", target: await findRow("folio") });
+    await user.click(await screen.findByRole("menuitem", { name: /新建查询/ }));
+    const view = await findEditor("查询 1");
+
+    setSql(view, "DO $$ BEGIN RAISE NOTICE '处理了 3 行'; RAISE WARNING '跳过 1 行'; END $$;");
+    await user.click(header().getByRole("button", { name: "全部执行" }));
+    const server = within(await messages()).getByRole("list", { name: "服务器消息" });
+    expect(
+      within(server)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["NOTICE处理了 3 行", "WARNING跳过 1 行"]);
+  });
+
   it("runs only the statement under the cursor, or everything selected", async () => {
     const { user, view } = await openShopQuery();
     const text = "SELECT 1 AS a;\nSELECT 2 AS b;\nSELECT 3 AS c;";

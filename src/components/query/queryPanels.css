@@ -91,6 +91,35 @@
   height: 12px;
   flex: none;
 }
+/* 服务器在执行时发来的消息(RAISE NOTICE):级别一列对齐,正文照原样换行。 */
+.query-message-server {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  list-style: none;
+  font-size: var(--text-sm);
+}
+.query-message-server li {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: var(--space-4);
+}
+.query-message-level {
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+}
+.query-message-text {
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.query-message-server li.is-warning .query-message-level {
+  color: var(--danger);
+}
 .query-message-time {
   font-size: var(--text-xs);
   color: var(--text-faint);

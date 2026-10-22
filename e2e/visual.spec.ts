@@ -189,6 +189,24 @@ test("query: messages after a failed statement", async ({ page }) => {
   await snapshot(page, "query-messages");
 });
 
+test("query: server messages", async ({ page }) => {
+  await openWelcome(page);
+  await row(page, "开发").dblclick();
+  await row(page, "FOLIO 测试库").dblclick();
+  const prompt = page.getByRole("dialog", { name: "连接到「FOLIO 测试库」" });
+  await prompt.getByLabel("密码", { exact: true }).fill("folio");
+  await prompt.getByRole("button", { name: "连接" }).click();
+  await row(page, "folio").click({ button: "right" });
+  await page.getByRole("menuitem", { name: /新建查询/ }).click();
+  await page.getByRole("textbox", { name: "查询 1 的 SQL" }).click();
+  await page.keyboard.type(
+    "DO $$ BEGIN RAISE NOTICE '已处理 128 行'; RAISE WARNING '有 2 行的日期不合法，已跳过'; END $$;",
+  );
+  await page.getByRole("button", { name: "全部执行" }).click();
+  await expect(page.getByRole("list", { name: "服务器消息" })).toBeVisible();
+  await snapshot(page, "query-server-messages");
+});
+
 test("query: result grid", async ({ page }) => {
   await runShopQuery(page);
   await page.getByRole("tab", { name: /结果 1/ }).click();

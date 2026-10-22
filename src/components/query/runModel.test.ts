@@ -22,6 +22,8 @@ function outcome(partial: Partial<StatementOutcome> = {}): StatementOutcome {
     elapsedMs: 5,
     scope,
     notice: null,
+    messages: [],
+    errorPosition: null,
     ...partial,
   };
 }

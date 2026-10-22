@@ -56,6 +56,16 @@ export interface StatementOutcome {
   scope: QueryScope;
   /** 执行前发生的事,如断线重连。 */
   notice: string | null;
+  /** 执行过程中服务器发来的消息(PostgreSQL 的 RAISE NOTICE 之类),按到达的先后。 */
+  messages: ServerMessage[];
+  /** 出错时错在语句的哪里:第几个 UTF-16 单元(从 0 数,和编辑器里的位置一样数),认不出时为 null。 */
+  errorPosition: number | null;
+}
+
+export interface ServerMessage {
+  /** NOTICE、WARNING、INFO、DEBUG。 */
+  level: string;
+  text: string;
 }
 
 export interface HistoryEntry {

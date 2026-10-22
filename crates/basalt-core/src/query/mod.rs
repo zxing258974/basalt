@@ -6,12 +6,15 @@
 
 pub(crate) mod collect;
 pub(crate) mod editor;
+mod error_position;
 pub mod history;
 pub mod lease;
+pub mod notices;
 pub mod results;
 pub mod saved;
 
 pub use editor::EditorRegistry;
+pub use notices::ServerMessage;
 use serde::{Deserialize, Serialize};
 
 use crate::table::TableRef;
@@ -86,6 +89,10 @@ pub struct StatementOutcome {
     pub scope: QueryScope,
     /// 执行前发生的、用户应该知道的事,如连接断开后重新连上了。
     pub notice: Option<String>,
+    /// 执行过程中服务器发来的消息(PostgreSQL 的 RAISE NOTICE 之类),按到达的先后。
+    pub messages: Vec<ServerMessage>,
+    /// 出错时错在语句的哪里:第几个 UTF-16 单元(从 0 数),认不出时为 `None`。
+    pub error_position: Option<usize>,
 }
 
 /// 语句的第一个关键字(大写),跳过开头的空白、注释和左括号。没有时为空串。
@@ -205,6 +212,11 @@ mod tests {
                 schema: None,
             },
             notice: None,
+            messages: vec![ServerMessage {
+                level: "NOTICE".into(),
+                text: "done".into(),
+            }],
+            error_position: Some(7),
         };
         assert_eq!(
             serde_json::to_value(&outcome).unwrap(),
@@ -229,7 +241,9 @@ mod tests {
                 "affectedRows": null,
                 "elapsedMs": 12,
                 "scope": { "database": "shop", "schema": null },
-                "notice": null
+                "notice": null,
+                "messages": [{ "level": "NOTICE", "text": "done" }],
+                "errorPosition": 7
             })
         );
     }

@@ -24,6 +24,7 @@ import {
 import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import type { DriverKind } from "../../lib/types";
 import { editorTheme } from "./editorTheme";
+import { errorMarkField, showErrorMark, type ErrorMark } from "./errorMark";
 import { schemaCompletion, type CompletionProvider } from "./sqlCompletion";
 import type { SqlDialect } from "./splitStatements";
 import { shortcut } from "../../lib/platform";
@@ -35,6 +36,8 @@ export interface SqlEditorHandle {
   /** 替换选中的文字(没选中就在光标处插入),并把光标放到插入内容之后。 */
   insert(text: string): void;
   focus(): void;
+  /** 标出语句出错的地方;null 去掉。 */
+  markError(mark: ErrorMark | null): void;
 }
 
 interface SqlEditorProps {
@@ -124,6 +127,7 @@ export function SqlEditor({ ref, driver, initialText, label, completion, ...call
           closeBrackets(),
           highlightActiveLine(),
           highlightSelectionMatches(),
+          errorMarkField,
           placeholder(`在这里写 SQL，${shortcut("Enter")} 执行光标所在的语句`),
           keymap.of([
             ...closeBracketsKeymap,
@@ -163,6 +167,9 @@ export function SqlEditor({ ref, driver, initialText, label, completion, ...call
     ref,
     () => ({
       getText: () => view.current?.state.doc.toString() ?? "",
+      markError: (mark) => {
+        if (view.current) showErrorMark(view.current, mark);
+      },
       getSelection: () => {
         const main = view.current?.state.selection.main;
         return { from: main?.from ?? 0, to: main?.to ?? 0 };

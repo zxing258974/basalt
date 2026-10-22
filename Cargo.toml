@@ -41,6 +41,9 @@ core-foundation = "0.10"
 security-framework-sys = "2.17"
 tempfile = "3"
 log = "0.4"
+# PostgreSQL 的 NOTICE:sqlx 以 tracing 事件发出来,装一个订阅者收下。
+# log-always:装了订阅者以后 tracing 事件照样转给 log(不然 sqlx 等的日志就没了)。
+tracing = { version = "0.1", features = ["log-always"] }
 futures-util = "0.3"
 # 导入 Navicat 连接:conn.plist、.ncx(XML)与其中 AES-128-CBC 加密的密码
 plist = "1.10"

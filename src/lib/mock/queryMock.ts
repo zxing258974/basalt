@@ -11,6 +11,7 @@ import type {
   ResultSort,
   SavedQueryInfo,
   SavedQueryRef,
+  ServerMessage,
   StatementOutcome,
 } from "../queryTypes";
 import type { CellValue, CommandError, ConnectionConfig } from "../types";
@@ -31,6 +32,14 @@ const keyword = (sql: string) =>
   /^[\s(]*([A-Za-z]+)/.exec(sql.replace(/^(\s*(--[^\n]*\n|#[^\n]*\n|\/\*[\s\S]*?\*\/))*/, ""))?.[1]?.toUpperCase() ??
   "";
 
+/** `DO $$ … RAISE NOTICE '…' … $$`:每个 RAISE 一条消息,`%` 不替换。 */
+function raised(sql: string): ServerMessage[] {
+  return [...sql.matchAll(/raise\s+(notice|warning|info)\s+'([^']*)'/gi)].map(([, level = "", text = ""]) => ({
+    level: level.toUpperCase(),
+    text,
+  }));
+}
+
 function outcome(scope: QueryScope, partial: Partial<StatementOutcome>): StatementOutcome {
   return {
     status: "ok",
@@ -40,6 +49,8 @@ function outcome(scope: QueryScope, partial: Partial<StatementOutcome>): Stateme
     elapsedMs: 3,
     scope,
     notice: null,
+    messages: [],
+    errorPosition: null,
     ...partial,
   };
 }
@@ -161,6 +172,7 @@ function select(sql: string, scope: QueryScope): Executed {
       outcome(scope, {
         status: "error",
         message: `1146 - Table '${scope.database ?? "db"}.${name}' doesn't exist`,
+        errorPosition: from.index + from[0].length - name.length,
       }),
     );
   }
@@ -302,7 +314,7 @@ export function createMockQueries(connections: () => ConnectionConfig[], wait: (
     });
   }
 
-  async function execute(editorId: string, scope: QueryScope, sql: string): Promise<Executed> {
+  async function execute(editorId: string, scope: QueryScope, sql: string, postgres: boolean): Promise<Executed> {
     const seconds = /(?:pg_)?sleep\s*\(\s*(\d+(?:\.\d+)?)/i.exec(sql);
     if (seconds) {
       const cancelled = await sleep(editorId, Math.min(Number(seconds[1]), 60));
@@ -318,6 +330,8 @@ export function createMockQueries(connections: () => ConnectionConfig[], wait: (
       return done(outcome(scope, { affectedRows: word === "INSERT" ? groups + 1 : 3 }));
     }
     if (!word) return done(outcome(scope, { status: "error", message: "1065 - Query was empty" }));
+    // RAISE 只有 PostgreSQL 的 DO 块里有。
+    if (word === "DO") return done(outcome(scope, { messages: postgres ? raised(sql) : [] }));
     return done(outcome(scope, {}));
   }
 
@@ -344,7 +358,8 @@ export function createMockQueries(connections: () => ConnectionConfig[], wait: (
   return {
     async runStatement(editorId: string, connectionId: string, scope: QueryScope, sql: string) {
       await wait(40);
-      const executed = await execute(editorId, scope, sql);
+      const driver = connections().find((c) => c.id === connectionId)?.driver;
+      const executed = await execute(editorId, scope, sql, driver === "postgres");
       const result = { ...executed.outcome, resultSets: keep(editorId, executed.sets) };
       record(connectionId, scope, sql, result);
       return result;

@@ -255,6 +255,8 @@ async fn trusted(rules: ServerRules, auth: SshAuth) -> Fixture {
             port,
             username: "basalt".into(),
             auth,
+            jumps: Vec::new(),
+            agent: None,
             known_hosts,
         },
         server_key,
@@ -486,9 +488,7 @@ async fn reconnects_when_the_ssh_connection_drops() {
         .unwrap();
     // 模拟断线:SSH 连接没了,隧道本身还在。
     let old = tunnel.shared.ssh.lock().await.take().unwrap();
-    old.disconnect(russh::Disconnect::ByApplication, "", "")
-        .await
-        .unwrap();
+    old.disconnect().await;
     *tunnel.shared.ssh.lock().await = Some(old);
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(round_trip(&tunnel, b"again").await, b"echo:again");
@@ -507,6 +507,8 @@ async fn unreachable_ssh_server_is_a_plain_ssh_error() {
         port: closed_port,
         username: "u".into(),
         auth: SshAuth::Password(Some("p".into())),
+        jumps: Vec::new(),
+        agent: None,
         known_hosts: KnownHosts::new(dir.path().join("known_hosts")),
     };
     let error = Tunnel::open(&params, "db", 3306, SOCKET).await.unwrap_err();
@@ -524,6 +526,7 @@ fn params_from_config_pick_the_secret_for_the_login_method() {
         auth: SshAuthMethod::Password,
         private_key_path: None,
         save_secret: true,
+        jump_hosts: None,
     };
     let params = SshParams::from_config(&tunnel, Some("pw".into()), known_hosts.clone());
     assert_eq!(params.auth, SshAuth::Password(Some("pw".into())));
@@ -743,4 +746,191 @@ fn recorded_key_types_go_first_in_the_offer() {
     assert!(matches!(rsa_first[1], Algorithm::Rsa { .. }));
     assert_eq!(rsa_first.len(), defaults.len());
     assert_eq!(prefer_recorded(&defaults, &[]), defaults);
+}
+
+// ---------- ssh-agent 与跳板机 ----------
+
+#[derive(Clone)]
+struct TestAgent;
+
+impl russh::keys::agent::server::Agent for TestAgent {}
+
+/// 在临时目录里起一个 ssh-agent,放进 `keys` 这几把私钥,返回套接字路径。
+#[cfg(unix)]
+async fn ssh_agent(dir: &tempfile::TempDir, keys: &[&str]) -> String {
+    let path = dir.path().join("agent.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let incoming = Box::pin(futures_util::stream::unfold(
+        listener,
+        |listener| async move { Some((listener.accept().await.map(|(socket, _)| socket), listener)) },
+    ));
+    tokio::spawn(russh::keys::agent::server::serve(incoming, TestAgent));
+    let mut client = russh::keys::agent::client::AgentClient::connect_uds(&path)
+        .await
+        .unwrap();
+    for name in keys {
+        let key = russh::keys::load_secret_key(fixture(name), None).unwrap();
+        client.add_identity(&key, &[]).await.unwrap();
+    }
+    path.display().to_string()
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn logs_in_with_a_key_held_by_ssh_agent() {
+    let mut fixture = trusted(rules(), SshAuth::Agent).await;
+    fixture.params.agent = Some(ssh_agent(&fixture._dir, &["id_ed25519"]).await);
+    let target = echo_server().await;
+    let tunnel = Tunnel::open(&fixture.params, "127.0.0.1", target, SOCKET)
+        .await
+        .unwrap();
+    assert_eq!(round_trip(&tunnel, b"agent").await, b"echo:agent");
+    tunnel.close().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn ssh_agent_problems_are_explained() {
+    let mut fixture = trusted(rules(), SshAuth::Agent).await;
+    let target = echo_server().await;
+
+    fixture.params.agent = Some(ssh_agent(&fixture._dir, &[]).await);
+    let error = Tunnel::open(&fixture.params, "127.0.0.1", target, SOCKET)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("ssh-add"), "{error}");
+
+    let mut stranger = rules();
+    stranger.authorized = vec![public_key("id_rsa_pem")];
+    let mut fixture = trusted(stranger, SshAuth::Agent).await;
+    fixture.params.agent = Some(ssh_agent(&fixture._dir, &["id_ed25519"]).await);
+    let error = Tunnel::open(&fixture.params, "127.0.0.1", target, SOCKET)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "ssh_authentication");
+    assert!(error.to_string().contains("ssh-agent"), "{error}");
+
+    fixture.params.agent = Some("/nonexistent/agent.sock".into());
+    let error = Tunnel::open(&fixture.params, "127.0.0.1", target, SOCKET)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("连不上 ssh-agent"), "{error}");
+}
+
+/// 跳板机的参数:用 `key` 登录(配在「~/.ssh/config」里的那种)。
+fn jump(port: u16, key: &str) -> JumpHop {
+    JumpHop {
+        host: "127.0.0.1".into(),
+        port,
+        username: "basalt".into(),
+        identity_files: vec![fixture_path(key)],
+        // 指向不存在的套接字:不用开发机上真的 ssh-agent。
+        agent: Some("/nonexistent/agent.sock".into()),
+    }
+}
+
+#[tokio::test]
+async fn forwards_through_jump_hosts() {
+    let mut fixture = trusted(rules(), SshAuth::Password(Some(PASSWORD.into()))).await;
+    let (first, first_key) = ssh_server(rules()).await;
+    let (second, second_key) = ssh_server(rules()).await;
+    fixture
+        .params
+        .known_hosts
+        .learn("127.0.0.1", first, &first_key)
+        .unwrap();
+    fixture
+        .params
+        .known_hosts
+        .learn("127.0.0.1", second, &second_key)
+        .unwrap();
+    fixture.params.jumps = vec![jump(first, "id_ed25519"), jump(second, "id_rsa_pem")];
+    let target = echo_server().await;
+    let tunnel = Tunnel::open(&fixture.params, "127.0.0.1", target, SOCKET)
+        .await
+        .unwrap();
+    assert_eq!(round_trip(&tunnel, b"hop").await, b"echo:hop");
+    assert_eq!(round_trip(&tunnel, b"again").await, b"echo:again");
+    tunnel.close().await;
+}
+
+#[tokio::test]
+async fn an_unknown_jump_host_key_is_handed_back_for_confirmation() {
+    let mut fixture = trusted(rules(), SshAuth::Password(Some(PASSWORD.into()))).await;
+    let (first, first_key) = ssh_server(rules()).await;
+    fixture.params.jumps = vec![jump(first, "id_ed25519")];
+    let error = Tunnel::open(&fixture.params, "127.0.0.1", echo_server().await, SOCKET)
+        .await
+        .unwrap_err();
+    let CoreError::HostKeyUnknown(key) = error else {
+        panic!("应该先确认跳板机的主机密钥：{error}");
+    };
+    assert_eq!(key.port, first);
+    assert_eq!(key.fingerprint, fingerprint(&first_key));
+}
+
+#[tokio::test]
+async fn a_jump_host_that_refuses_every_key_is_explained() {
+    let mut fixture = trusted(rules(), SshAuth::Password(Some(PASSWORD.into()))).await;
+    let mut picky = rules();
+    picky.authorized = vec![public_key("id_rsa_pem")];
+    let (first, first_key) = ssh_server(picky).await;
+    fixture
+        .params
+        .known_hosts
+        .learn("127.0.0.1", first, &first_key)
+        .unwrap();
+    fixture.params.jumps = vec![jump(first, "id_ed25519")];
+    let error = Tunnel::open(&fixture.params, "127.0.0.1", echo_server().await, SOCKET)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "ssh_authentication");
+    let text = error.to_string();
+    assert!(text.contains("跳板机 basalt@127.0.0.1"), "{text}");
+    assert!(text.contains("id_ed25519"), "{text}");
+}
+
+#[test]
+fn jump_hosts_and_the_agent_come_from_ssh_config() {
+    let home = tempfile::tempdir().unwrap();
+    let config = SshConfigFile::parse(
+        "Host bastion\n  HostName bastion.example.com\n  User ops\n  Port 2200\n  IdentityFile ~/.ssh/ops\n\
+         Host *\n  IdentityAgent ~/agent.sock\n",
+        home.path(),
+    )
+    .unwrap();
+    let tunnel = SshTunnel {
+        host: "db-gateway".into(),
+        port: 22,
+        username: "deploy".into(),
+        auth: SshAuthMethod::Agent,
+        private_key_path: None,
+        save_secret: false,
+        jump_hosts: Some("bastion, root@10.0.0.9:2222, 10.0.0.10".into()),
+    };
+    let params = SshParams::from_config_with(&tunnel, None, KnownHosts::new("/tmp/kh"), &config);
+    let agent = home.path().join("agent.sock").display().to_string();
+    assert_eq!(params.auth, SshAuth::Agent);
+    assert_eq!(params.agent.as_deref(), Some(agent.as_str()));
+    let hops: Vec<_> = params
+        .jumps
+        .iter()
+        .map(|j| {
+            (
+                j.host.as_str(),
+                j.port,
+                j.username.as_str(),
+                j.identity_files.len(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        hops,
+        [
+            ("bastion.example.com", 2200, "ops", 1),
+            ("10.0.0.9", 2222, "root", 0),
+            // 没写用户名:和 SSH 服务器同一个。
+            ("10.0.0.10", 22, "deploy", 0),
+        ]
+    );
 }

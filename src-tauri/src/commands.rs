@@ -25,7 +25,7 @@ use basalt_core::transfer::import::{self as transfer_import, ImportPreview, Impo
 use basalt_core::transfer::progress::Progress;
 use basalt_core::transfer::report::ImportFailure;
 use basalt_core::transfer::source::SourceSpec;
-use basalt_core::tunnel::HostKey;
+use basalt_core::tunnel::{HostKey, SshConfigHost};
 use basalt_core::value::CellValue;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -91,6 +91,14 @@ pub async fn remember_ssh_secret(
 #[tauri::command]
 pub async fn trust_host_key(state: State<'_, AppState>, host_key: HostKey) -> CommandResult<()> {
     service::trust_host_key(&state, &host_key).await
+}
+
+#[tauri::command]
+pub async fn list_ssh_config_hosts() -> Vec<SshConfigHost> {
+    // 读文件:放到阻塞线程上,别占着异步运行时。
+    tauri::async_runtime::spawn_blocking(service::ssh_config_hosts)
+        .await
+        .unwrap_or_default()
 }
 
 #[tauri::command]

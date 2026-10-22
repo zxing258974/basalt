@@ -50,6 +50,7 @@ import type {
   ReferencingKey,
   RowChange,
   ServerInfo,
+  SshConfigHost,
   TableInfo,
   TablePage,
   TableRef,
@@ -65,6 +66,8 @@ export interface Backend {
   rememberSshSecret(id: string, secret: string): Promise<void>;
   /** 用户核对过指纹:记下这台 SSH 服务器的主机密钥。 */
   trustHostKey(hostKey: HostKey): Promise<void>;
+  /** ~/.ssh/config 里写明了名字的主机;没有这个文件时是空的。 */
+  listSshConfigHosts(): Promise<SshConfigHost[]>;
   /** 不会弹钥匙串授权框;删不掉的密码留在钥匙串里,由 passwordLeft 报告。 */
   deleteConnection(id: string): Promise<DeletedConnection>;
   duplicateConnection(id: string): Promise<ConnectionConfig>;
@@ -216,6 +219,7 @@ function createTauriBackend(): Backend {
     rememberPassword: (id, password) => call("remember_password", { id, password }),
     rememberSshSecret: (id, secret) => call("remember_ssh_secret", { id, secret }),
     trustHostKey: (hostKey) => call("trust_host_key", { hostKey }),
+    listSshConfigHosts: () => call("list_ssh_config_hosts"),
     deleteConnection: (id) => call("delete_connection", { id }),
     duplicateConnection: (id) => call("duplicate_connection", { id }),
     testConnection: (draft) => call("test_connection", { draft }),

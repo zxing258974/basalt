@@ -57,6 +57,8 @@ base64 = "0.22"
 icu_collator = "2"
 icu_locale_core = "2"
 # SSH 隧道:纯 Rust;关掉默认的 aws-lc-rs(要 cmake 编 C 库),加密后端用 sqlx / rustls 已经在用的 ring
+# 读 ~/.ssh/config:Host 别名、HostName、User、Port、IdentityFile、ProxyJump、Include
+ssh2-config = "0.9"
 russh = { version = "0.64", default-features = false, features = ["ring", "rsa"] }
 
 # 调试信息只给自己的代码留行号(报错、panic 的回溯照样有文件和行号),依赖不带。

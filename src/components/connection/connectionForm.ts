@@ -5,6 +5,7 @@ import type {
   ConnectionDraft,
   DriverKind,
   SshAuthMethod,
+  SshConfigHost,
   SshTunnel,
   SslMode,
   SslSettings,
@@ -36,6 +37,8 @@ export interface ConnectionForm {
   sshUsername: string;
   sshAuth: SshAuthMethod;
   sshKeyPath: string;
+  /** 跳板机(ProxyJump 写法),空着就是直连 SSH 服务器。 */
+  sshJumpHosts: string;
   /** SSH 密码或私钥口令,规则同 password。 */
   sshSecret: string;
   sshSecretTouched: boolean;
@@ -100,6 +103,7 @@ export function emptyForm(driver: DriverKind): ConnectionForm {
     sshUsername: "",
     sshAuth: "password",
     sshKeyPath: "",
+    sshJumpHosts: "",
     sshSecret: "",
     sshSecretTouched: false,
     sshSaveSecret: true,
@@ -120,6 +124,7 @@ function sshFields(ssh: SshTunnel | null | undefined): Partial<ConnectionForm> {
     sshUsername: ssh.username,
     sshAuth: ssh.auth,
     sshKeyPath: ssh.privateKeyPath ?? "",
+    sshJumpHosts: ssh.jumpHosts ?? "",
     sshSaveSecret: ssh.saveSecret,
     hadSavedSshSecret: ssh.saveSecret,
   };
@@ -158,6 +163,26 @@ export function withSshAuth(form: ConnectionForm, sshAuth: SshAuthMethod): Conne
   if (sshAuth === form.sshAuth) return form;
   return { ...form, sshAuth, sshSecret: "", sshSecretTouched: true };
 }
+
+/**
+ * 按 ~/.ssh/config 里的一台主机填 SSH 页:地址、端口、用户名、跳板机;配了私钥就用私钥登录,没配用 ssh-agent。
+ * 用户名没写的保留原来填的。
+ */
+export function withSshConfigHost(form: ConnectionForm, host: SshConfigHost): ConnectionForm {
+  const auth: SshAuthMethod = host.privateKeyPath ? "privateKey" : "agent";
+  return {
+    ...withSshAuth(form, auth),
+    sshEnabled: true,
+    sshHost: host.host,
+    sshPort: String(host.port),
+    sshUsername: host.username ?? form.sshUsername,
+    sshKeyPath: host.privateKeyPath ?? "",
+    sshJumpHosts: host.jumpHosts ?? "",
+  };
+}
+
+/** 这种登录方式要不要密码框:ssh-agent 不要。 */
+export const sshUsesSecret = (auth: SshAuthMethod) => auth !== "agent";
 
 /** SSH 那个密码框叫什么:密码登录是 SSH 密码,私钥登录是私钥口令。 */
 export function sshSecretLabel(auth: SshAuthMethod): string {
@@ -255,9 +280,18 @@ function sshDraft(form: ConnectionForm): Pick<ConnectionDraft, "ssh" | "sshSecre
       username: form.sshUsername.trim(),
       auth: form.sshAuth,
       privateKeyPath: form.sshAuth === "privateKey" ? form.sshKeyPath.trim() || null : null,
-      saveSecret: form.sshSaveSecret,
+      // ssh-agent 登录没有要存的东西。
+      saveSecret: sshUsesSecret(form.sshAuth) && form.sshSaveSecret,
+      jumpHosts: form.sshJumpHosts.trim() || null,
     },
-    // 私钥没填口令就是没有口令;密码登录没填密码时不传,测试连接会说缺 SSH 密码。
-    sshSecret: keepSavedSecret ? undefined : form.sshAuth === "password" && !form.sshSecret ? null : form.sshSecret,
+    // 私钥没填口令就是没有口令;密码登录没填密码时不传,测试连接会说缺 SSH 密码。ssh-agent 不用密码。
+    sshSecret:
+      form.sshAuth === "agent"
+        ? null
+        : keepSavedSecret
+          ? undefined
+          : form.sshAuth === "password" && !form.sshSecret
+            ? null
+            : form.sshSecret,
   };
 }

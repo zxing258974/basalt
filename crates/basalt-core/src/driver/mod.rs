@@ -375,6 +375,7 @@ mod tests {
             auth: SshAuthMethod::PrivateKey,
             private_key_path: Some("/keys/id".into()),
             save_secret: true,
+            jump_hosts: None,
         };
         let params = ConnectParams::from_config(
             &network_config(Some(tunnel)),

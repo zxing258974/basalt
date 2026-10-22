@@ -30,6 +30,7 @@ encoding_rs.workspace = true
 base64.workspace = true
 reqwest.workspace = true
 russh.workspace = true
+ssh2-config.workspace = true
 icu_collator.workspace = true
 icu_locale_core.workspace = true
 

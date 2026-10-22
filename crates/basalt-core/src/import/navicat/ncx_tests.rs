@@ -93,6 +93,7 @@ fn maps_network_connections_and_decrypts_their_passwords() {
             auth: SshAuthMethod::Password,
             private_key_path: None,
             save_secret: true,
+            jump_hosts: None,
         })
     );
     assert_eq!(

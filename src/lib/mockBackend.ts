@@ -19,6 +19,7 @@ import type {
   ConnectionView,
   FieldError,
   ServerInfo,
+  SshConfigHost,
   SshTunnel,
   TableInfo,
   TableRef,
@@ -189,6 +190,19 @@ function validate(draft: ConnectionDraft): FieldError[] {
   return [...errors, ...validateTransport(draft)];
 }
 
+/** 浏览器里调界面用的「~/.ssh/config」。 */
+const MOCK_SSH_CONFIG_HOSTS: SshConfigHost[] = [
+  {
+    alias: "bastion",
+    host: "bastion.example.com",
+    port: 22,
+    username: "ops",
+    privateKeyPath: "/Users/me/.ssh/ops_ed25519",
+    jumpHosts: null,
+  },
+  { alias: "db-gateway", host: "10.0.3.7", port: 22, username: "deploy", privateKeyPath: null, jumpHosts: "bastion" },
+];
+
 export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): Backend {
   let connections = [...seed];
   const passwords = new Map<string, string>([["mock-mysql", "root"]]);
@@ -289,6 +303,10 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       connections = connections.map((c) =>
         c.id === id ? { ...config, ssh: { ...config.ssh!, saveSecret: true } } : c,
       );
+    },
+    async listSshConfigHosts() {
+      await wait(30);
+      return MOCK_SSH_CONFIG_HOSTS;
     },
     async trustHostKey(hostKey) {
       await wait(60);

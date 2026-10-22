@@ -9,7 +9,9 @@ import {
   pageIsActive,
   pageOfField,
   sshSecretLabel,
+  sshUsesSecret,
   withSshAuth,
+  withSshConfigHost,
 } from "./connectionForm";
 
 describe("emptyForm", () => {
@@ -123,6 +125,7 @@ describe("tunnel and SSL", () => {
       auth: "privateKey",
       privateKeyPath: "/k/id",
       saveSecret: true,
+      jumpHosts: "ops@bastion:2200",
     },
     ssl: { mode: "verifyCa", caPath: "/c/ca.pem" },
   };
@@ -133,6 +136,7 @@ describe("tunnel and SSL", () => {
       sshEnabled: true,
       sshPort: "2222",
       sshAuth: "privateKey",
+      sshJumpHosts: "ops@bastion:2200",
       hadSavedSshSecret: true,
       sslMode: "verifyCa",
       sslCa: "/c/ca.pem",
@@ -161,6 +165,45 @@ describe("tunnel and SSL", () => {
     expect(pageIsActive(off, "ssh")).toBe(false);
     expect(pageIsActive(off, "ssl")).toBe(true);
     expect(pageIsActive(off, "general")).toBe(false);
+  });
+
+  it("logs in through ssh-agent without a secret and keeps jump hosts", () => {
+    const agent = { ...withSshAuth(formFromConfig(tunneled), "agent"), sshSecret: "ignored", sshJumpHosts: "  a, b  " };
+    const draft = toDraft(agent);
+    expect(draft.ssh).toMatchObject({ auth: "agent", privateKeyPath: null, saveSecret: false, jumpHosts: "a, b" });
+    expect(draft.sshSecret).toBeNull();
+    expect(sshUsesSecret("agent")).toBe(false);
+    expect(toDraft({ ...agent, sshJumpHosts: " " }).ssh?.jumpHosts).toBeNull();
+  });
+
+  it("fills the SSH page from a ~/.ssh/config host", () => {
+    const form = { ...emptyForm("postgres"), sshUsername: "me" };
+    const withKey = withSshConfigHost(form, {
+      alias: "bastion",
+      host: "bastion.example.com",
+      port: 2200,
+      username: "ops",
+      privateKeyPath: "/k/ops",
+      jumpHosts: null,
+    });
+    expect(withKey).toMatchObject({
+      sshEnabled: true,
+      sshHost: "bastion.example.com",
+      sshPort: "2200",
+      sshUsername: "ops",
+      sshAuth: "privateKey",
+      sshKeyPath: "/k/ops",
+      sshJumpHosts: "",
+    });
+    const viaAgent = withSshConfigHost(form, {
+      alias: "gw",
+      host: "10.0.3.7",
+      port: 22,
+      username: null,
+      privateKeyPath: null,
+      jumpHosts: "bastion",
+    });
+    expect(viaAgent).toMatchObject({ sshAuth: "agent", sshUsername: "me", sshJumpHosts: "bastion", sshKeyPath: "" });
   });
 
   it("knows which page a field error belongs to", () => {

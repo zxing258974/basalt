@@ -13,6 +13,7 @@ fn tunnel(auth: SshAuthMethod, key: Option<&str>) -> SshTunnel {
         auth,
         private_key_path: key.map(str::to_owned),
         save_secret: true,
+        jump_hosts: None,
     }
 }
 
@@ -264,5 +265,43 @@ fn a_leading_tilde_means_the_home_folder() {
     assert_eq!(
         config.ssl.ca_path,
         Some(home.join("certs/ca.pem").display().to_string())
+    );
+}
+
+#[test]
+fn agent_tunnels_need_no_key_file_and_jump_hosts_must_parse() {
+    let agent = SshTunnel {
+        private_key_path: Some("/k/id".into()),
+        jump_hosts: Some("  ops@bastion:2222, 10.0.0.2  ".into()),
+        ..tunnel(SshAuthMethod::Agent, None)
+    };
+    let ok = draft(Some(agent.clone()), SslSettings::default());
+    assert!(fields(&ok).is_empty());
+    let normalized = agent.normalized();
+    assert_eq!(
+        normalized.private_key_path, None,
+        "agent 登录用不上私钥文件"
+    );
+    assert_eq!(
+        normalized.jump_hosts.as_deref(),
+        Some("ops@bastion:2222, 10.0.0.2")
+    );
+    assert_eq!(
+        SshTunnel {
+            jump_hosts: Some("  ".into()),
+            ..tunnel(SshAuthMethod::Agent, None)
+        }
+        .normalized()
+        .jump_hosts,
+        None
+    );
+
+    let bad = SshTunnel {
+        jump_hosts: Some("ops@bastion:99999".into()),
+        ..tunnel(SshAuthMethod::Agent, None)
+    };
+    assert_eq!(
+        fields(&draft(Some(bad), SslSettings::default())),
+        ["sshJump"]
     );
 }

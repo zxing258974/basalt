@@ -6,7 +6,8 @@ export type Endpoint =
   | { kind: "network"; host: string; port: number; username: string; database?: string | null }
   | { kind: "file"; path: string };
 
-export type SshAuthMethod = "password" | "privateKey";
+/** agent:用 ssh-agent 里的私钥(SSH_AUTH_SOCK,或 ~/.ssh/config 里的 IdentityAgent)。 */
+export type SshAuthMethod = "password" | "privateKey" | "agent";
 
 /** 经 SSH 服务器转发;数据库的主机、端口是从 SSH 服务器那边看的地址。密码不在这里。 */
 export interface SshTunnel {
@@ -17,6 +18,19 @@ export interface SshTunnel {
   privateKeyPath?: string | null;
   /** SSH 密码(或私钥口令)存在密码存储里。 */
   saveSecret: boolean;
+  /** 跳板机,写法同 OpenSSH 的 ProxyJump:`user@host:port`,多台用逗号;可以写 ~/.ssh/config 里的别名。 */
+  jumpHosts?: string | null;
+}
+
+/** ~/.ssh/config 里写明了名字的一台主机,连接对话框按它填表。 */
+export interface SshConfigHost {
+  alias: string;
+  host: string;
+  port: number;
+  username: string | null;
+  /** 第一个 IdentityFile;没写时用 ssh-agent 登录。 */
+  privateKeyPath: string | null;
+  jumpHosts: string | null;
 }
 
 export type SslMode = "disabled" | "preferred" | "required" | "verifyCa" | "verifyIdentity";

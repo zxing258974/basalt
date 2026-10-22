@@ -4,7 +4,7 @@
 use basalt_core::CoreError;
 use basalt_core::config::{ConnectionConfig, SshTunnel};
 use basalt_core::secret::ssh_secret_key;
-use basalt_core::tunnel::HostKey;
+use basalt_core::tunnel::{HostKey, SshConfigFile, SshConfigHost};
 
 use super::{CommandResult, SecretChange, restore_secret};
 use crate::state::AppState;
@@ -159,3 +159,8 @@ pub async fn trust_host_key(state: &AppState, host_key: &HostKey) -> CommandResu
 #[cfg(test)]
 #[path = "tunnel_tests.rs"]
 mod tests;
+
+/// `~/.ssh/config` 里写明了名字的主机,连接对话框按它填表。读不了时是空的。
+pub fn ssh_config_hosts() -> Vec<SshConfigHost> {
+    SshConfigFile::load().hosts()
+}

@@ -26,7 +26,7 @@ pub mod transfer;
 mod tunnel;
 pub use query_import::{import_navicat_queries, scan_navicat_queries};
 use tunnel::SecretEdit;
-pub use tunnel::{remember_ssh_secret, trust_host_key};
+pub use tunnel::{remember_ssh_secret, ssh_config_hosts, trust_host_key};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -35,6 +35,7 @@ fn tunnel(save_secret: bool) -> SshTunnel {
         auth: SshAuthMethod::Password,
         private_key_path: None,
         save_secret,
+        jump_hosts: None,
     }
 }
 

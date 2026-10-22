@@ -367,6 +367,7 @@ fn tunnel(host: &str) -> SshTunnel {
         auth: crate::config::SshAuthMethod::Password,
         private_key_path: None,
         save_secret: false,
+        jump_hosts: None,
     }
 }
 

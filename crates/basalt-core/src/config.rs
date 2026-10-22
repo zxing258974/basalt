@@ -613,6 +613,7 @@ mod tests {
                 auth: SshAuthMethod::Password,
                 private_key_path: None,
                 save_secret: false,
+                jump_hosts: None,
             }),
             ssl: SslSettings {
                 mode: SslMode::Required,

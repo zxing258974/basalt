@@ -65,6 +65,26 @@ describe("pages", () => {
     expect(dialog.getByLabelText("连接名")).toHaveValue("订单库");
   });
 
+  it("fills the SSH page from ~/.ssh/config and drops the secret for ssh-agent", async () => {
+    const { user, dialog } = await openForm();
+    await user.click(dialog.getByRole("tab", tab("SSH")));
+    await user.click(dialog.getByLabelText("经 SSH 隧道连接"));
+    const picker = await dialog.findByLabelText("从 ~/.ssh/config 填入");
+    await user.selectOptions(picker, "db-gateway");
+    expect(dialog.getByLabelText("SSH 主机")).toHaveValue("10.0.3.7");
+    expect(dialog.getByLabelText("SSH 用户名")).toHaveValue("deploy");
+    expect(dialog.getByLabelText("跳板机")).toHaveValue("bastion");
+    expect(dialog.getByLabelText("登录方式")).toHaveValue("agent");
+    expect(dialog.queryByLabelText("SSH 密码")).not.toBeInTheDocument();
+    expect(dialog.queryByLabelText("私钥口令")).not.toBeInTheDocument();
+    expect(dialog.getByText(/SSH_AUTH_SOCK/)).toBeInTheDocument();
+
+    await user.selectOptions(picker, "bastion");
+    expect(dialog.getByLabelText("登录方式")).toHaveValue("privateKey");
+    expect(dialog.getByLabelText("私钥文件")).toHaveValue("/Users/me/.ssh/ops_ed25519");
+    expect(dialog.getByLabelText("跳板机")).toHaveValue("");
+  });
+
   it("keeps tunnel fields disabled until the tunnel is switched on", async () => {
     const { user, dialog } = await openForm();
     await user.click(dialog.getByRole("tab", tab("SSH")));

@@ -7,7 +7,7 @@ use basalt_core::config::{SslMode, SslSettings};
 use basalt_core::driver::ConnectParams;
 use basalt_core::query::{OutcomeStatus, QueryScope};
 use basalt_core::session::{Session, SessionManager};
-use basalt_core::tunnel::{KnownHosts, SshAuth, SshParams};
+use basalt_core::tunnel::{JumpHop, KnownHosts, SshAuth, SshParams};
 use basalt_core::value::CellValue;
 use common::*;
 
@@ -51,6 +51,8 @@ fn via_jump(target: Target, jump: &Jump, user: &str, auth: SshAuth) -> ConnectPa
             port: SSHD_PORT,
             username: user.into(),
             auth,
+            jumps: Vec::new(),
+            agent: None,
             known_hosts: jump.known_hosts.clone(),
         }),
         ..params(target, TEST_PASSWORD, None)
@@ -278,4 +280,64 @@ async fn mysql_through_the_jump_host_with_tls_over_the_local_socket() {
         outcome.result_sets[0].rows
     );
     manager.close("c1").await;
+}
+
+#[derive(Clone)]
+struct TestAgent;
+
+impl russh::keys::agent::server::Agent for TestAgent {}
+
+/// 起一个只装着 `key` 的 ssh-agent,返回套接字路径。
+async fn agent_with(dir: &tempfile::TempDir, key: &str) -> String {
+    let path = dir.path().join("agent.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let incoming = Box::pin(futures_util::stream::unfold(
+        listener,
+        |listener| async move { Some((listener.accept().await.map(|(socket, _)| socket), listener)) },
+    ));
+    tokio::spawn(russh::keys::agent::server::serve(incoming, TestAgent));
+    let mut client = russh::keys::agent::client::AgentClient::connect_uds(&path)
+        .await
+        .unwrap();
+    let secret = russh::keys::load_secret_key(fixture(&format!("ssh/{key}")), None).unwrap();
+    client.add_identity(&secret, &[]).await.unwrap();
+    path.display().to_string()
+}
+
+#[tokio::test]
+async fn mysql_through_a_jump_host_with_ssh_agent() {
+    if !enabled(MYSQL57) {
+        return;
+    }
+    let jump = jump();
+    let agent = agent_with(&jump._dir, "id_ed25519").await;
+    // 先登录 sshd 容器当跳板机,再经它连容器自己的 22 端口当 SSH 服务器:真 OpenSSH 上走两跳。
+    let mut params = via_jump(MYSQL57, &jump, SSHD_USER, SshAuth::Agent);
+    let tunnel = params.ssh.as_mut().unwrap();
+    tunnel.agent = Some(agent.clone());
+    tunnel.jumps = vec![JumpHop {
+        host: "127.0.0.1".into(),
+        port: SSHD_PORT,
+        username: SSHD_USER.into(),
+        identity_files: Vec::new(),
+        agent: Some(agent),
+    }];
+    tunnel.host = "localhost".into();
+    tunnel.port = 22;
+    // 两台都是第一次见:每台的指纹各确认一次。
+    let mut trusted = Vec::new();
+    let session = loop {
+        match Session::open(&params).await {
+            Ok(session) => break session,
+            Err(error) if error.code() == "host_key_unknown" && trusted.len() < 2 => {
+                let host_key = error.host_key().unwrap().clone();
+                trusted.push(host_key.port);
+                jump.known_hosts.trust(&host_key).unwrap();
+            }
+            Err(error) => panic!("经两跳连不上：{error}"),
+        }
+    };
+    assert_eq!(trusted, [SSHD_PORT, 22], "先确认跳板机，再确认 SSH 服务器");
+    assert_eq!(session.server().product, "MySQL");
+    session.close().await;
 }

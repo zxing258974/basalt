@@ -124,6 +124,7 @@ fn map_ssh(raw: &RawSsh, warnings: &mut Vec<String>) -> (Option<SshTunnel>, Sour
         auth,
         private_key_path,
         save_secret: matches!(secret, SourcePassword::Plain(_)),
+        jump_hosts: None,
     };
     (Some(tunnel), secret)
 }

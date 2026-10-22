@@ -1,10 +1,18 @@
 // 连接对话框的「SSH」「SSL」两页。表单状态在 ConnectionDialog 里,这里只负责显示和改。
+import { useQuery } from "@tanstack/react-query";
 import { FolderOpen } from "lucide-react";
 import { getBackend, type CredentialFile } from "../../lib/api";
 import type { SshAuthMethod, SslMode } from "../../lib/types";
 import { Button } from "../ui/Button";
 import { Checkbox, Field, SelectField } from "../ui/Field";
-import { SSL_MODE_LABELS, sshSecretLabel, withSshAuth, type ConnectionForm } from "./connectionForm";
+import {
+  SSL_MODE_LABELS,
+  sshSecretLabel,
+  sshUsesSecret,
+  withSshAuth,
+  withSshConfigHost,
+  type ConnectionForm,
+} from "./connectionForm";
 
 interface PageProps {
   form: ConnectionForm;
@@ -64,10 +72,48 @@ const INTRO =
 const AUTH_OPTIONS: readonly { value: SshAuthMethod; label: string }[] = [
   { value: "password", label: "密码" },
   { value: "privateKey", label: "私钥" },
+  { value: "agent", label: "SSH Agent" },
 ];
+
+const AGENT_HINT = "用 ssh-agent 里的私钥登录（SSH_AUTH_SOCK，或 ~/.ssh/config 里给这台主机配的 IdentityAgent）";
+const JUMP_HINT =
+  "跳板机用 ssh-agent 或私钥登录：~/.ssh/config 里给它配的 IdentityFile、OpenSSH 默认的私钥，或这里选的私钥";
+
+/** 「从 ~/.ssh/config 填入」:没有这个文件(或里面没有写明名字的主机)时不显示。 */
+function SshConfigPicker({ form, replace, disabled }: Pick<PageProps, "form" | "replace"> & { disabled: boolean }) {
+  const hosts = useQuery({
+    queryKey: ["sshConfigHosts"],
+    queryFn: async () => (await getBackend()).listSshConfigHosts(),
+    staleTime: 30_000,
+  });
+  const list = hosts.data ?? [];
+  if (list.length === 0) return null;
+  const options = [
+    { value: "", label: "选择一台主机…" },
+    ...list.map((host) => ({
+      value: host.alias,
+      label: host.alias === host.host ? host.alias : `${host.alias}（${host.host}）`,
+    })),
+  ];
+  return (
+    <SelectField
+      className="span-full"
+      label="从 ~/.ssh/config 填入"
+      value=""
+      options={options}
+      disabled={disabled}
+      hint="填好地址、端口、用户名和跳板机；配了 IdentityFile 用私钥登录，没配用 SSH Agent"
+      onValueChange={(alias) => {
+        const host = list.find((h) => h.alias === alias);
+        if (host) replace(withSshConfigHost(form, host));
+      }}
+    />
+  );
+}
 
 export function SshPage({ form, update, replace, errorFor }: PageProps) {
   const off = !form.sshEnabled;
+  const usesSecret = sshUsesSecret(form.sshAuth);
   const secretLabel = sshSecretLabel(form.sshAuth);
   const keepsSaved = form.hadSavedSshSecret && !form.sshSecretTouched;
   const secretPlaceholder = keepsSaved ? "已保存在本机" : form.sshAuth === "privateKey" ? "没有口令就留空" : "";
@@ -81,6 +127,7 @@ export function SshPage({ form, update, replace, errorFor }: PageProps) {
         />
         <p className="field-hint">{INTRO}</p>
       </div>
+      <SshConfigPicker form={form} replace={replace} disabled={off} />
       <Field
         className="span-4"
         label="SSH 主机"
@@ -109,16 +156,19 @@ export function SshPage({ form, update, replace, errorFor }: PageProps) {
         value={form.sshAuth}
         options={AUTH_OPTIONS}
         disabled={off}
+        hint={form.sshAuth === "agent" ? AGENT_HINT : undefined}
         onValueChange={(auth) => replace(withSshAuth(form, auth))}
       />
-      <Field
-        label={secretLabel}
-        type="password"
-        value={form.sshSecret}
-        placeholder={secretPlaceholder}
-        disabled={off}
-        onValueChange={(sshSecret) => update({ sshSecret, sshSecretTouched: true })}
-      />
+      {usesSecret && (
+        <Field
+          label={secretLabel}
+          type="password"
+          value={form.sshSecret}
+          placeholder={secretPlaceholder}
+          disabled={off}
+          onValueChange={(sshSecret) => update({ sshSecret, sshSecretTouched: true })}
+        />
+      )}
       {form.sshAuth === "privateKey" && (
         <FileField
           label="私钥文件"
@@ -131,14 +181,26 @@ export function SshPage({ form, update, replace, errorFor }: PageProps) {
           onValueChange={(sshKeyPath) => update({ sshKeyPath })}
         />
       )}
-      <div className="span-full">
-        <Checkbox
-          label={`${before("把", secretLabel)}保存在本机`}
-          checked={form.sshSaveSecret}
-          disabled={off}
-          onCheckedChange={(sshSaveSecret) => update({ sshSaveSecret })}
-        />
-      </div>
+      <Field
+        className="span-full"
+        label="跳板机"
+        value={form.sshJumpHosts}
+        disabled={off}
+        placeholder="ops@bastion:22，多台用逗号；可写 ~/.ssh/config 里的别名"
+        hint={JUMP_HINT}
+        error={errorFor("sshJump")}
+        onValueChange={(sshJumpHosts) => update({ sshJumpHosts })}
+      />
+      {usesSecret && (
+        <div className="span-full">
+          <Checkbox
+            label={`${before("把", secretLabel)}保存在本机`}
+            checked={form.sshSaveSecret}
+            disabled={off}
+            onCheckedChange={(sshSaveSecret) => update({ sshSaveSecret })}
+          />
+        </div>
+      )}
     </div>
   );
 }

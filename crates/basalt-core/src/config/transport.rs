@@ -16,6 +16,8 @@ pub const DEFAULT_SSH_PORT: u16 = 22;
 pub enum SshAuthMethod {
     Password,
     PrivateKey,
+    /// 用 ssh-agent 里的私钥(SSH_AUTH_SOCK,或 ~/.ssh/config 里的 IdentityAgent)。
+    Agent,
 }
 
 /// 先登录 SSH 服务器,再由它转发到数据库。数据库的主机、端口是从 SSH 服务器那边看的地址。
@@ -32,6 +34,10 @@ pub struct SshTunnel {
     /// SSH 密码(或私钥口令)存在密钥库里。没存时,密码登录每次打开前要问。
     #[serde(default)]
     pub save_secret: bool,
+    /// 先经过的跳板机,写法同 OpenSSH 的 ProxyJump:`[user@]host[:port]`,多个用逗号,
+    /// 可以写 ~/.ssh/config 里的别名。跳板机用 ssh-agent 或私钥登录,不支持密码。
+    #[serde(default)]
+    pub jump_hosts: Option<String>,
 }
 
 impl SshTunnel {
@@ -42,13 +48,18 @@ impl SshTunnel {
 
     fn normalized(self) -> Self {
         let private_key_path = match self.auth {
-            SshAuthMethod::Password => None,
             SshAuthMethod::PrivateKey => non_blank(self.private_key_path),
+            SshAuthMethod::Password | SshAuthMethod::Agent => None,
         };
+        let jump_hosts = self
+            .jump_hosts
+            .map(|jumps| jumps.trim().to_owned())
+            .filter(|jumps| !jumps.is_empty());
         Self {
             host: self.host.trim().to_owned(),
             username: self.username.trim().to_owned(),
             private_key_path,
+            jump_hosts,
             ..self
         }
     }
@@ -170,6 +181,11 @@ pub(super) fn validate_ssh(ssh: &SshTunnel, errors: &mut Vec<FieldError>) {
     }
     if ssh.username.trim().is_empty() {
         errors.push(FieldError::new("sshUsername", "请填写 SSH 用户名"));
+    }
+    if let Some(jumps) = &ssh.jump_hosts
+        && let Err(message) = crate::tunnel::parse_jump_hosts(jumps)
+    {
+        errors.push(FieldError::new("sshJump", &message));
     }
     if ssh.auth == SshAuthMethod::PrivateKey {
         match ssh.private_key_path.as_deref().map(str::trim) {

@@ -21,7 +21,10 @@ pub async fn open_sqlite(script: &str) -> (tempfile::TempDir, SessionManager) {
         .filename(&path)
         .create_if_missing(true);
     let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
-    sqlx::raw_sql(script).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(script))
+        .execute(&pool)
+        .await
+        .unwrap();
     pool.close().await;
     let params = ConnectParams {
         driver: DriverKind::Sqlite,

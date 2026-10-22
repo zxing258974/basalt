@@ -53,7 +53,10 @@ fn notes() -> TableDesign {
 }
 
 async fn sql(pool: &sqlx::SqlitePool, script: &str) {
-    sqlx::raw_sql(script).execute(pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(script))
+        .execute(pool)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

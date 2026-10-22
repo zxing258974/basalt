@@ -10,7 +10,7 @@ use super::mysql::MysqlSession;
 use crate::error::CoreResult;
 use crate::query::ResultColumn;
 use crate::query::collect::{Collected, collect, described_columns};
-use crate::sql::{Dialect, quote_ident};
+use crate::sql::{Dialect, dynamic, quote_ident};
 use crate::value::CellValue;
 
 pub(crate) struct MysqlEditor {
@@ -42,8 +42,8 @@ impl MysqlEditor {
 
     pub(crate) async fn use_database(&mut self, database: &str) -> CoreResult<()> {
         let sql = format!("USE {}", quote_ident(Dialect::Mysql, database));
-        // 不用 raw_sql(&sql):它的生命周期约束会让外层 future 不是 Send。&str 一样走文本协议。
-        (&mut self.conn).execute(sql.as_str()).await?;
+        // 不带参数的 SQL 文本走文本协议,和 raw_sql 一样。
+        (&mut self.conn).execute(dynamic(sql)).await?;
         Ok(())
     }
 
@@ -54,7 +54,7 @@ impl MysqlEditor {
     }
 
     pub(crate) async fn run(&mut self, sql: &str) -> Collected {
-        let stream = sqlx::raw_sql(sql).fetch_many(&mut self.conn);
+        let stream = sqlx::raw_sql(dynamic(sql)).fetch_many(&mut self.conn);
         collect(
             stream,
             decode_text_cell,
@@ -64,7 +64,7 @@ impl MysqlEditor {
     }
 
     pub(crate) async fn describe(&mut self, sql: &str) -> Vec<ResultColumn> {
-        described_columns((&mut self.conn).describe(sql).await)
+        described_columns((&mut self.conn).prepare(dynamic(sql)).await)
     }
 
     pub(crate) async fn ping(&mut self) -> bool {
@@ -86,7 +86,7 @@ impl MysqlEditor {
 pub(crate) async fn kill_query(pool: &MySqlPool, thread_id: u64) -> CoreResult<()> {
     // thread_id 是整数,直接拼进去;KILL 的参数不能用占位符。
     let sql = format!("KILL QUERY {thread_id}");
-    pool.execute(sql.as_str()).await?;
+    pool.execute(dynamic(sql)).await?;
     Ok(())
 }
 

@@ -31,6 +31,14 @@ impl From<DriverKind> for Dialect {
     }
 }
 
+/// 交给 sqlx 执行的运行时 SQL。sqlx 0.9 起只直接认 `&'static str`,运行时拼的语句要显式声明审核过。
+///
+/// Basalt 是数据库客户端,大部分语句本来就是运行时的:用户在查询标签页里写的原样执行;
+/// 自己拼的语句里,标识符经过 [`quote_ident`],值走占位符或经 [`bind::literal`] 转义。
+pub(crate) fn dynamic(sql: impl Into<String>) -> sqlx::SqlStr {
+    sqlx::SqlSafeStr::into_sql_str(sqlx::AssertSqlSafe(sql.into()))
+}
+
 /// 按方言给标识符加引号,内部的引号字符成对转义。
 pub fn quote_ident(dialect: Dialect, name: &str) -> String {
     let quote = match dialect {

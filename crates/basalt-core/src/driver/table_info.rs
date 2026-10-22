@@ -11,7 +11,7 @@ use crate::design::postgres_create_statements;
 use crate::error::CoreResult;
 use crate::session::Session;
 use crate::sql::bind::quote_string;
-use crate::sql::{Dialect, quote_ident, table_name};
+use crate::sql::{Dialect, dynamic, quote_ident, table_name};
 use crate::table::TableRef;
 use crate::table_info::{Properties, TableDetails, join_statements};
 
@@ -101,10 +101,10 @@ pub(crate) async fn show_create_with<'c, E>(executor: E, table: &TableRef) -> Co
 where
     E: sqlx::Executor<'c, Database = sqlx::MySql>,
 {
-    let show = sqlx::query(&format!(
+    let show = sqlx::query(dynamic(format!(
         "SHOW CREATE TABLE {}",
         table_name(Dialect::Mysql, table)
-    ))
+    )))
     .persistent(false)
     .fetch_one(executor)
     .await?;
@@ -215,11 +215,11 @@ impl SqliteSession {
     /// `sqlite_master` 里和这张表有关的对象(类型、语句):先是表或视图本身,再是索引,最后是触发器。
     pub(crate) async fn own_objects(&self, table: &TableRef) -> CoreResult<Vec<(String, String)>> {
         let schema = quote_ident(Dialect::Sqlite, &table.database);
-        let objects = sqlx::query(&format!(
+        let objects = sqlx::query(dynamic(format!(
             "SELECT type, sql FROM {schema}.sqlite_master
              WHERE tbl_name = ? AND sql IS NOT NULL
              ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'view' THEN 0 WHEN 'index' THEN 1 ELSE 2 END, name"
-        ))
+        )))
         .bind(&table.table)
         .fetch_all(&self.pool)
         .await?
@@ -241,11 +241,11 @@ impl SqliteSession {
         p.text("类型", Some(if is_view { "视图" } else { "表" }.into()));
         if !is_view {
             // SQLite 没有行数统计,只能数;大表全表计数会卡住连接,最多数到 COUNT_LIMIT 行。
-            let counted: i64 = sqlx::query_scalar(&format!(
+            let counted: i64 = sqlx::query_scalar(dynamic(format!(
                 "SELECT count(*) FROM (SELECT 1 FROM {} LIMIT {})",
                 table_name(d, table),
                 COUNT_LIMIT + 1
-            ))
+            )))
             .fetch_one(&self.pool)
             .await?;
             if counted > COUNT_LIMIT {
@@ -254,10 +254,10 @@ impl SqliteSession {
                 p.count("行", Some(counted.to_string()));
             }
             // table_list 要 SQLite 3.37;更老的版本读不到就不显示。
-            let options = sqlx::query(&format!(
+            let options = sqlx::query(dynamic(format!(
                 "PRAGMA {schema}.table_list({})",
                 quote_string(d, &table.table)
-            ))
+            )))
             .fetch_optional(&self.pool)
             .await
             .ok()
@@ -268,9 +268,9 @@ impl SqliteSession {
                 p.text("STRICT", yes_no(flag("strict")));
             }
             // 只有用了 AUTOINCREMENT 的表才有 sqlite_sequence 里的记录。
-            let sequence: Option<String> = sqlx::query_scalar(&format!(
+            let sequence: Option<String> = sqlx::query_scalar(dynamic(format!(
                 "SELECT CAST(seq AS TEXT) FROM {schema}.sqlite_sequence WHERE name = ?"
-            ))
+            )))
             .bind(&table.table)
             .fetch_optional(&self.pool)
             .await

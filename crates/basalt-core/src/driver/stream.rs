@@ -19,6 +19,7 @@ use super::{mysql_data, mysql_query, postgres_data, postgres_query, sqlite_data}
 use crate::query::collect::columns_of;
 use crate::query::lease::{Driven, RowSink, StreamQuery};
 use crate::sql::dml::Statement;
+use crate::sql::dynamic;
 use crate::table::ValueType;
 use crate::value::CellValue;
 
@@ -159,25 +160,25 @@ impl EditorConnection {
         };
         match self {
             Self::Mysql(editor) if typed => {
-                let stream = sqlx::query(sql)
+                let stream = sqlx::query(dynamic(sql))
                     .persistent(false)
                     .fetch(&mut editor.conn)
                     .map(right::<MySqlQueryResult, MySqlRow>);
                 drive(stream, mysql_typed, &types, sink, cancel, requested, true).await
             }
             Self::Mysql(editor) => {
-                let stream = sqlx::raw_sql(sql).fetch_many(&mut editor.conn);
+                let stream = sqlx::raw_sql(dynamic(sql)).fetch_many(&mut editor.conn);
                 drive(stream, mysql_text, &types, sink, cancel, requested, false).await
             }
             Self::Postgres(editor) if typed => {
-                let stream = sqlx::query(sql)
+                let stream = sqlx::query(dynamic(sql))
                     .persistent(false)
                     .fetch(&mut editor.conn)
                     .map(right::<PgQueryResult, PgRow>);
                 drive(stream, pg_typed, &types, sink, cancel, requested, true).await
             }
             Self::Postgres(editor) => {
-                let stream = sqlx::raw_sql(sql).fetch_many(&mut editor.conn);
+                let stream = sqlx::raw_sql(dynamic(sql)).fetch_many(&mut editor.conn);
                 drive(stream, pg_text, &types, sink, cancel, requested, false).await
             }
             Self::Sqlite(editor) => {
@@ -185,13 +186,13 @@ impl EditorConnection {
                     return failed(error);
                 }
                 let driven = if typed {
-                    let stream = sqlx::query(sql)
+                    let stream = sqlx::query(dynamic(sql))
                         .persistent(false)
                         .fetch(&mut editor.conn)
                         .map(right::<SqliteQueryResult, SqliteRow>);
                     drive(stream, sqlite_cell, &types, sink, cancel, requested, true).await
                 } else {
-                    let stream = sqlx::raw_sql(sql).fetch_many(&mut editor.conn);
+                    let stream = sqlx::raw_sql(dynamic(sql)).fetch_many(&mut editor.conn);
                     drive(stream, sqlite_cell, &types, sink, cancel, requested, false).await
                 };
                 unwatch_sqlite(&mut editor.conn).await;
@@ -210,20 +211,22 @@ impl EditorConnection {
         let params = statement.params();
         match self {
             Self::Mysql(editor) => {
-                let query = params.into_iter().fold(sqlx::query(&sql), mysql_data::bind);
+                let query = params
+                    .into_iter()
+                    .fold(sqlx::query(dynamic(&sql)), mysql_data::bind);
                 Ok(query.execute(&mut editor.conn).await?.rows_affected())
             }
             Self::Postgres(editor) => {
                 let query = params
                     .into_iter()
-                    .fold(sqlx::query(&sql), postgres_data::bind);
+                    .fold(sqlx::query(dynamic(&sql)), postgres_data::bind);
                 Ok(query.execute(&mut editor.conn).await?.rows_affected())
             }
             Self::Sqlite(editor) => {
                 watch_sqlite(&mut editor.conn, sqlite_flag(cancel)).await?;
                 let query = params
                     .into_iter()
-                    .fold(sqlx::query(&sql), sqlite_data::bind);
+                    .fold(sqlx::query(dynamic(&sql)), sqlite_data::bind);
                 let result = query.execute(&mut editor.conn).await;
                 unwatch_sqlite(&mut editor.conn).await;
                 Ok(result?.rows_affected())
@@ -239,15 +242,22 @@ impl EditorConnection {
         cancel: Option<&CancelHandle>,
     ) -> Result<u64, sqlx::Error> {
         match self {
-            Self::Mysql(editor) => Ok((&mut editor.conn).execute(sql).await?.rows_affected()),
-            Self::Postgres(editor) => Ok((&mut editor.conn).execute(sql).await?.rows_affected()),
-            Self::Sqlite(editor) if cancel.is_none() => {
-                Ok((&mut editor.conn).execute(sql).await?.rows_affected())
-            }
+            Self::Mysql(editor) => Ok((&mut editor.conn)
+                .execute(dynamic(sql))
+                .await?
+                .rows_affected()),
+            Self::Postgres(editor) => Ok((&mut editor.conn)
+                .execute(dynamic(sql))
+                .await?
+                .rows_affected()),
+            Self::Sqlite(editor) if cancel.is_none() => Ok((&mut editor.conn)
+                .execute(dynamic(sql))
+                .await?
+                .rows_affected()),
             Self::Sqlite(editor) => {
                 let flag = cancel.map(sqlite_flag).unwrap_or_default();
                 watch_sqlite(&mut editor.conn, flag).await?;
-                let result = (&mut editor.conn).execute(sql).await;
+                let result = (&mut editor.conn).execute(dynamic(sql)).await;
                 unwatch_sqlite(&mut editor.conn).await;
                 Ok(result?.rows_affected())
             }

@@ -320,10 +320,12 @@ async fn mariadb_statistics_line_is_not_a_problem() {
             Maintenance::Analyze,
         )
         .await;
-    sqlx::raw_sql(&format!("SET GLOBAL use_stat_tables = '{previous}'"))
-        .execute(&admin)
-        .await
-        .unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "SET GLOBAL use_stat_tables = '{previous}'"
+    )))
+    .execute(&admin)
+    .await
+    .unwrap();
     admin.close().await;
     let outcome = outcome.unwrap();
     let kinds: Vec<(&str, MessageKind)> = outcome

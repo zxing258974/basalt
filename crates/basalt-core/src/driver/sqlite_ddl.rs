@@ -8,6 +8,7 @@ use super::sqlite::SqliteSession;
 use super::{finish_transaction, statement_failed};
 use crate::design::{DdlStatement, StatementKind};
 use crate::error::{CoreError, CoreResult};
+use crate::sql::dynamic;
 
 impl SqliteSession {
     /// 在一个事务里执行。`rebuild` 时按官方流程:事务外关掉外键约束,结束后恢复。
@@ -53,7 +54,7 @@ async fn run(connection: &mut SqliteConnection, statements: &[DdlStatement]) -> 
     let mut transaction = connection.begin().await?;
     let result = async {
         for (index, statement) in statements.iter().enumerate() {
-            let query = sqlx::query(&statement.sql).persistent(false);
+            let query = sqlx::query(dynamic(&statement.sql)).persistent(false);
             match statement.kind {
                 StatementKind::Execute => {
                     query

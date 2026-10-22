@@ -11,6 +11,7 @@ use crate::design::{
     TableOptions, existing_id,
 };
 use crate::error::{CoreError, CoreResult};
+use crate::sql::dynamic;
 use crate::table::TableRef;
 
 const TABLE_SQL: &str = "
@@ -88,7 +89,7 @@ impl PgSession {
         let mut transaction = pool.begin().await?;
         let result = async {
             for (index, statement) in statements.iter().enumerate() {
-                sqlx::query(&statement.sql)
+                sqlx::query(dynamic(&statement.sql))
                     .persistent(false)
                     .execute(&mut *transaction)
                     .await
@@ -229,7 +230,10 @@ async fn fetch_by_oid(
     sql: &str,
     oid: i64,
 ) -> Result<Vec<PgRow>, sqlx::Error> {
-    sqlx::query(sql).bind(oid).fetch_all(&mut *connection).await
+    sqlx::query(dynamic(sql))
+        .bind(oid)
+        .fetch_all(&mut *connection)
+        .await
 }
 
 /// 在给定的连接上读表结构。转储要在 search_path 为空的事务里读(名字全带 schema),所以不直接用连接池。

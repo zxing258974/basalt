@@ -11,7 +11,7 @@ use super::postgres_data;
 use crate::error::{CoreError, CoreResult};
 use crate::query::ResultColumn;
 use crate::query::collect::{Collected, collect, described_columns};
-use crate::sql::{Dialect, quote_ident};
+use crate::sql::{Dialect, dynamic, quote_ident};
 use crate::value::{CellValue, from_hex};
 
 pub(crate) struct PgEditor {
@@ -66,7 +66,7 @@ impl PgEditor {
     }
 
     pub(crate) async fn run(&mut self, sql: &str) -> Collected {
-        let stream = sqlx::raw_sql(sql).fetch_many(&mut self.conn);
+        let stream = sqlx::raw_sql(dynamic(sql)).fetch_many(&mut self.conn);
         collect(
             stream,
             decode_text_cell,
@@ -76,7 +76,7 @@ impl PgEditor {
     }
 
     pub(crate) async fn describe(&mut self, sql: &str) -> Vec<ResultColumn> {
-        described_columns((&mut self.conn).describe(sql).await)
+        described_columns((&mut self.conn).prepare(dynamic(sql)).await)
     }
 
     pub(crate) async fn ping(&mut self) -> bool {

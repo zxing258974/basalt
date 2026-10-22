@@ -7,7 +7,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 
 use super::{ACQUIRE_TIMEOUT, ConnectParams, ServerInfo, TableInfo, TableKind};
 use crate::error::{CoreError, CoreResult};
-use crate::sql::{Dialect, quote_ident};
+use crate::sql::{Dialect, dynamic, quote_ident};
 
 /// SQLite 写入是串行的,池开大了只会多等锁。
 const MAX_SQLITE_CONNECTIONS: u32 = 2;
@@ -79,7 +79,7 @@ impl SqliteSession {
               ORDER BY name",
             quote_ident(Dialect::Sqlite, database)
         );
-        let rows = sqlx::query(&sql).fetch_all(&self.pool).await?;
+        let rows = sqlx::query(dynamic(&sql)).fetch_all(&self.pool).await?;
         rows.iter()
             .map(|row| {
                 let kind = match row.try_get::<String, _>("type")?.as_str() {

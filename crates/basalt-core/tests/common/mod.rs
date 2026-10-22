@@ -132,7 +132,10 @@ pub async fn sqlite_file(dir: &Path, name: &str, script: &str) -> String {
         .filename(&path)
         .create_if_missing(true);
     let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
-    sqlx::raw_sql(script).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(script))
+        .execute(&pool)
+        .await
+        .unwrap();
     pool.close().await;
     path.to_string_lossy().into_owned()
 }
@@ -146,7 +149,7 @@ pub async fn postgres_fixture_pool() -> sqlx::PgPool {
         .await
         .unwrap();
     // 别的测试文件可能同时在建:已经有了不算错。
-    let _ = sqlx::raw_sql(&format!("CREATE DATABASE {FIXTURE_DB}"))
+    let _ = sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE DATABASE {FIXTURE_DB}")))
         .execute(&admin)
         .await;
     admin.close().await;

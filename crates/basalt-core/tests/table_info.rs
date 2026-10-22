@@ -137,7 +137,7 @@ async fn postgres_describes_tables_and_views() {
             let admin = sqlx::PgPool::connect(&postgres_url("postgres"))
                 .await
                 .unwrap();
-            sqlx::raw_sql(&format!("CREATE DATABASE {FIXTURE_DB}"))
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE DATABASE {FIXTURE_DB}")))
                 .execute(&admin)
                 .await
                 .unwrap();
@@ -298,10 +298,12 @@ async fn outlines_list_tables_views_and_columns() {
 
     for target in MYSQL_FAMILY.into_iter().filter(|t| selected(*t)) {
         let pool = sqlx::MySqlPool::connect(&mysql_url(target)).await.unwrap();
-        sqlx::raw_sql(&MYSQL_FIXTURE.replace("basalt_info", "basalt_outline"))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(
+            MYSQL_FIXTURE.replace("basalt_info", "basalt_outline"),
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
         pool.close().await;
         let sessions = SessionManager::default();
         sessions
@@ -329,10 +331,12 @@ async fn outlines_list_tables_views_and_columns() {
         let pool = sqlx::PgPool::connect(&postgres_url(FIXTURE_DB))
             .await
             .unwrap();
-        sqlx::raw_sql(&PG_FIXTURE.replace("info_people", "outline_people"))
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(
+            PG_FIXTURE.replace("info_people", "outline_people"),
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
         pool.close().await;
         let sessions = SessionManager::default();
         sessions

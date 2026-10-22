@@ -2,7 +2,7 @@
 //! 一条语句可以有多个结果集;没有行的「完成」带的是增删改的影响行数。
 
 use futures_util::{Stream, StreamExt};
-use sqlx::{Column, Database, Describe, Either, Row, TypeInfo};
+use sqlx::{Column, Either, Row, Statement, TypeInfo};
 
 use super::{MAX_RESULT_ROWS, ResultColumn, ResultSet};
 use crate::value::CellValue;
@@ -26,11 +26,11 @@ pub(crate) fn columns_of<R: Row>(row: &R) -> Vec<ResultColumn> {
 }
 
 /// 没读到行的查询:预备一下(不执行)拿到的列名。预备不了就当没有结果集。
-pub(crate) fn described_columns<DB: Database>(
-    described: Result<Describe<DB>, sqlx::Error>,
+pub(crate) fn described_columns<S: Statement>(
+    prepared: Result<S, sqlx::Error>,
 ) -> Vec<ResultColumn> {
-    match described {
-        Ok(described) => described
+    match prepared {
+        Ok(statement) => statement
             .columns()
             .iter()
             .map(|column| ResultColumn {

@@ -282,7 +282,7 @@ async fn mysql_family_dumps_restore_into_the_same_table() {
                     // 还原的连接开着 NO_BACKSLASH_ESCAPES、严格模式,时区也不是 UTC:文件自己把这些固定住。
                     let hostile = "SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES,STRICT_ALL_TABLES';\n\
                                    SET time_zone = '+05:00';\n";
-                    sqlx::raw_sql(&format!("{hostile}{}", without_delimiters(&sql)))
+                    sqlx::raw_sql(sqlx::AssertSqlSafe(format!("{hostile}{}", without_delimiters(&sql))))
                         .execute(&pool)
                         .await
                         .unwrap();
@@ -361,7 +361,10 @@ async fn postgres_dumps_restore_with_sequences_and_comments() {
             && sql.contains("EXECUTE FUNCTION public.more_dump_log()"),
         "{sql}"
     );
-    sqlx::raw_sql(&sql).execute(&pool).await.unwrap();
+    sqlx::raw_sql(sqlx::AssertSqlSafe(sql.as_str()))
+        .execute(&pool)
+        .await
+        .unwrap();
     let (id, no): (i32, i32) =
         sqlx::query_as("INSERT INTO public.more_dump (name) VALUES ('新') RETURNING id, no")
             .fetch_one(&pool)
@@ -374,7 +377,10 @@ async fn postgres_dumps_restore_with_sequences_and_comments() {
         |sql| {
             let pool = pool.clone();
             async move {
-                sqlx::raw_sql(&sql).execute(&pool).await.unwrap();
+                sqlx::raw_sql(sqlx::AssertSqlSafe(sql.as_str()))
+                    .execute(&pool)
+                    .await
+                    .unwrap();
             }
         },
         "INSERT INTO public.more_dump (name) VALUES ('新')",

@@ -6,7 +6,7 @@ use super::mysql::MysqlSession;
 use super::postgres::PgSession;
 use super::sqlite::SqliteSession;
 use crate::error::{CoreError, CoreResult};
-use crate::sql::{Dialect, quote_ident};
+use crate::sql::{Dialect, dynamic, quote_ident};
 use crate::table::TableRef;
 use crate::table_ops::references::{OnDelete, ReferencingKey};
 
@@ -95,12 +95,12 @@ impl SqliteSession {
             "{}.sqlite_master",
             quote_ident(Dialect::Sqlite, &table.database)
         );
-        let rows = sqlx::query(&format!(
+        let rows = sqlx::query(dynamic(format!(
             "SELECT m.name AS owner, f.on_delete AS rule
              FROM {master} m, pragma_foreign_key_list(m.name, ?1) f
              WHERE m.type = 'table' AND f.\"table\" = ?2 COLLATE NOCASE AND m.name <> ?2 COLLATE NOCASE
              GROUP BY m.name, f.id ORDER BY m.name, f.id"
-        ))
+        )))
         .bind(&table.database)
         .bind(&table.table)
         .fetch_all(&self.pool)

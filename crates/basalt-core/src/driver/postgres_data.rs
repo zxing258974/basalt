@@ -17,6 +17,7 @@ use super::{check_affected, finish_transaction, statement_failed, table_not_foun
 use crate::error::{CoreError, CoreResult};
 use crate::sql::bind::BindValue;
 use crate::sql::dml::Statement;
+use crate::sql::dynamic;
 use crate::table::{ColumnInfo, TableRef, ValueType};
 use crate::value::{CellValue, widen_f32};
 
@@ -120,7 +121,10 @@ impl PgSession {
         columns: &[ColumnInfo],
     ) -> CoreResult<Vec<Vec<CellValue>>> {
         let pool = self.pool(database).await?;
-        let rows = sqlx::query(sql).persistent(false).fetch_all(&pool).await?;
+        let rows = sqlx::query(dynamic(sql))
+            .persistent(false)
+            .fetch_all(&pool)
+            .await?;
         Ok(rows
             .iter()
             .map(|row| {
@@ -141,7 +145,7 @@ impl PgSession {
                 let query = statement
                     .params()
                     .into_iter()
-                    .fold(sqlx::query(&sql).persistent(false), bind);
+                    .fold(sqlx::query(dynamic(&sql)).persistent(false), bind);
                 let done = query
                     .execute(&mut *transaction)
                     .await

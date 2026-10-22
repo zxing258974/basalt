@@ -1,13 +1,11 @@
 [workspace]
 resolver = "3"
 members = ["crates/basalt-core", "src-tauri"]
-# vendor/ 下是打了补丁的第三方 crate,不当作本项目的成员(不跑它们的 fmt / clippy)。
-exclude = ["vendor"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.90"
+rust-version = "1.94"
 license = "MIT"
 
 [workspace.dependencies]
@@ -16,11 +14,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
-# 钉死 0.8.6:下面 [patch.crates-io] 的 sqlx-core 副本只对 0.8.6 生效,升别的版本会悄悄绕过补丁。
-sqlx = { version = "=0.8.6", default-features = false, features = [
+sqlx = { version = "0.9", default-features = false, features = [
   "runtime-tokio",
   "tls-rustls",
   "mysql",
+  # MySQL 8 的 caching_sha2 / sha256 登录在不走 TLS 时要用 RSA 加密密码;0.9 把它拆成了单独的功能
+  "mysql-rsa",
   "postgres",
   "sqlite",
   "chrono",
@@ -56,12 +55,6 @@ encoding_rs = "0.8"
 base64 = "0.22"
 # SSH 隧道:纯 Rust;关掉默认的 aws-lc-rs(要 cmake 编 C 库),加密后端用 sqlx / rustls 已经在用的 ring
 russh = { version = "0.64", default-features = false, features = ["ring", "rsa"] }
-
-# sqlx-core 0.8.6 的 TLS 套接字在「读写都被阻塞」时先等写就绪、再等读就绪,大包写到一半偶发和服务器互等卡死
-# (MySQL / MariaDB / PostgreSQL 开了 TLS 时导入整批 INSERT 可能碰上)。sqlx 0.9.0 修了,0.8 没有补丁版本,
-# 这里用打了同样修复的副本,详见 vendor/README.md。升级到 sqlx 0.9 后删掉这一节和 vendor/sqlx-core。
-[patch.crates-io]
-sqlx-core = { path = "vendor/sqlx-core" }
 
 # 调试信息只给自己的代码留行号(报错、panic 的回溯照样有文件和行号),依赖不带。
 # 每个集成测试都是一个静态链着 sqlx、tauri、russh 的独立程序,带全量调试信息时一个几百 MB,

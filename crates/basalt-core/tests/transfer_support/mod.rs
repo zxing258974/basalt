@@ -131,7 +131,7 @@ pub async fn ensure_postgres_database(admin_url: &str, database: &str) {
             .await
             .unwrap();
     if !exists {
-        sqlx::raw_sql(&format!("CREATE DATABASE {database}"))
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE DATABASE {database}")))
             .execute(&pool)
             .await
             .unwrap();

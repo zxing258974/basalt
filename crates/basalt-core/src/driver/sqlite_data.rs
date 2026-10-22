@@ -10,6 +10,7 @@ use super::{check_affected, finish_transaction, statement_failed, table_not_foun
 use crate::error::CoreResult;
 use crate::sql::bind::BindValue;
 use crate::sql::dml::Statement;
+use crate::sql::dynamic;
 use crate::table::{ColumnInfo, TableRef, ValueType};
 use crate::value::CellValue;
 
@@ -66,7 +67,7 @@ impl SqliteSession {
         sqlx::query("PRAGMA query_only = ON")
             .execute(&mut *connection)
             .await?;
-        let rows = sqlx::query(sql)
+        let rows = sqlx::query(dynamic(sql))
             .persistent(false)
             .fetch_all(&mut *connection)
             .await;
@@ -98,7 +99,7 @@ impl SqliteSession {
                 let query = statement
                     .params()
                     .into_iter()
-                    .fold(sqlx::query(&sql).persistent(false), bind);
+                    .fold(sqlx::query(dynamic(&sql)).persistent(false), bind);
                 let done = query
                     .execute(&mut *transaction)
                     .await
@@ -114,9 +115,9 @@ impl SqliteSession {
 }
 
 pub(super) fn bind<'q>(
-    query: Query<'q, Sqlite, SqliteArguments<'q>>,
+    query: Query<'q, Sqlite, SqliteArguments>,
     value: BindValue,
-) -> Query<'q, Sqlite, SqliteArguments<'q>> {
+) -> Query<'q, Sqlite, SqliteArguments> {
     match value {
         BindValue::Null => query.bind(None::<String>),
         BindValue::Bool(b) => query.bind(b),

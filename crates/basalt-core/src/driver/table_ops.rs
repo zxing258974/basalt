@@ -9,7 +9,7 @@ use super::postgres::PgSession;
 use super::sqlite::SqliteSession;
 use super::{finish_transaction, statement_failed, table_not_found};
 use crate::error::{CoreError, CoreResult};
-use crate::sql::{Dialect, quote_ident};
+use crate::sql::{Dialect, dynamic, quote_ident};
 use crate::table::TableRef;
 use crate::table_ops::maintenance::MaintenanceMessage;
 
@@ -83,14 +83,14 @@ impl MysqlSession {
         let mut connection = self.pool.acquire().await.map_err(|e| (0, e.into()))?;
         if short_locks {
             (&mut *connection)
-                .execute(mysql_short_locks().as_str())
+                .execute(dynamic(mysql_short_locks()))
                 .await
                 .map_err(|e| (0, e.into()))?;
         }
         let mut counts = Vec::with_capacity(statements.len());
         let mut result = Ok(());
         for (index, sql) in statements.iter().enumerate() {
-            match sqlx::query(sql)
+            match sqlx::query(dynamic(sql))
                 .persistent(false)
                 .execute(&mut *connection)
                 .await
@@ -115,7 +115,7 @@ impl MysqlSession {
         sql: &str,
     ) -> CoreResult<Vec<MaintenanceMessage>> {
         let mut connection = self.pool.acquire().await?;
-        let rows = (&mut *connection).fetch_all(sql).await?;
+        let rows = (&mut *connection).fetch_all(dynamic(sql)).await?;
         let messages = rows
             .iter()
             .map(|row| {
@@ -143,12 +143,14 @@ impl PgSession {
         let mut counts = Vec::with_capacity(statements.len());
         let result = async {
             if short_locks {
-                sqlx::query(&format!("SET LOCAL lock_timeout = '{LOCK_WAIT_SECONDS}s'"))
-                    .execute(&mut *transaction)
-                    .await?;
+                sqlx::query(dynamic(format!(
+                    "SET LOCAL lock_timeout = '{LOCK_WAIT_SECONDS}s'"
+                )))
+                .execute(&mut *transaction)
+                .await?;
             }
             for (index, sql) in statements.iter().enumerate() {
-                let done = sqlx::query(sql)
+                let done = sqlx::query(dynamic(sql))
                     .persistent(false)
                     .execute(&mut *transaction)
                     .await
@@ -217,7 +219,7 @@ impl PgSession {
     ) -> CoreResult<()> {
         let pool = self.pool(database).await?;
         let mut connection = pool.acquire().await?;
-        (&mut *connection).execute(sql).await?;
+        (&mut *connection).execute(dynamic(sql)).await?;
         Ok(())
     }
 
@@ -254,7 +256,7 @@ impl SqliteSession {
         let mut counts = Vec::with_capacity(statements.len());
         let result = async {
             for (index, sql) in statements.iter().enumerate() {
-                let done = sqlx::query(sql)
+                let done = sqlx::query(dynamic(sql))
                     .execute(&mut *transaction)
                     .await
                     .map_err(|error| statement_failed(index, error))?;
@@ -277,19 +279,19 @@ impl SqliteSession {
             "{}.sqlite_master",
             quote_ident(Dialect::Sqlite, &table.database)
         );
-        let table_sql: Option<Option<String>> = sqlx::query_scalar(&format!(
+        let table_sql: Option<Option<String>> = sqlx::query_scalar(dynamic(format!(
             "SELECT sql FROM {master} WHERE type = 'table' AND name = ?"
-        ))
+        )))
         .bind(&table.table)
         .fetch_optional(&self.pool)
         .await?;
         let table_sql = table_sql
             .flatten()
             .ok_or_else(|| table_not_found(&table.table))?;
-        let indexes = sqlx::query(&format!(
+        let indexes = sqlx::query(dynamic(format!(
             "SELECT name, sql FROM {master}
              WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL ORDER BY name"
-        ))
+        )))
         .bind(&table.table)
         .fetch_all(&self.pool)
         .await?
@@ -302,17 +304,17 @@ impl SqliteSession {
     /// VACUUM 不能在事务里执行。
     pub(crate) async fn execute_outside_transaction(&self, sql: &str) -> CoreResult<()> {
         let mut connection = self.pool.acquire().await?;
-        (&mut *connection).execute(sql).await?;
+        (&mut *connection).execute(dynamic(sql)).await?;
         Ok(())
     }
 
     /// 库文件的大小:页数乘页大小(字节)。
     pub(crate) async fn database_size(&self, database: &str) -> CoreResult<u64> {
         let schema = quote_ident(Dialect::Sqlite, database);
-        let pages: i64 = sqlx::query_scalar(&format!("PRAGMA {schema}.page_count"))
+        let pages: i64 = sqlx::query_scalar(dynamic(format!("PRAGMA {schema}.page_count")))
             .fetch_one(&self.pool)
             .await?;
-        let page_size: i64 = sqlx::query_scalar(&format!("PRAGMA {schema}.page_size"))
+        let page_size: i64 = sqlx::query_scalar(dynamic(format!("PRAGMA {schema}.page_size")))
             .fetch_one(&self.pool)
             .await?;
         Ok(u64::try_from(pages.saturating_mul(page_size)).unwrap_or(0))
@@ -321,9 +323,9 @@ impl SqliteSession {
     /// 库里有没有 `sqlite_sequence`(建过 AUTOINCREMENT 表才有)。
     pub(crate) async fn has_sqlite_sequence(&self, database: &str) -> CoreResult<bool> {
         let master = format!("{}.sqlite_master", quote_ident(Dialect::Sqlite, database));
-        let found: Option<i64> = sqlx::query_scalar(&format!(
+        let found: Option<i64> = sqlx::query_scalar(dynamic(format!(
             "SELECT 1 FROM {master} WHERE type = 'table' AND name = 'sqlite_sequence'"
-        ))
+        )))
         .fetch_optional(&self.pool)
         .await?;
         Ok(found.is_some())

@@ -76,14 +76,14 @@ fn mysql_table(name: &str) -> TableRef {
 async fn execute_sql_file(url: &str, mysql: bool, script: &str) {
     if mysql {
         let pool = sqlx::MySqlPool::connect(url).await.unwrap();
-        sqlx::raw_sql(script)
+        sqlx::raw_sql(sqlx::AssertSqlSafe(script))
             .execute(&pool)
             .await
             .expect("执行导出的 SQL");
         pool.close().await;
     } else {
         let pool = sqlx::PgPool::connect(url).await.unwrap();
-        sqlx::raw_sql(script)
+        sqlx::raw_sql(sqlx::AssertSqlSafe(script))
             .execute(&pool)
             .await
             .expect("执行导出的 SQL");

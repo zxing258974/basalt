@@ -139,7 +139,7 @@ impl server::Handler for TestServer {
         let stalled = self
             .rules
             .stall_channels
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
             .is_ok();
         if stalled {
             // 既不接受也不拒绝,就这么挂着(丢掉 reply 会自动拒绝)。

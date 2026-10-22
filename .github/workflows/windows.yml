@@ -27,10 +27,10 @@ jobs:
           node-version: 24
           cache: pnpm
 
-      # 和本机一致;sqlx 0.8 更新的版本要 1.94,Cargo.lock 锁着不会漂。
+      # 和本机一致(sqlx 0.9 至少要 1.94)。
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.93.1"
+          toolchain: "1.99.1"
 
       - uses: Swatinem/rust-cache@v2
 

@@ -218,7 +218,7 @@ async fn postgres_copies_and_drops_tables() {
             let admin = sqlx::PgPool::connect(&postgres_url("postgres"))
                 .await
                 .unwrap();
-            sqlx::raw_sql(&format!("CREATE DATABASE {FIXTURE_DB}"))
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE DATABASE {FIXTURE_DB}")))
                 .execute(&admin)
                 .await
                 .unwrap();

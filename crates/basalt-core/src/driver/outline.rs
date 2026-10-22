@@ -7,7 +7,7 @@ use super::postgres::PgSession;
 use super::sqlite::SqliteSession;
 use crate::error::CoreResult;
 use crate::llm::outline::{MAX_COLUMNS, OutlineColumn, OutlineTable, group};
-use crate::sql::{Dialect, quote_ident};
+use crate::sql::{Dialect, dynamic, quote_ident};
 
 fn non_empty(text: Option<String>) -> Option<String> {
     text.filter(|t| !t.trim().is_empty())
@@ -103,7 +103,7 @@ impl PgSession {
 impl SqliteSession {
     pub(crate) async fn schema_outline(&self, database: &str) -> CoreResult<Vec<OutlineTable>> {
         let schema = quote_ident(Dialect::Sqlite, database);
-        let rows = sqlx::query(&format!(
+        let rows = sqlx::query(dynamic(format!(
             "SELECT m.name AS table_name, m.type AS kind, p.name AS name, p.type AS data_type,
                     p.pk AS pk, p.\"notnull\" AS not_null
              FROM {schema}.sqlite_master m
@@ -111,7 +111,7 @@ impl SqliteSession {
              WHERE m.type IN ('table', 'view') AND m.name NOT LIKE 'sqlite_%'
              ORDER BY m.name, p.cid
              LIMIT ?"
-        ))
+        )))
         .bind(database)
         .bind(MAX_COLUMNS)
         .fetch_all(&self.pool)

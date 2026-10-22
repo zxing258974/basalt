@@ -11,7 +11,7 @@ use crate::design::{
     string_literal,
 };
 use crate::error::{CoreError, CoreResult};
-use crate::sql::Dialect;
+use crate::sql::{Dialect, dynamic};
 use crate::table::TableRef;
 
 // information_schema 的列在 MySQL 8 里可能是二进制排序规则,统一 CAST 成字符。
@@ -147,7 +147,7 @@ impl MysqlSession {
     pub async fn execute_ddl(&self, statements: &[DdlStatement]) -> CoreResult<usize> {
         let mut connection = self.pool.acquire().await?;
         for (index, statement) in statements.iter().enumerate() {
-            let done = sqlx::query(&statement.sql)
+            let done = sqlx::query(dynamic(&statement.sql))
                 .persistent(false)
                 .execute(&mut *connection)
                 .await;

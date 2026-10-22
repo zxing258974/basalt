@@ -13,7 +13,7 @@ use crate::design::{
     TableOptions, TriggerDef, existing_id,
 };
 use crate::error::{CoreError, CoreResult};
-use crate::sql::{Dialect, quote_ident};
+use crate::sql::{Dialect, dynamic, quote_ident};
 use crate::table::TableRef;
 
 /// table_xinfo 的 hidden:1 是虚拟表的隐藏列,2、3 是生成列(虚拟、存储)。
@@ -26,9 +26,9 @@ impl SqliteSession {
             "{}.sqlite_master",
             quote_ident(Dialect::Sqlite, &table.database)
         );
-        let sql: Option<String> = sqlx::query_scalar(&format!(
+        let sql: Option<String> = sqlx::query_scalar(dynamic(format!(
             "SELECT sql FROM {master} WHERE type = 'table' AND name = ?1"
-        ))
+        )))
         .bind(&table.table)
         .fetch_optional(&self.pool)
         .await?;
@@ -37,7 +37,7 @@ impl SqliteSession {
         };
         let parsed = parse_create_table(&sql).unwrap_or_default();
         let pragma = |name: &str| format!("SELECT * FROM pragma_{name}(?1, ?2)");
-        let xinfo = sqlx::query(&pragma("table_xinfo"))
+        let xinfo = sqlx::query(dynamic(pragma("table_xinfo")))
             .bind(&table.table)
             .bind(&table.database)
             .fetch_all(&self.pool)
@@ -56,14 +56,14 @@ impl SqliteSession {
             columns.push(column);
         }
         keyed.sort();
-        let fk_rows = sqlx::query(&pragma("foreign_key_list"))
+        let fk_rows = sqlx::query(dynamic(pragma("foreign_key_list")))
             .bind(&table.table)
             .bind(&table.database)
             .fetch_all(&self.pool)
             .await?;
-        let triggers = sqlx::query(&format!(
+        let triggers = sqlx::query(dynamic(format!(
             "SELECT name, sql FROM {master} WHERE type = 'trigger' AND tbl_name = ?1 COLLATE NOCASE ORDER BY name"
-        ))
+        )))
         .bind(&table.table)
         .fetch_all(&self.pool)
         .await?;
@@ -153,9 +153,9 @@ impl SqliteSession {
                 }
             }
             let definition = if raw && origin == "c" {
-                sqlx::query_scalar(&format!(
+                sqlx::query_scalar(dynamic(format!(
                     "SELECT sql FROM {master} WHERE type = 'index' AND name = ?1"
-                ))
+                )))
                 .bind(&name)
                 .fetch_optional(&self.pool)
                 .await?
@@ -186,9 +186,9 @@ impl SqliteSession {
             "{}.sqlite_master",
             quote_ident(Dialect::Sqlite, &table.database)
         );
-        let sql: Option<String> = sqlx::query_scalar(&format!(
+        let sql: Option<String> = sqlx::query_scalar(dynamic(format!(
             "SELECT sql FROM {master} WHERE type = 'table' AND name = ?1"
-        ))
+        )))
         .bind(&table.table)
         .fetch_optional(&self.pool)
         .await?;
@@ -205,12 +205,12 @@ impl SqliteSession {
             "{}.sqlite_master",
             quote_ident(Dialect::Sqlite, &table.database)
         );
-        let rows = sqlx::query(&format!(
+        let rows = sqlx::query(dynamic(format!(
             r"SELECT type, name, sql FROM {master}
               WHERE sql IS NOT NULL AND tbl_name <> ?1 COLLATE NOCASE
                 AND name NOT LIKE 'sqlite\_%' ESCAPE '\'
               ORDER BY type, name"
-        ))
+        )))
         .bind(&table.table)
         .fetch_all(&self.pool)
         .await?;
@@ -232,10 +232,10 @@ impl SqliteSession {
             "{}.sqlite_master",
             quote_ident(Dialect::Sqlite, &table.database)
         );
-        let names = sqlx::query_scalar(&format!(
+        let names = sqlx::query_scalar(dynamic(format!(
             "SELECT DISTINCT m.name FROM {master} m, pragma_foreign_key_list(m.name, ?2) f
              WHERE m.type = 'table' AND f.\"table\" = ?1 COLLATE NOCASE ORDER BY m.name"
-        ))
+        )))
         .bind(&table.table)
         .bind(&table.database)
         .fetch_all(&self.pool)

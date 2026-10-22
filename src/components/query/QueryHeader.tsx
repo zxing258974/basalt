@@ -1,4 +1,4 @@
-import { CircleStop, FastForward, History, Play, Save, Sparkles } from "lucide-react";
+import { CircleStop, FastForward, History, Paintbrush, Play, Save, Sparkles } from "lucide-react";
 import type { QueryScope } from "../../lib/queryTypes";
 import type { ConnectionView } from "../../lib/types";
 import { DriverBadge } from "../connection/DriverBadge";
@@ -20,11 +20,12 @@ interface QueryHeaderProps {
   onRunAll(): void;
   onCancel(): void;
   onSave(): void;
+  onFormat(): void;
   onToggleHistory(): void;
   onToggleAssistant(): void;
 }
 
-/** 查询标签页的顶栏:在哪个连接、哪个库,执行、取消、保存、历史。 */
+/** 查询标签页的顶栏:在哪个连接、哪个库,执行、取消、保存、美化、历史、助手。 */
 export function QueryHeader(props: QueryHeaderProps) {
   const { connection, running } = props;
   const ready = Boolean(connection?.isOpen);
@@ -84,10 +85,28 @@ export function QueryHeader(props: QueryHeaderProps) {
           取消
         </Button>
         <span className="toolbar-divider" aria-hidden />
-        <Button variant="ghost" size="sm" icon={<Save />} title={`保存查询（${shortcut("S")}）`} onClick={props.onSave}>
+        <Button
+          className="query-tool"
+          variant="ghost"
+          size="sm"
+          icon={<Save />}
+          title={`保存查询（${shortcut("S")}）`}
+          onClick={props.onSave}
+        >
           保存
         </Button>
         <Button
+          className="query-tool"
+          variant="ghost"
+          size="sm"
+          icon={<Paintbrush />}
+          title={`美化 SQL：有选中的文字时只美化选中的部分（${shortcut("F", { shift: true })}）`}
+          onClick={props.onFormat}
+        >
+          美化
+        </Button>
+        <Button
+          className="query-tool"
           variant="ghost"
           size="sm"
           icon={<History />}
@@ -98,6 +117,7 @@ export function QueryHeader(props: QueryHeaderProps) {
           历史
         </Button>
         <Button
+          className="query-tool"
           variant="ghost"
           size="sm"
           icon={<Sparkles />}

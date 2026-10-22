@@ -14,6 +14,19 @@
   gap: var(--space-4) var(--space-6);
   padding: var(--space-5) var(--space-6);
   min-width: 0;
+  container-type: inline-size;
+}
+/* 差一点放不下一行时(开着信息面板的大窗口)保存、美化、历史、助手只留图标,标题栏少占一行;
+   再窄反正要换行,字照常显示。字一直在,读屏照念,鼠标停上去有提示。 */
+@container (min-width: 800px) and (max-width: 940px) {
+  .query-tool .btn-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 .query-heading {
   display: flex;

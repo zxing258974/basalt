@@ -20,6 +20,7 @@ import { QueryHeader } from "./QueryHeader";
 import { MESSAGES, ResultPanel } from "./ResultPanel";
 import { resultTabs, statementsToRun, type ResultTab, type RunMode, type RunState } from "./runModel";
 import { SaveQueryDialog } from "./SaveQueryDialog";
+import { formatEdit } from "./formatSql";
 import { editorDialect, SqlEditor, type SqlEditorHandle } from "./SqlEditor";
 import type { SqlStatement } from "./splitStatements";
 import { useCompletionProvider } from "./useCompletionProvider";
@@ -164,6 +165,27 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
     [driver, execute, isOpen, resultPending, run.running],
   );
 
+  /** 美化选中的部分或整个编辑器。等格式化程序加载的时候改了内容,就不换了(会盖掉刚打的字)。 */
+  const format = useCallback(async () => {
+    const handle = editor.current;
+    if (!handle) return;
+    const text = handle.getText();
+    try {
+      const result = await formatEdit(text, handle.getSelection(), driver);
+      if (handle.getText() !== text) return;
+      if (result.kind === "edit") {
+        handle.replace(result);
+        setHint(null);
+      } else if (result.kind === "unchanged") {
+        setHint("已经是美化过的样子了。");
+      } else {
+        setHint(result.selection ? "选中的部分没有 SQL。" : "编辑器里没有 SQL。");
+      }
+    } catch (error) {
+      setHint(`没法美化：${errorMessage(error)}`);
+    }
+  }, [driver]);
+
   const onCommitted = useCallback(
     async (result: ResultTab, message: string) => {
       setResultNotice({ key: result.key, text: message });
@@ -254,6 +276,7 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
         onRunAll={() => runStatements("all")}
         onCancel={() => void cancel()}
         onSave={() => void save(false)}
+        onFormat={() => void format()}
         onToggleHistory={() => toggleSide("history")}
         onToggleAssistant={() => toggleSide("assistant")}
       />
@@ -288,6 +311,7 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
             onRun={() => runStatements("current")}
             onRunAll={() => runStatements("all")}
             onCancel={() => void cancel()}
+            onFormat={() => void format()}
           />
           <div
             className="query-splitter"

@@ -1,5 +1,5 @@
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, indentWithTab, isolateHistory } from "@codemirror/commands";
 import {
   MariaSQL,
   MySQL,
@@ -38,6 +38,11 @@ export interface SqlEditorHandle {
   focus(): void;
   /** 标出语句出错的地方;null 去掉。 */
   markError(mark: ErrorMark | null): void;
+  /**
+   * 把 [from, to) 换成 text,单独一步撤销得回来。换的是选中的部分时选中换上的内容,
+   * 否则光标放到 cursor(没给就由 CodeMirror 按改动挪)。
+   */
+  replace(edit: { from: number; to: number; text: string; cursor: number | null }): void;
 }
 
 interface SqlEditorProps {
@@ -50,6 +55,7 @@ interface SqlEditorProps {
   onRun(): void;
   onRunAll(): void;
   onCancel(): void;
+  onFormat(): void;
 }
 
 export function editorDialect(driver: DriverKind | null): SqlDialect {
@@ -110,6 +116,7 @@ export function SqlEditor({ ref, driver, initialText, label, completion, ...call
         { key: "Mod-Enter", run: () => (latest.current.onRun(), true) },
         { key: "Shift-Mod-Enter", run: () => (latest.current.onRunAll(), true) },
         { key: "Mod-.", run: () => (latest.current.onCancel(), true) },
+        { key: "Shift-Mod-f", run: () => (latest.current.onFormat(), true) },
       ]),
     );
     const editor = new EditorView({
@@ -169,6 +176,26 @@ export function SqlEditor({ ref, driver, initialText, label, completion, ...call
       getText: () => view.current?.state.doc.toString() ?? "",
       markError: (mark) => {
         if (view.current) showErrorMark(view.current, mark);
+      },
+      replace: ({ from, to, text, cursor }) => {
+        const editor = view.current;
+        if (!editor) return;
+        const { main } = editor.state.selection;
+        const selection =
+          main.from !== main.to
+            ? { anchor: from, head: from + text.length }
+            : cursor === null
+              ? undefined
+              : { anchor: cursor };
+        editor.dispatch({
+          changes: { from, to, insert: text },
+          selection,
+          userEvent: "input.format",
+          // 美化单独一步撤销:紧接着打的字不并进来。
+          annotations: isolateHistory.of("full"),
+          scrollIntoView: true,
+        });
+        editor.focus();
       },
       getSelection: () => {
         const main = view.current?.state.selection.main;

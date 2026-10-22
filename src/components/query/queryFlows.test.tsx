@@ -1,5 +1,6 @@
 // 查询标签页的执行流程(mock 后端):全部执行、只执行当前或选中的、出错就停、取消、USE 跟着换库、执行历史。
 import { screen, waitFor, within } from "@testing-library/react";
+import { undo } from "@codemirror/commands";
 import { describe, expect, it } from "vitest";
 import { useTabs } from "../../stores/tabs";
 import { findEditor, installLayoutStubs, setSql } from "../../test/editor";
@@ -106,6 +107,32 @@ describe("running statements", { timeout: FLOW_TIMEOUT }, () => {
         .getAllByRole("listitem")
         .map((item) => item.textContent),
     ).toEqual(["NOTICE处理了 3 行", "WARNING跳过 1 行"]);
+  });
+
+  it("formats the SQL, or only what is selected, in one undoable step", async () => {
+    const { user, view } = await openShopQuery();
+    setSql(view, "select id, name from customers where vip = 1;");
+    await user.click(header().getByRole("button", { name: "美化" }));
+    await waitFor(() =>
+      expect(view.state.doc.toString()).toBe("select\n  id,\n  name\nfrom\n  customers\nwhere\n  vip = 1;"),
+    );
+    undo(view);
+    expect(view.state.doc.toString()).toBe("select id, name from customers where vip = 1;");
+
+    // 只美化选中的那条,另一条不动;快捷键也行。
+    const text = "select 1;\nselect a from t;";
+    setSql(view, text, { from: text.indexOf("select a"), to: text.length });
+    // CodeMirror 按 navigator.platform 认 Mod:jsdom 不是 Mac,这里 Mod 是 Ctrl(应用里是 ⌘)。
+    // 按着 Shift 的字母键它靠 keyCode 认,jsdom 的键盘事件没有,手动补上。
+    const press = new KeyboardEvent("keydown", { key: "F", ctrlKey: true, shiftKey: true, bubbles: true });
+    Object.defineProperty(press, "keyCode", { value: 70 });
+    view.contentDOM.dispatchEvent(press);
+    await waitFor(() => expect(view.state.doc.toString()).toBe("select 1;\nselect\n  a\nfrom\n  t;"));
+
+    setSql(view, "DELIMITER //\nCREATE PROCEDURE p() BEGIN SELECT 1; END //");
+    await user.click(header().getByRole("button", { name: "美化" }));
+    expect(await screen.findByText(/没法美化：里面有 DELIMITER/)).toBeInTheDocument();
+    expect(view.state.doc.toString()).toContain("DELIMITER //");
   });
 
   it("runs only the statement under the cursor, or everything selected", async () => {

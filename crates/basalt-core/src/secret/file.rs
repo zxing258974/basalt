@@ -3,8 +3,9 @@
 //! 不用钥匙串:Basalt 是临时签名,每次重装 macOS 都当它是新程序,读钥匙串就要输登录密码放行。
 //! 代价是文件里是明文,本账号下运行的程序、备份、同步都能读到;用户知情后选的这个。
 //!
-//! 以前存在钥匙串里的密码,第一次用到时从 `legacy` 读一次搬进来(这一下钥匙串还会问一次),
-//! 之后只读文件。搬过、删过、钥匙串里也没有的键都记在 `removed` 里,不会再去问钥匙串,
+//! 以前存在钥匙串里的密码,启动时按配置里用得到的键一次全部搬进来([`FileSecretStore::migrate_legacy`]),
+//! 钥匙串的授权框集中在这一次;搬完记下 `legacyDone`,之后再也不碰钥匙串。还没搬完时(用户拒绝了),
+//! 用到哪条再从钥匙串读哪条。删过、钥匙串里也没有的键记在 `removed` 里,不会再去问钥匙串,
 //! 也不会把用户删掉的密码从钥匙串里「复活」。钥匙串里的旧条目不去动:删它们反而要授权。
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -19,12 +20,16 @@ use crate::error::{CoreError, CoreResult};
 
 /// 文件的内容。不实现 Debug:里面是明文密码。
 #[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Stored {
     #[serde(default)]
     secrets: BTreeMap<String, String>,
     /// 不用再去钥匙串里找的键:删掉的,或者钥匙串里本来就没有的。
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     removed: BTreeSet<String>,
+    /// 钥匙串里的旧密码都搬完了,以后不再去钥匙串找。
+    #[serde(default)]
+    legacy_done: bool,
 }
 
 pub struct FileSecretStore {
@@ -51,6 +56,49 @@ impl FileSecretStore {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// 把 `keys` 里文件中还没有的密码一次从钥匙串读过来,全部读完才记下「搬完了」。
+    /// 钥匙串的授权框都在这一次弹完。有一条读不出来(用户拒绝)就停下,已经读到的照样存下,
+    /// 下次启动只问剩下的;返回搬过来几条。
+    pub fn migrate_legacy(&self, keys: &[String]) -> CoreResult<usize> {
+        let Some(legacy) = &self.legacy else {
+            return Ok(0);
+        };
+        let mut slot = self.lock()?;
+        let mut next = self.load(&mut slot)?;
+        if next.legacy_done {
+            return Ok(0);
+        }
+        let mut moved = 0;
+        for key in keys {
+            if next.secrets.contains_key(key) || next.removed.contains(key) {
+                continue;
+            }
+            match legacy.get(key) {
+                Ok(Some(secret)) => {
+                    next.secrets.insert(key.clone(), secret);
+                    moved += 1;
+                }
+                Ok(None) => {
+                    next.removed.insert(key.clone());
+                }
+                Err(error) => {
+                    self.save(&mut slot, next)?;
+                    return Err(error);
+                }
+            }
+        }
+        // 搬完了:墓碑只是为了不再去钥匙串找,用不着了。
+        next.legacy_done = true;
+        next.removed.clear();
+        self.save(&mut slot, next)?;
+        Ok(moved)
+    }
+
+    /// 还要不要去钥匙串找:有旧的来源、还没搬完。
+    fn consults_legacy(&self, stored: &Stored) -> bool {
+        self.legacy.is_some() && !stored.legacy_done
     }
 
     fn lock(&self) -> CoreResult<MutexGuard<'_, Option<Stored>>> {
@@ -122,7 +170,7 @@ impl SecretStore for FileSecretStore {
         if let Some(secret) = stored.secrets.get(key) {
             return Ok(Some(secret.clone()));
         }
-        let Some(legacy) = &self.legacy else {
+        let Some(legacy) = self.legacy.as_ref().filter(|_| !stored.legacy_done) else {
             return Ok(None);
         };
         if stored.removed.contains(key) {
@@ -157,15 +205,14 @@ impl SecretStore for FileSecretStore {
     fn delete(&self, key: &str) -> CoreResult<()> {
         let mut slot = self.lock()?;
         let stored = self.load(&mut slot)?;
-        // 本来就没有、也已经记过不用去钥匙串找的:不必再写一遍文件。
-        if !stored.secrets.contains_key(key)
-            && (self.legacy.is_none() || stored.removed.contains(key))
-        {
+        // 本来就没有、也不用担心钥匙串里那条「复活」的:不必再写一遍文件。
+        let tombstone = self.consults_legacy(&stored);
+        if !stored.secrets.contains_key(key) && (!tombstone || stored.removed.contains(key)) {
             return Ok(());
         }
         let mut next = stored;
         next.secrets.remove(key);
-        if self.legacy.is_some() {
+        if tombstone {
             next.removed.insert(key.to_owned());
         }
         self.save(&mut slot, next)

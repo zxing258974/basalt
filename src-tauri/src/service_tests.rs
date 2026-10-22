@@ -502,3 +502,37 @@ async fn postgres_prompted_password_opens_without_saving() {
     );
     service::close_connection(&h.state, &saved.id).await;
 }
+
+#[tokio::test]
+async fn saved_secret_keys_follow_the_config() {
+    let h = harness().await;
+    let kept = service::save_connection(&h.state, pg_draft(Some("pw"), true))
+        .await
+        .unwrap();
+    service::save_connection(&h.state, pg_draft(None, false))
+        .await
+        .unwrap();
+    service::save_connection(&h.state, sqlite_draft(&h.sqlite_path))
+        .await
+        .unwrap();
+    let model = service::llm::save_llm_model(
+        &h.state,
+        basalt_core::llm::config::LlmModelDraft {
+            id: None,
+            name: "本机".into(),
+            protocol: basalt_core::llm::Protocol::Openai,
+            base_url: "https://api.example.com/v1".into(),
+            model: "test".into(),
+            max_tokens: None,
+            temperature: None,
+            api_key: Some("sk-1".into()),
+        },
+    )
+    .await
+    .unwrap();
+    // 只有存了密码的连接和有 Key 的模型:搬钥匙串时就按这个清单,删掉的连接不在里面。
+    assert_eq!(
+        h.state.saved_secret_keys().unwrap(),
+        [password_key(&kept.id), format!("llm:{}:api_key", model.id)]
+    );
+}

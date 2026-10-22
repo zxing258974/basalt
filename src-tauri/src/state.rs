@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use basalt_core::config::{ConnectionConfig, ConnectionList, ConnectionRepository};
-use basalt_core::llm::config::LlmRepository;
+use basalt_core::llm::config::{LlmRepository, api_key_slot};
 use basalt_core::query::history::HistoryStore;
 use basalt_core::query::saved::SavedQueryStore;
 use basalt_core::secret::{SecretStore, password_key, ssh_secret_key};
@@ -118,5 +118,25 @@ impl AppState {
             Some(tunnel) if tunnel.save_secret => self.secrets.get(&ssh_secret_key(&config.id)),
             _ => Ok(None),
         }
+    }
+
+    /// 配置里说存过的所有密码的键:存了密码的连接、存了 SSH 密码 / 口令的隧道、有 API Key 的模型。
+    /// 启动时按它把钥匙串里的旧密码一次搬完;已经删掉的连接不在里面,它的旧密码不会搬进明文文件。
+    pub fn saved_secret_keys(&self) -> CoreResult<Vec<String>> {
+        let mut keys = Vec::new();
+        for config in self.load()?.connections {
+            if config.save_password {
+                keys.push(password_key(&config.id));
+            }
+            if config.ssh.as_ref().is_some_and(|tunnel| tunnel.save_secret) {
+                keys.push(ssh_secret_key(&config.id));
+            }
+        }
+        for model in self.llm.load()?.models {
+            if model.has_api_key {
+                keys.push(api_key_slot(&model.id));
+            }
+        }
+        Ok(keys)
     }
 }

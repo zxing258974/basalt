@@ -18,8 +18,8 @@ use tauri::Manager;
 const KEYCHAIN_SERVICE: &str = "dev.basalt.app";
 
 /// 密码和 API Key 放哪儿:配置目录的 secrets.json,只有当前用户能读写。不用钥匙串,也就不弹授权框。
-/// 以前存在钥匙串里的(macOS 合成的那一条和更早的单条;Windows 凭据管理器),第一次用到时只读地搬过来一次。
-fn secret_store(config_dir: &std::path::Path) -> Arc<dyn SecretStore> {
+/// 以前存在钥匙串里的(macOS 合成的那一条和更早的单条;Windows 凭据管理器)启动时一次只读地搬过来。
+fn secret_store(config_dir: &std::path::Path) -> Arc<FileSecretStore> {
     let legacy = KeychainStore::new(KEYCHAIN_SERVICE);
     #[cfg(target_os = "macos")]
     let legacy = basalt_core::secret::VaultSecretStore::new(
@@ -28,6 +28,23 @@ fn secret_store(config_dir: &std::path::Path) -> Arc<dyn SecretStore> {
     )
     .read_only();
     Arc::new(FileSecretStore::new(config_dir.join("secrets.json")).with_legacy(Box::new(legacy)))
+}
+
+/// 把钥匙串里的旧密码一次搬完:授权框都在启动时弹,之后再也不碰钥匙串。
+/// 读钥匙串会阻塞到用户点完授权框,放到后台线程;先打开的连接要密码时等这把锁,不会再弹一次。
+fn migrate_legacy_secrets(state: &state::AppState, secrets: Arc<FileSecretStore>) {
+    let keys = match state.saved_secret_keys() {
+        Ok(keys) => keys,
+        Err(error) => {
+            log::warn!("读配置失败，这次不搬钥匙串里的旧密码：{error}");
+            return;
+        }
+    };
+    tauri::async_runtime::spawn_blocking(move || match secrets.migrate_legacy(&keys) {
+        Ok(0) => {}
+        Ok(moved) => log::info!("从钥匙串搬过来 {moved} 条密码"),
+        Err(error) => log::warn!("从钥匙串搬旧密码没搬完，下次启动接着搬：{error}"),
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -55,10 +72,13 @@ pub fn run() {
                 webview_windows::disable_browser_shortcuts(&window);
             }
             let config_dir = app.path().app_config_dir()?;
-            app.manage(state::AppState::new(
+            let secrets = secret_store(&config_dir);
+            let state = state::AppState::new(
                 config_dir.join("connections.json"),
-                secret_store(&config_dir),
-            ));
+                secrets.clone() as Arc<dyn SecretStore>,
+            );
+            migrate_legacy_secrets(&state, secrets);
+            app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

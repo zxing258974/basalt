@@ -26,12 +26,14 @@ import type {
   QueryImportCandidate,
   QueryImportReport,
   QueryScope,
+  ResultSort,
   SavedQueryInfo,
   SavedQueryRef,
   StatementOutcome,
 } from "./queryTypes";
 import type {
   ApplyOutcome,
+  CellValue,
   ClearMode,
   ClearTableOutcome,
   ColumnInfo,
@@ -122,6 +124,16 @@ export interface Backend {
   runStatement(editorId: string, connectionId: string, scope: QueryScope, sql: string): Promise<StatementOutcome>;
   /** 取消标签页正在执行的语句;没有在执行时返回 false。 */
   cancelStatement(editorId: string): Promise<boolean>;
+  /** 取结果集里从 offset 起的 limit 行;给了排序就按排序后的顺序。 */
+  resultRows(
+    editorId: string,
+    resultId: number,
+    offset: number,
+    limit: number,
+    sort: ResultSort | null,
+  ): Promise<CellValue[][]>;
+  /** 不再显示的结果:让后端放掉它们占的内存。 */
+  releaseResults(editorId: string, resultIds: number[]): Promise<void>;
   /** 标签页关了,断开它的专用连接。 */
   closeEditor(editorId: string): Promise<void>;
   /** 补全用的列名。 */
@@ -268,6 +280,9 @@ function createTauriBackend(): Backend {
     },
     runStatement: (editorId, connectionId, scope, sql) => call("run_statement", { editorId, connectionId, scope, sql }),
     cancelStatement: (editorId) => call("cancel_statement", { editorId }),
+    resultRows: (editorId, resultId, offset, limit, sort) =>
+      call("result_rows", { editorId, resultId, offset, limit, sort }),
+    releaseResults: (editorId, resultIds) => call("release_results", { editorId, resultIds }),
     closeEditor: (editorId) => call("close_editor", { editorId }),
     listColumns: (id, table) => call("list_columns", { id, table }),
     searchHistory: (query, connectionId, limit) => call("search_history", { query, connectionId, limit }),

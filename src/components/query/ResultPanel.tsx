@@ -3,6 +3,7 @@ import { Button } from "../ui/Button";
 import { MessagesView } from "./MessagesView";
 import { ResultGrid } from "./ResultGrid";
 import { resultTabs, type ResultTab, type RunState } from "./runModel";
+import type { SqlDialect } from "./splitStatements";
 import { shortcut } from "../../lib/platform";
 
 export const MESSAGES = "messages";
@@ -15,10 +16,25 @@ interface ResultPanelProps {
   onActiveChange(key: string): void;
   /** 导出选中的结果集。 */
   onExport(tab: ResultTab): void;
+  editorId: string;
+  connectionId: string;
+  dialect: SqlDialect;
+  /** 连接关着:结果先不让改。 */
+  closed: boolean;
+  /** 选中的结果里没提交的修改行数:有修改时不能换标签(换了表格就没了,修改也跟着丢)。 */
+  pending: number;
+  /** 提交修改后留给新结果的说明,按结果标签认。 */
+  notice: { key: string; text: string } | null;
+  onPendingChange(count: number): void;
+  /** 结果里的修改提交了:重新执行这条语句。 */
+  onCommitted(tab: ResultTab, message: string): Promise<void>;
 }
 
+const LOCKED = "先提交或撤销这个结果里的修改";
+
 /** 编辑器下面的结果区:每个结果集一个标签,最后是「消息」。 */
-export function ResultPanel({ title, run, active, onActiveChange, onExport }: ResultPanelProps) {
+export function ResultPanel(props: ResultPanelProps) {
+  const { title, run, active, onActiveChange, onExport, pending } = props;
   const tabs = resultTabs(run.entries);
   if (run.entries.length === 0) {
     return (
@@ -42,18 +58,21 @@ export function ResultPanel({ title, run, active, onActiveChange, onExport }: Re
             role="tab"
             aria-selected={shown?.key === tab.key}
             className="query-result-tab"
-            title={tab.sql}
+            title={pending > 0 && shown?.key !== tab.key ? LOCKED : tab.sql}
+            disabled={pending > 0 && shown?.key !== tab.key}
             onClick={() => onActiveChange(tab.key)}
           >
             <Table2 aria-hidden />
             {tab.label}
-            <span className="query-result-count mono">{tab.set.rows.length}</span>
+            <span className="query-result-count mono">{tab.set.totalRows}</span>
           </button>
         ))}
         <button
           role="tab"
           aria-selected={shown === null}
           className={failed ? "query-result-tab has-problem" : "query-result-tab"}
+          title={pending > 0 ? LOCKED : undefined}
+          disabled={pending > 0}
           onClick={() => onActiveChange(MESSAGES)}
         >
           {failed && <TriangleAlert aria-hidden />}
@@ -66,7 +85,13 @@ export function ResultPanel({ title, run, active, onActiveChange, onExport }: Re
             size="sm"
             icon={<FileDown />}
             disabled={run.running}
-            title={shown.set.truncated ? "导出时会重新执行这条语句，读出全部结果" : "导出这个结果集"}
+            title={
+              shown.set.truncated
+                ? "导出时会重新执行这条语句，读出全部结果"
+                : pending > 0
+                  ? "导出的是执行时读到的结果，不含还没提交的修改"
+                  : "导出这个结果集"
+            }
             onClick={() => onExport(shown)}
           >
             导出
@@ -75,7 +100,19 @@ export function ResultPanel({ title, run, active, onActiveChange, onExport }: Re
       </div>
       <div className="query-result-body" role="tabpanel">
         {shown ? (
-          <ResultGrid key={shown.key} set={shown.set} label={`${title} 的${shown.label}`} />
+          <ResultGrid
+            key={`${shown.key}:${shown.set.id}`}
+            editorId={props.editorId}
+            connectionId={props.connectionId}
+            dialect={props.dialect}
+            sql={shown.sql}
+            set={shown.set}
+            label={`${title} 的${shown.label}`}
+            frozen={run.running || props.closed}
+            notice={props.notice?.key === shown.key ? props.notice.text : null}
+            onPendingChange={props.onPendingChange}
+            onCommitted={(message) => props.onCommitted(shown, message)}
+          />
         ) : (
           <MessagesView run={run} />
         )}

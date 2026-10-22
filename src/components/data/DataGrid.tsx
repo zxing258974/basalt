@@ -26,6 +26,8 @@ const HEADER_HEIGHT = 40;
 const GUTTER_WIDTH = 56;
 /** 估初始列宽时看前多少行。 */
 const WIDTH_SAMPLE_ROWS = 50;
+/** 渲染到离最后一行这么近时就说一声,好提前取下一批。 */
+const NEAR_END_ROWS = 100;
 
 export interface GridActions {
   setCell(target: RowTarget, column: string, value: EditInput): void;
@@ -56,6 +58,8 @@ interface DataGridProps {
   focusRequest: number;
   /** 换页、筛选、排序时变化,表格回到顶部;提交后重读不变,停在原处。 */
   scrollKey: string;
+  /** 滚到离最后一行不远时调用:查询结果据此向后端要下一批行。 */
+  onNearEnd?(): void;
 }
 
 function measureWidths(page: TablePage): number[] {
@@ -258,6 +262,11 @@ export function DataGrid(props: DataGridProps) {
 
   // 虚拟滚动会卸载看不见的行:选中行不在渲染范围里时不能指向一个不存在的 id。
   const virtualRows = virtualizer.getVirtualItems();
+  const lastRendered = virtualRows.at(-1)?.index ?? -1;
+  const { onNearEnd } = props;
+  useEffect(() => {
+    if (onNearEnd && rows.length > 0 && lastRendered >= rows.length - NEAR_END_ROWS) onNearEnd();
+  }, [onNearEnd, lastRendered, rows.length]);
   const activeCell =
     selection && !editing && virtualRows.some((item) => item.index === selection.row)
       ? cellId(gridId, selection.row, selection.col)

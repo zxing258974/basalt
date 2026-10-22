@@ -10,6 +10,7 @@ use super::writer::{OutputFile, RowWriter, open_writer};
 use super::{ExportColumn, ExportFormat, ExportOptions};
 use crate::error::{CoreError, CoreResult};
 use crate::query::lease::{ExecError, RowSink, StreamEnd, StreamQuery};
+use crate::query::results::MAX_BATCH;
 use crate::query::{QueryScope, ResultColumn, leading_keyword};
 use crate::session::SessionManager;
 use crate::sql::Dialect;
@@ -29,18 +30,19 @@ pub enum ExportSource {
         #[serde(default)]
         sort: Option<SortSpec>,
     },
-    /// 查询结果超出显示上限:在查询标签页自己的连接上重新执行这条语句,读出全部结果。
+    /// 查询结果太大、后端没存全:在查询标签页自己的连接上重新执行这条语句,读出全部结果。
     #[serde(rename_all = "camelCase")]
     Query {
         editor_id: String,
         scope: QueryScope,
         sql: String,
     },
-    /// 查询结果已经完整显示了:直接写这些行,不再执行一遍。
+    /// 后端存着的完整查询结果:直接写出来,不再执行一遍。
     #[serde(rename_all = "camelCase")]
-    Rows {
+    Result {
+        editor_id: String,
+        result_id: u64,
         columns: Vec<ResultColumn>,
-        rows: Vec<Vec<CellValue>>,
     },
 }
 
@@ -220,13 +222,27 @@ pub async fn run_export(
     let writer = open_writer(&output, &request.options, dialect, &sheet)?;
     let mut sink = WriterSink::new(writer, cancel, throttle);
     let notice = match &request.source {
-        ExportSource::Rows { columns, rows } => {
+        ExportSource::Result {
+            editor_id,
+            result_id,
+            columns,
+        } => {
             sink.columns(columns)?;
-            for row in rows {
-                if cancel.is_cancelled() {
-                    return Err(CoreError::Cancelled);
+            let mut offset = 0;
+            loop {
+                let rows = sessions
+                    .result_rows(editor_id, *result_id, offset, MAX_BATCH, None)
+                    .await?;
+                if rows.is_empty() {
+                    break;
                 }
-                sink.row(row.clone())?;
+                offset += rows.len();
+                for row in rows {
+                    if cancel.is_cancelled() {
+                        return Err(CoreError::Cancelled);
+                    }
+                    sink.row(row)?;
+                }
             }
             None
         }

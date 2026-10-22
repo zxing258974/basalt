@@ -64,8 +64,8 @@ export function formatMs(ms: number): string {
 }
 
 function rowsText(sets: readonly ResultSet[]): string {
-  const rows = sets.reduce((sum, set) => sum + set.rows.length, 0);
-  const cut = sets.some((set) => set.truncated) ? "（超出上限，后面的行没有带回来）" : "";
+  const rows = sets.reduce((sum, set) => sum + set.totalRows, 0);
+  const cut = sets.some((set) => set.truncated) ? "（结果太大，后面的行没有保留）" : "";
   const many = sets.length > 1 ? `${sets.length} 个结果集，共 ` : "";
   return `${many}${rows} 行${cut}`;
 }
@@ -102,6 +102,8 @@ export function runSummary(state: RunState): string {
 export interface ResultTab {
   key: string;
   label: string;
+  /** 第几条语句的结果(重新执行时用)。 */
+  entry: number;
   /** 产生它的那条语句,标签的提示里显示。 */
   sql: string;
   /** 执行那条语句时所在的库 / schema:导出全部结果要重新执行时回到这里,不跟着标签页后来换的库走。 */
@@ -116,6 +118,7 @@ export function resultTabs(entries: readonly RunEntry[]): ResultTab[] {
       (entry.outcome?.resultSets ?? []).map((set, j) => ({
         key: `r${i}-${j}`,
         label: "",
+        entry: i,
         sql: entry.sql,
         scope: entry.outcome!.scope,
         set,

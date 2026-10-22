@@ -1,9 +1,11 @@
-//! SQL 编辑器的命令:执行与取消、补全用的列信息、执行历史、保存的查询。
+//! SQL 编辑器的命令:执行与取消、往下翻结果、补全用的列信息、执行历史、保存的查询。
 
 use basalt_core::query::history::HistoryEntry;
+use basalt_core::query::results::ResultSort;
 use basalt_core::query::saved::{SavedQueryInfo, SavedQueryRef};
 use basalt_core::query::{QueryScope, StatementOutcome};
 use basalt_core::table::{ColumnInfo, TableRef};
+use basalt_core::value::CellValue;
 
 use super::CommandResult;
 use crate::state::AppState;
@@ -36,6 +38,24 @@ pub async fn run_statement(
 
 pub async fn cancel_statement(state: &AppState, editor_id: &str) -> CommandResult<bool> {
     Ok(state.sessions.cancel_query(editor_id).await?)
+}
+
+pub async fn result_rows(
+    state: &AppState,
+    editor_id: &str,
+    result_id: u64,
+    offset: usize,
+    limit: usize,
+    sort: Option<ResultSort>,
+) -> CommandResult<Vec<Vec<CellValue>>> {
+    Ok(state
+        .sessions
+        .result_rows(editor_id, result_id, offset, limit, sort)
+        .await?)
+}
+
+pub fn release_results(state: &AppState, editor_id: &str, result_ids: &[u64]) {
+    state.sessions.release_results(editor_id, result_ids);
 }
 
 pub async fn close_editor(state: &AppState, editor_id: &str) {

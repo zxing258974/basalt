@@ -11,6 +11,7 @@ use basalt_core::llm::client::TestReply;
 use basalt_core::llm::config::{LlmModel, LlmModelDraft, LlmSettings};
 use basalt_core::llm::outline::OutlineTable;
 use basalt_core::query::history::HistoryEntry;
+use basalt_core::query::results::ResultSort;
 use basalt_core::query::saved::{SavedQueryInfo, SavedQueryRef};
 use basalt_core::query::{QueryScope, StatementOutcome};
 use basalt_core::table::{ApplyOutcome, ColumnInfo, PageRequest, RowChange, TablePage, TableRef};
@@ -25,6 +26,7 @@ use basalt_core::transfer::progress::Progress;
 use basalt_core::transfer::report::ImportFailure;
 use basalt_core::transfer::source::SourceSpec;
 use basalt_core::tunnel::HostKey;
+use basalt_core::value::CellValue;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -391,6 +393,29 @@ pub async fn cancel_statement(
     editor_id: String,
 ) -> CommandResult<bool> {
     service::query::cancel_statement(&state, &editor_id).await
+}
+
+#[tauri::command]
+pub async fn result_rows(
+    state: State<'_, AppState>,
+    editor_id: String,
+    result_id: u64,
+    offset: usize,
+    limit: usize,
+    sort: Option<ResultSort>,
+) -> CommandResult<Vec<Vec<CellValue>>> {
+    service::query::result_rows(&state, &editor_id, result_id, offset, limit, sort).await
+}
+
+/// 异步命令在后台线程上跑:同步命令在主线程上,释放很大的结果会卡住界面。
+#[tauri::command]
+pub async fn release_results(
+    state: State<'_, AppState>,
+    editor_id: String,
+    result_ids: Vec<u64>,
+) -> CommandResult<()> {
+    service::query::release_results(&state, &editor_id, &result_ids);
+    Ok(())
 }
 
 #[tauri::command]

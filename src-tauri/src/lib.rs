@@ -100,6 +100,8 @@ pub fn run() {
             commands::import_connections,
             commands::run_statement,
             commands::cancel_statement,
+            commands::result_rows,
+            commands::release_results,
             commands::close_editor,
             commands::list_columns,
             commands::search_history,

@@ -185,11 +185,11 @@ describe("exporting", { timeout: 15_000 }, () => {
     await screen.findByRole("grid", { name: "查询 1 的结果 1" });
     await user.click(screen.getByRole("button", { name: "导出" }));
     const view = within(await dialog("导出数据"));
-    expect(view.getByText("导出显示的全部 5 行。")).toBeInTheDocument();
+    expect(view.getByText("导出执行时读到的全部 5 行。")).toBeInTheDocument();
     await user.click(view.getByRole("button", { name: "导出…" }));
     await dialog("导出完成");
     const request = exportData.mock.calls[0]![1];
-    expect(request.source.kind).toBe("rows");
+    expect(request.source.kind).toBe("result");
     expect(request.path).toBe("/Users/me/Downloads/customers.csv");
   });
 });

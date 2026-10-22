@@ -57,11 +57,12 @@ function preview(path: string, columns: ColumnInfo[], hasHeader: boolean, sheet:
 
 /**
  * `rowsOf`:清空过的表现在有几行(没清空过的返回 undefined,按示例表假装的行数算),
- * 导出、转储报的行数和对象列表一致。
+ * 导出、转储报的行数和对象列表一致。`resultSize`:查询标签页存着的结果有几行。
  */
 export function createMockTransfer(
   wait: (ms?: number) => Promise<unknown>,
   rowsOf: (connectionId: string, table: TableRef) => number | undefined = () => undefined,
+  resultSize: (editorId: string, resultId: number) => number | undefined = () => undefined,
 ): TransferApi {
   const listeners = new Set<(progress: TransferProgress) => void>();
   const running = new Map<string, { cancelled: boolean }>();
@@ -100,8 +101,8 @@ export function createMockTransfer(
     async exportData(jobId, request) {
       const { source } = request;
       const rows =
-        source.kind === "rows"
-          ? source.rows.length
+        source.kind === "result"
+          ? (resultSize(source.editorId, source.resultId) ?? 0)
           : source.kind === "table"
             ? tableRows(request.connectionId, source.table)
             : 12_480;

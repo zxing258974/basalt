@@ -206,7 +206,7 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
   /** 清空过的表现在的行数:对象列表、导出、转储都按它报。 */
   const rowCounts = new Map<string, number>();
   const rowKey = (id: string, ref: TableRef) => [id, ref.database, ref.schema ?? "", ref.table].join("\u0000");
-  const transfer = createMockTransfer(wait, (id, ref) => rowCounts.get(rowKey(id, ref)));
+  const transfer = createMockTransfer(wait, (id, ref) => rowCounts.get(rowKey(id, ref)), queries.resultSize);
   const llm = createMockLlm(wait);
   /** 上次开着的标签页,和后端的 workspace.json 一样只认 JSON 对象。 */
   let workspace: string | null = null;
@@ -491,6 +491,9 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       return queries.runStatement(editorId, connectionId, scope, sql);
     },
     cancelStatement: (editorId) => queries.cancelStatement(editorId),
+    resultRows: (editorId, resultId, offset, limit, sort) =>
+      queries.resultRows(editorId, resultId, offset, limit, sort),
+    releaseResults: (editorId, resultIds) => queries.releaseResults(editorId, resultIds),
     closeEditor: (editorId) => queries.closeEditor(editorId),
     async listColumns(id, table) {
       await wait(40);

@@ -12,8 +12,7 @@ use sqlx::{Connection, Executor};
 use super::sqlite::SqliteSession;
 use super::sqlite_data::decode_cell;
 use crate::error::CoreResult;
-use crate::query::ResultColumn;
-use crate::query::collect::{Collected, collect, described_columns};
+use crate::query::collect::{Collected, CollectedSet, collect, described_set, named_origin};
 use crate::sql::dynamic;
 
 /// 每执行这么多条虚拟机指令检查一次取消标志:够及时,又几乎不拖慢执行。
@@ -48,6 +47,7 @@ impl SqliteEditor {
         let collected = collect(
             stream,
             decode_cell,
+            named_origin,
             sqlx::sqlite::SqliteQueryResult::rows_affected,
         )
         .await;
@@ -58,8 +58,8 @@ impl SqliteEditor {
         collected
     }
 
-    pub(crate) async fn describe(&mut self, sql: &str) -> Vec<ResultColumn> {
-        described_columns((&mut self.conn).prepare(dynamic(sql)).await)
+    pub(crate) async fn describe(&mut self, sql: &str) -> Option<CollectedSet> {
+        described_set((&mut self.conn).prepare(dynamic(sql)).await, named_origin)
     }
 
     pub(crate) async fn ping(&mut self) -> bool {

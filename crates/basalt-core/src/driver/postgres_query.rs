@@ -3,14 +3,13 @@
 //! 简单查询协议的结果都是文本格式,数组、区间、枚举这些驱动不认识的类型也能原样显示;
 //! 按结果列的类型转成 [`CellValue`]。一个连接只能连一个库,换库得换连接。
 
-use sqlx::postgres::{PgConnection, PgPool, PgRow, PgValueFormat};
+use sqlx::postgres::{PgColumn, PgConnection, PgPool, PgRow, PgValueFormat};
 use sqlx::{Connection, Executor, Row, TypeInfo, ValueRef};
 
 use super::postgres::PgSession;
 use super::postgres_data;
 use crate::error::{CoreError, CoreResult};
-use crate::query::ResultColumn;
-use crate::query::collect::{Collected, collect, described_columns};
+use crate::query::collect::{Collected, CollectedSet, RawOrigin, collect, described_set};
 use crate::sql::{Dialect, dynamic, quote_ident};
 use crate::value::{CellValue, from_hex};
 
@@ -20,7 +19,49 @@ pub(crate) struct PgEditor {
     database: String,
 }
 
+/// 结果列在表里的名字:(schema, 表名, 列名),以及是不是临时表。
+pub(crate) type RelationName = (String, String, String, bool);
+
 impl PgSession {
+    /// 把 (表 OID, 列号) 换成表名、列名。在连接池上查系统目录,不碰查询标签页的会话
+    /// (标签页可能开着事务,这里出错会让那个事务整个失效)。临时表在别的会话里也查得到名字。
+    pub(crate) async fn relation_names(
+        &self,
+        database: &str,
+        relations: &[(u32, i16)],
+    ) -> CoreResult<Vec<((u32, i16), RelationName)>> {
+        let oids: Vec<i64> = relations.iter().map(|(oid, _)| i64::from(*oid)).collect();
+        let attnums: Vec<i16> = relations.iter().map(|(_, attnum)| *attnum).collect();
+        let pool = self.pool(database).await?;
+        let rows = sqlx::query(
+            "SELECT w.rel, w.num, n.nspname::text, c.relname::text, a.attname::text,
+                    c.relpersistence = 't'
+             FROM unnest($1::int8[], $2::int2[]) AS w(rel, num)
+             JOIN pg_attribute a ON a.attrelid = w.rel::oid AND a.attnum = w.num
+             JOIN pg_class c ON c.oid = a.attrelid
+             JOIN pg_namespace n ON n.oid = c.relnamespace",
+        )
+        .bind(oids)
+        .bind(attnums)
+        .fetch_all(&pool)
+        .await?;
+        rows.iter()
+            .map(|row| {
+                let oid: i64 = row.try_get(0)?;
+                Ok((
+                    (u32::try_from(oid).unwrap_or_default(), row.try_get(1)?),
+                    (
+                        row.try_get(2)?,
+                        row.try_get(3)?,
+                        row.try_get(4)?,
+                        row.try_get(5)?,
+                    ),
+                ))
+            })
+            .collect::<Result<_, sqlx::Error>>()
+            .map_err(Into::into)
+    }
+
     /// 从这个库的池里取一条连接并脱离连接池,只归这个查询标签页用。`None` 是连接的默认库。
     pub(crate) async fn open_editor(&self, database: Option<&str>) -> CoreResult<PgEditor> {
         let database = database.unwrap_or(self.default_database()).to_owned();
@@ -70,13 +111,14 @@ impl PgEditor {
         collect(
             stream,
             decode_text_cell,
+            pg_origin,
             sqlx::postgres::PgQueryResult::rows_affected,
         )
         .await
     }
 
-    pub(crate) async fn describe(&mut self, sql: &str) -> Vec<ResultColumn> {
-        described_columns((&mut self.conn).prepare(dynamic(sql)).await)
+    pub(crate) async fn describe(&mut self, sql: &str) -> Option<CollectedSet> {
+        described_set((&mut self.conn).prepare(dynamic(sql)).await, pg_origin)
     }
 
     pub(crate) async fn ping(&mut self) -> bool {
@@ -115,6 +157,14 @@ pub(crate) async fn cancel_backend(pool: &PgPool, pid: i32) -> CoreResult<()> {
         Err(CoreError::Database(
             "数据库没有接受取消请求，可能是当前用户没有权限取消这条语句。".into(),
         ))
+    }
+}
+
+/// 结果列来自哪张表的哪一列:RowDescription 里带着表的 OID 和列号,表达式列两个都是 0。
+fn pg_origin(column: &PgColumn) -> RawOrigin {
+    match (column.relation_id(), column.relation_attribute_no()) {
+        (Some(oid), Some(attnum)) if attnum > 0 => RawOrigin::Relation { oid: oid.0, attnum },
+        _ => RawOrigin::None,
     }
 }
 

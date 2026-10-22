@@ -139,6 +139,10 @@ impl PgSession {
         let pool = self.pool(database).await?;
         let mut transaction = pool.begin().await?;
         let result = async {
+            // PostgreSQL 默认一直等行锁;锁着这些行的可能正是某个查询标签页里没提交的事务,等下去就卡死了。
+            sqlx::query(EDIT_LOCK_WAIT)
+                .execute(&mut *transaction)
+                .await?;
             let mut affected = 0;
             for (index, statement) in statements.iter().enumerate() {
                 let sql = statement.sql();
@@ -149,7 +153,7 @@ impl PgSession {
                 let done = query
                     .execute(&mut *transaction)
                     .await
-                    .map_err(|error| statement_failed(index, error))?;
+                    .map_err(|error| edit_failed(index, error))?;
                 check_affected(index, done.rows_affected())?;
                 affected += done.rows_affected();
             }
@@ -158,6 +162,24 @@ impl PgSession {
         .await;
         finish_transaction(transaction, result).await
     }
+}
+
+/// 提交修改时等行锁最多这么久。
+const EDIT_LOCK_WAIT: &str = "SET LOCAL lock_timeout = '10s'";
+
+/// 等行锁超时(55P03)时说清楚是谁可能锁着。
+fn edit_failed(index: usize, error: sqlx::Error) -> CoreError {
+    let locked = error
+        .as_database_error()
+        .is_some_and(|db| db.code().as_deref() == Some("55P03"));
+    if locked {
+        return CoreError::Database(format!(
+            "第 {} 条语句等了 10 秒还没拿到行锁，所有修改都已回滚：这些行正被别的会话锁着\
+             （比如查询标签页里没提交的事务），先在那边提交或回滚再试。",
+            index + 1
+        ));
+    }
+    statement_failed(index, error)
 }
 
 pub(super) fn bind(

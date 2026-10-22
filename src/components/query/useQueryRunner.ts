@@ -1,4 +1,5 @@
 // 一条一条地执行语句:每条执行完就显示结果,出错或取消就停,后面的不再执行。
+// 结果完整地存在后端;不再显示的(重新执行、换掉了)让后端放掉。
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { catalogKeys } from "../../hooks/useCatalog";
@@ -19,10 +20,21 @@ function replaceLast(state: RunState, entry: RunEntry): RunState {
   return { ...state, entries: [...state.entries.slice(0, -1), entry] };
 }
 
+const resultIds = (entries: readonly RunEntry[]) =>
+  entries.flatMap((e) => e.outcome?.resultSets.map((s) => s.id) ?? []);
+
+function release(editorId: string, ids: number[]) {
+  if (ids.length === 0) return;
+  void getBackend()
+    .then((backend) => backend.releaseResults(editorId, ids))
+    .catch((error: unknown) => console.warn("释放查询结果失败", error));
+}
+
 export function useQueryRunner(tab: QueryTab) {
   const queryClient = useQueryClient();
   const updateQuery = useTabs((s) => s.updateQuery);
   const [run, setRun] = useState<RunState>(IDLE);
+  const shown = useRef<RunState>(IDLE);
   const running = useRef(false);
   const cancelled = useRef(false);
   // 执行中途标签页的库可能变(USE 之后),下一条要带上新的。
@@ -47,8 +59,10 @@ export function useQueryRunner(tab: QueryTab) {
       let state: RunState = { running: true, total: statements.length, entries: [], cancelRequested: false };
       const commit = (next: RunState) => {
         state = next;
+        shown.current = next;
         setRun(next);
       };
+      release(tab.id, resultIds(shown.current.entries));
       commit(state);
       const backend = await getBackend();
       for (const statement of statements) {
@@ -78,6 +92,38 @@ export function useQueryRunner(tab: QueryTab) {
     [queryClient, tab.connectionId, tab.id, updateQuery],
   );
 
+  /**
+   * 重新执行产生第 `index` 条结果的语句,换上新结果(改过结果、提交以后)。
+   * 回到那条语句当时所在的库执行;标签页的库不跟着变,下一次执行时连接自己会切回来。
+   */
+  const rerun = useCallback(
+    async (index: number) => {
+      const entry = shown.current.entries[index];
+      if (running.current || !entry?.outcome) return;
+      running.current = true;
+      const update = (next: RunState) => {
+        shown.current = next;
+        setRun(next);
+      };
+      update({ ...shown.current, running: true, cancelRequested: false });
+      let replaced: RunEntry;
+      try {
+        const outcome = await (
+          await getBackend()
+        ).runStatement(tab.id, tab.connectionId, entry.outcome.scope, entry.sql);
+        replaced = { sql: entry.sql, outcome, failure: null };
+      } catch (error) {
+        replaced = { sql: entry.sql, outcome: null, failure: errorMessage(error) };
+      }
+      running.current = false;
+      const entries = shown.current.entries.map((e, i) => (i === index ? replaced : e));
+      update({ ...shown.current, entries, running: false });
+      release(tab.id, resultIds([entry]));
+      void queryClient.invalidateQueries({ queryKey: ["history"] });
+    },
+    [queryClient, tab.connectionId, tab.id],
+  );
+
   /** 停在当前这条:让数据库中止它,后面的不再执行。 */
   const cancel = useCallback(async () => {
     if (!running.current || cancelled.current) return;
@@ -91,5 +137,5 @@ export function useQueryRunner(tab: QueryTab) {
     }
   }, [tab.id]);
 
-  return { run, execute, cancel };
+  return { run, execute, rerun, cancel };
 }

@@ -101,7 +101,7 @@ export function defaultRange(target: ExportTarget): RangeChoice {
   return target.scope.kind === "table" && target.scope.filter ? "filtered" : "all";
 }
 
-/** 交给后端的数据来源。查询结果没超出显示上限就直接写显示的行,不再执行一遍。 */
+/** 交给后端的数据来源。查询结果后端存全了就直接写出来,不再执行一遍。 */
 export function buildSource(target: ExportTarget, range: RangeChoice): ExportSource {
   const { scope } = target;
   if (scope.kind === "table") {
@@ -114,14 +114,14 @@ export function buildSource(target: ExportTarget, range: RangeChoice): ExportSou
     };
   }
   if (scope.set.truncated) return { kind: "query", editorId: scope.editorId, scope: scope.scope, sql: scope.sql };
-  return { kind: "rows", columns: scope.set.columns, rows: scope.set.rows };
+  return { kind: "result", editorId: scope.editorId, resultId: scope.set.id, columns: scope.set.columns };
 }
 
 /** 查询结果的导出范围说明。 */
 export function querySummary(set: ResultSet): string {
   return set.truncated
-    ? "结果超出了显示上限：导出时会在这个查询标签页的连接上重新执行这条语句，读出全部结果。"
-    : `导出显示的全部 ${formatCount(set.rows.length)} 行。`;
+    ? "结果太大，只保留了一部分：导出时会在这个查询标签页的连接上重新执行这条语句，读出全部结果。"
+    : `导出执行时读到的全部 ${formatCount(set.totalRows)} 行。`;
 }
 
 /** SQL INSERT 默认的表名:语句里只有一张表时用它,否则 query_result。 */

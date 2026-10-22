@@ -1,57 +1,50 @@
 import { describe, expect, it } from "vitest";
+import type { ResultSet } from "../../lib/queryTypes";
 import type { CellValue } from "../../lib/types";
-import { compareCells, RESULT_READ_ONLY, resultPage, sortKey, sortRows } from "./resultModel";
+import { batchSize, resultPage, sortKey, toResultSort } from "./resultModel";
 
 const int = (n: number): CellValue => ({ kind: "int", value: String(n) });
-const text = (value: string): CellValue => ({ kind: "text", value });
-const NULL: CellValue = { kind: "null" };
 
-describe("compareCells", () => {
-  it("puts NULL first and compares numbers by value", () => {
-    expect(compareCells(NULL, int(1))).toBe(-1);
-    expect(compareCells(int(1), NULL)).toBe(1);
-    expect(compareCells(NULL, NULL)).toBe(0);
-    expect(compareCells(int(9), int(10))).toBe(-1);
-    expect(compareCells({ kind: "decimal", value: "2.50" }, { kind: "uint", value: "2" })).toBe(1);
+describe("resultPage", () => {
+  const set: ResultSet = {
+    id: 1,
+    columns: [
+      { name: "id", dataType: "int", source: null },
+      { name: "id", dataType: "varchar", source: null },
+    ],
+    rows: [[int(1), int(2)]],
+    totalRows: 1,
+    truncated: false,
+    readOnly: null,
+  };
+
+  it("wraps loaded rows as a read-only page", () => {
+    const rows = [[int(3), int(4)]];
+    const page = resultPage(set, rows, null, "只读");
+    expect(page.rows).toBe(rows);
+    expect(page.readOnlyReason).toBe("只读");
+    expect(page.columns.map((c) => [c.name, c.dataType, c.isPrimaryKey, c.isGenerated])).toEqual([
+      ["id", "int", false, false],
+      ["id", "varchar", false, false],
+    ]);
   });
 
-  it("compares text naturally and treats odd values as text", () => {
-    expect(compareCells(text("a2"), text("a10"))).toBeLessThan(0);
-    expect(compareCells(text("北京"), text("上海"))).toBeLessThan(0);
-    expect(compareCells({ kind: "bool", value: true }, { kind: "bool", value: false })).toBeGreaterThan(0);
-    expect(compareCells({ kind: "unsupported", value: { typeName: "x" } }, text("a"))).toBeLessThan(0);
+  it("uses the editable columns when there are some", () => {
+    const columns = resultPage(set, [], null, null).columns.map((c) => ({ ...c, isPrimaryKey: true }));
+    expect(resultPage(set, [], columns, null).columns).toBe(columns);
   });
 });
 
-describe("sortRows and resultPage", () => {
-  const set = {
-    columns: [
-      { name: "id", dataType: "int" },
-      { name: "id", dataType: "varchar" },
-    ],
-    rows: [
-      [int(2), text("b")],
-      [int(1), text("c")],
-      [int(2), text("a")],
-    ],
-    truncated: false,
-  };
-
-  it("sorts by column index, stably, in either direction", () => {
-    expect(sortRows(set.rows, 0, false).map((r) => r[1])).toEqual([text("c"), text("b"), text("a")]);
-    expect(sortRows(set.rows, 0, true).map((r) => r[1])).toEqual([text("b"), text("a"), text("c")]);
+describe("sorting and batches", () => {
+  it("sorts by column index so same-named columns stay apart", () => {
+    expect(toResultSort({ column: sortKey(1, "id"), descending: true })).toEqual({ column: 1, descending: true });
+    expect(toResultSort(null)).toBeNull();
+    expect(toResultSort({ column: "x:id", descending: false })).toBeNull();
   });
 
-  it("wraps a result set as a read-only page and tells same-named columns apart", () => {
-    const unsorted = resultPage(set, null);
-    expect(unsorted.rows).toBe(set.rows);
-    expect(unsorted.readOnlyReason).toBe(RESULT_READ_ONLY);
-    expect(unsorted.columns.map((c) => [c.name, c.dataType, c.isPrimaryKey])).toEqual([
-      ["id", "int", false],
-      ["id", "varchar", false],
-    ]);
-    const sorted = resultPage(set, { column: sortKey(1, "id"), descending: false });
-    expect(sorted.rows.map((r) => r[1])).toEqual([text("a"), text("b"), text("c")]);
-    expect(resultPage(set, { column: "9:nope", descending: false }).rows).toBe(set.rows);
+  it("grows batches as more rows are loaded, within the backend's limit", () => {
+    expect(batchSize(0)).toBe(1000);
+    expect(batchSize(8000)).toBe(2000);
+    expect(batchSize(1_000_000)).toBe(5000);
   });
 });

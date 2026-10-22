@@ -1,5 +1,5 @@
 // SQL 编辑器:与 crates/basalt-core/src/query 和 src-tauri/src/service/query*.rs 的序列化结构对应。
-import type { CellValue } from "./types";
+import type { CellValue, TableRef } from "./types";
 
 /** 查询标签页所在的库;schema 只有 PostgreSQL 用。 */
 export interface QueryScope {
@@ -7,17 +7,39 @@ export interface QueryScope {
   schema: string | null;
 }
 
+/** 结果列直接取自哪张表的哪一列。 */
+export interface ColumnSource {
+  table: TableRef;
+  /** 表里的列名(结果里可能起了别名)。 */
+  column: string;
+}
+
 export interface ResultColumn {
   name: string;
   /** 驱动报的类型名(小写);认不出时为空串。 */
   dataType: string;
+  /** 表达式、聚合、驱动说不清的为 null。 */
+  source: ColumnSource | null;
 }
 
 export interface ResultSet {
+  /** 完整结果存在后端,往下滚、排序时按它去取。 */
+  id: number;
   columns: ResultColumn[];
+  /** 第一批行;其余的用 resultRows 取。 */
   rows: CellValue[][];
-  /** 超出上限的行没有带回来。 */
+  /** 后端存着的总行数。 */
+  totalRows: number;
+  /** 结果太大,后端只存了前 totalRows 行。 */
   truncated: boolean;
+  /** 列的来源看得出、却不能在结果里改的原因,如来自临时表。 */
+  readOnly: string | null;
+}
+
+/** 按第几列排序(结果里可能有同名列,所以用序号)。 */
+export interface ResultSort {
+  column: number;
+  descending: boolean;
 }
 
 export type OutcomeStatus = "ok" | "error" | "cancelled";

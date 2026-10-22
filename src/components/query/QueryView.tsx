@@ -18,7 +18,7 @@ import { Button } from "../ui/Button";
 import { HistoryPanel } from "./HistoryPanel";
 import { QueryHeader } from "./QueryHeader";
 import { MESSAGES, ResultPanel } from "./ResultPanel";
-import { resultTabs, statementsToRun, type RunMode } from "./runModel";
+import { resultTabs, statementsToRun, type ResultTab, type RunMode } from "./runModel";
 import { SaveQueryDialog } from "./SaveQueryDialog";
 import { editorDialect, SqlEditor, type SqlEditorHandle } from "./SqlEditor";
 import { useCompletionProvider } from "./useCompletionProvider";
@@ -67,7 +67,11 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
   const toggleSide = (panel: "history" | "assistant") => setSide((open) => (open === panel ? null : panel));
   const [saveAs, setSaveAs] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
-  const { run, execute, cancel } = useQueryRunner(tab);
+  const { run, execute, rerun, cancel } = useQueryRunner(tab);
+  /** 选中的结果里没提交的修改行数。 */
+  const [resultPending, setResultPending] = useState(0);
+  /** 结果里的修改提交后,换上的新结果要显示的说明。 */
+  const [resultNotice, setResultNotice] = useState<{ key: string; text: string } | null>(null);
   const provider = useCompletionProvider(tab.connectionId, driver, tab.scope);
   const { height, handlers } = useEditorHeight();
   const historyWidth = usePanelWidth(HISTORY_PANEL);
@@ -97,6 +101,12 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.id]);
 
+  // 结果里没提交的修改算进标签页:关标签页、关连接、退出前都要确认。
+  useEffect(() => {
+    useTabs.getState().setPending(tab.id, resultPending);
+  }, [resultPending, tab.id]);
+  useEffect(() => () => useTabs.getState().setPending(tab.id, 0), [tab.id]);
+
   // 标签页关了:放掉它的专用连接,也不再算「没保存」,助手的对话也丢掉。
   useEffect(
     () => () => {
@@ -115,12 +125,17 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
     (mode: RunMode) => {
       const handle = editor.current;
       if (!handle || run.running || !isOpen) return;
+      if (resultPending > 0) {
+        setHint("结果里还有没提交的修改：先提交或撤销，再执行。");
+        return;
+      }
       const statements = statementsToRun(handle.getText(), handle.getSelection(), editorDialect(driver), mode);
       if (statements.length === 0) {
         setHint(mode === "all" ? "编辑器里没有可执行的语句。" : "光标所在的位置没有语句。");
         return;
       }
       setHint(null);
+      setResultNotice(null);
       setActiveResult(null);
       pickedDuringRun.current = false;
       void execute(statements).then((done) => {
@@ -130,7 +145,15 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
         setActiveResult(failed || !first ? MESSAGES : first.key);
       });
     },
-    [driver, execute, isOpen, run.running],
+    [driver, execute, isOpen, resultPending, run.running],
+  );
+
+  const onCommitted = useCallback(
+    async (result: ResultTab, message: string) => {
+      setResultNotice({ key: result.key, text: message });
+      await rerun(result.entry);
+    },
+    [rerun],
   );
 
   const writeQuery = useCallback(
@@ -275,6 +298,14 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
                 scope: { kind: "query", editorId: tab.id, scope: result.scope, sql: result.sql, set: result.set },
               })
             }
+            editorId={tab.id}
+            connectionId={tab.connectionId}
+            dialect={editorDialect(driver)}
+            closed={!isOpen}
+            pending={resultPending}
+            notice={resultNotice}
+            onPendingChange={setResultPending}
+            onCommitted={onCommitted}
           />
         </div>
         {sidePanel && <div className="panel-resizer" {...sidePanel.separator} />}

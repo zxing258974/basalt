@@ -8,14 +8,16 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex;
 
-use super::collect::Collected;
+use super::collect::{Collected, CollectedSet};
+use super::results::{FIRST_BATCH, RELEASED, ResultSort, ResultStore};
 use super::{
-    OutcomeStatus, QueryScope, ResultSet, StatementOutcome, is_ddl, is_dml, leading_keyword,
-    may_change_scope, may_return_rows,
+    OutcomeStatus, QueryScope, ResultColumn, ResultSet, StatementOutcome, is_ddl, is_dml,
+    leading_keyword, may_change_scope, may_return_rows,
 };
-use crate::driver::editor::{CancelHandle, EditorConnection};
+use crate::driver::editor::{CancelHandle, EditorConnection, Sources};
 use crate::error::{CoreError, CoreResult};
 use crate::session::Session;
+use crate::value::CellValue;
 
 /// 关闭标签页时最多等正在执行的语句收尾多久;等不到就不等了,连接随最后一个引用一起断开。
 const CLOSE_WAIT: Duration = Duration::from_secs(3);
@@ -56,6 +58,8 @@ pub(super) struct EditorSlot {
     /// 导入导出借用时要跨方法持有这把锁,所以放在 Arc 里(`lock_owned`)。
     pub(super) state: Arc<Mutex<Option<OpenEditor>>>,
     pub(super) phase: Mutex<Phase>,
+    /// 执行出来的结果。不放在 `state` 里:执行下一条语句时也要能往下翻上一条的结果。
+    results: std::sync::Mutex<ResultStore>,
 }
 
 impl EditorSlot {
@@ -64,7 +68,14 @@ impl EditorSlot {
             connection_id: connection_id.to_owned(),
             state: Arc::new(Mutex::new(None)),
             phase: Mutex::new(Phase::Idle),
+            results: std::sync::Mutex::new(ResultStore::default()),
         }
+    }
+
+    fn results(&self) -> std::sync::MutexGuard<'_, ResultStore> {
+        self.results
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// 执行中的发取消请求,准备中的记下来。返回是不是真有东西可取消。
@@ -164,6 +175,33 @@ impl EditorRegistry {
         }
     }
 
+    /// 取一个结果集里的一段行,给了排序就按排序后的顺序。
+    pub async fn result_rows(
+        &self,
+        editor_id: &str,
+        result_id: u64,
+        offset: usize,
+        limit: usize,
+        sort: Option<ResultSort>,
+    ) -> CoreResult<Vec<Vec<CellValue>>> {
+        let slot = self.slots().get(editor_id).cloned();
+        let stored = match slot {
+            Some(slot) => slot.results().get(result_id)?,
+            None => return Err(CoreError::NotFound(RELEASED.into())),
+        };
+        stored.rows(offset, limit, sort).await
+    }
+
+    /// 前端不再显示这些结果了(重新执行、关了结果),放掉它们占的内存。
+    pub fn release_results(&self, editor_id: &str, result_ids: &[u64]) {
+        let slot = self.slots().get(editor_id).cloned();
+        if let Some(slot) = slot {
+            // 先放开锁再释放:大结果释放要一会儿,别让同一个标签页的取行等着。
+            let released = slot.results().release(result_ids);
+            drop(released);
+        }
+    }
+
     /// 标签页关了:断开它的专用连接。
     pub async fn close(&self, editor_id: &str) {
         let slot = self.slots().remove(editor_id);
@@ -232,7 +270,7 @@ async fn execute(
     *slot.phase.lock().await = Phase::Idle;
     let cancelled = requested.load(Ordering::Relaxed);
     let broken = collected.error.as_ref().is_some_and(is_connection_lost);
-    let mut outcome = finish(open, sql, collected, cancelled, elapsed).await;
+    let mut outcome = finish(open, slot, sql, collected, cancelled, elapsed).await;
     outcome.notice = notice;
     if broken {
         // 连接已经断了:丢掉它,下一次执行时重新连。
@@ -327,9 +365,10 @@ pub(super) fn error_text(error: sqlx::Error) -> String {
     db.message().to_owned()
 }
 
-/// 把读到的东西整理成给前端的结果:补空结果的列名、算影响行数、刷新所在的库。
+/// 把读到的东西整理成给前端的结果:补空结果的列名、算影响行数、刷新所在的库、存下结果。
 async fn finish(
     open: &mut OpenEditor,
+    slot: &EditorSlot,
     sql: &str,
     collected: Collected,
     cancelled: bool,
@@ -342,14 +381,7 @@ async fn finish(
         error,
     } = collected;
     if error.is_none() && result_sets.is_empty() && may_return_rows(&keyword) {
-        let columns = open.conn.describe(sql).await;
-        if !columns.is_empty() {
-            result_sets.push(ResultSet {
-                columns,
-                rows: Vec::new(),
-                truncated: false,
-            });
-        }
+        result_sets.extend(open.conn.describe(sql).await);
     }
     let trusted = !open.conn.changes_only_for_dml() || is_dml(&keyword);
     let affected_rows = (result_sets.is_empty() && trusted && (is_dml(&keyword) || affected > 0))
@@ -361,6 +393,7 @@ async fn finish(
         // 表结构变了:sqlx 按 SQL 文本缓存的预备语句(取空结果列名用的)会带着旧列信息。
         open.conn.clear_cached_statements().await;
     }
+    let result_sets = keep(open, slot, result_sets, error.is_none()).await;
     let (status, message) = match error {
         None => (OutcomeStatus::Ok, None),
         Some(error) => (
@@ -387,6 +420,49 @@ async fn finish(
         scope: open.scope.clone(),
         notice: None,
     }
+}
+
+/// 结果存进标签页的结果存储,只把第一批行带给前端。语句顺利执行完时才去查列的来源
+/// (MySQL 要在这条连接上确认是不是临时表、PostgreSQL 要查一次系统目录;出错、取消后不再多发语句)。
+async fn keep(
+    open: &mut OpenEditor,
+    slot: &EditorSlot,
+    sets: Vec<CollectedSet>,
+    with_sources: bool,
+) -> Vec<ResultSet> {
+    let mut kept = Vec::with_capacity(sets.len());
+    let session = open.session.upgrade();
+    for set in sets {
+        let sources = if with_sources {
+            open.conn
+                .resolve_sources(session.as_deref(), &open.scope, &set.origins)
+                .await
+        } else {
+            Sources {
+                columns: vec![None; set.columns.len()],
+                read_only: None,
+            }
+        };
+        let columns: Vec<ResultColumn> = set
+            .columns
+            .into_iter()
+            .zip(sources.columns)
+            .map(|(column, source)| ResultColumn { source, ..column })
+            .collect();
+        let rows = set.rows[..set.rows.len().min(FIRST_BATCH)].to_vec();
+        let total_rows = set.rows.len() as u64;
+        let (id, evicted) = slot.results().add(columns.len(), set.rows, set.bytes);
+        drop(evicted);
+        kept.push(ResultSet {
+            id,
+            columns,
+            rows,
+            total_rows,
+            truncated: set.truncated,
+            read_only: sources.read_only,
+        });
+    }
+    kept
 }
 
 #[cfg(test)]

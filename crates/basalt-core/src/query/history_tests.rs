@@ -37,17 +37,24 @@ fn record_counts_rows_and_keeps_scope() {
     let mut done = outcome(OutcomeStatus::Ok);
     done.result_sets = vec![
         ResultSet {
+            id: 1,
             columns: vec![ResultColumn {
                 name: "a".into(),
                 data_type: String::new(),
+                source: None,
             }],
-            rows: vec![vec![CellValue::Int(1)], vec![CellValue::Int(2)]],
+            rows: vec![vec![CellValue::Int(1)]],
+            total_rows: 2,
             truncated: false,
+            read_only: None,
         },
         ResultSet {
+            id: 2,
             columns: Vec::new(),
             rows: vec![Vec::new()],
+            total_rows: 1,
             truncated: false,
+            read_only: None,
         },
     ];
     let scope = QueryScope {

@@ -5,8 +5,10 @@ mod common;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use basalt_core::query::{MAX_RESULT_ROWS, OutcomeStatus, QueryScope, StatementOutcome};
+use basalt_core::query::results::{FIRST_BATCH, ResultSort};
+use basalt_core::query::{ColumnSource, OutcomeStatus, QueryScope, StatementOutcome};
 use basalt_core::session::SessionManager;
+use basalt_core::table::TableRef;
 use basalt_core::value::CellValue;
 use common::*;
 
@@ -104,22 +106,84 @@ async fn empty_results_still_have_columns() {
 }
 
 #[tokio::test]
-async fn big_results_are_cut_and_marked() {
+async fn big_results_are_kept_whole_and_read_in_batches() {
     let dir = tempfile::tempdir().unwrap();
     let manager = manager(&dir).await;
-    let total = MAX_RESULT_ROWS + 10;
+    let total = FIRST_BATCH * 2 + 10;
     let sql = format!(
         "WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < {total}) SELECT n FROM c"
     );
     let outcome = run(&manager, "t", &sql).await;
     let set = &outcome.result_sets[0];
-    assert_eq!(set.rows.len(), MAX_RESULT_ROWS);
-    assert!(set.truncated);
-    // 连接照常能用。
+    assert_eq!(set.rows.len(), FIRST_BATCH);
+    assert_eq!(set.total_rows, total as u64);
+    assert!(!set.truncated);
+
+    // 后面的行往下滚时再取;执行了别的语句,之前的结果照样能取。
     assert_eq!(
         run(&manager, "t", "SELECT 1").await.status,
         OutcomeStatus::Ok
     );
+    let rest = manager
+        .result_rows("t", set.id, FIRST_BATCH, 5000, None)
+        .await
+        .unwrap();
+    assert_eq!(rest.len(), total - FIRST_BATCH);
+    assert_eq!(rest[0][0], CellValue::Int(FIRST_BATCH as i64 + 1));
+
+    let sort = Some(ResultSort {
+        column: 0,
+        descending: true,
+    });
+    let top = manager.result_rows("t", set.id, 0, 2, sort).await.unwrap();
+    assert_eq!(
+        top,
+        [
+            vec![CellValue::Int(total as i64)],
+            vec![CellValue::Int(total as i64 - 1)]
+        ]
+    );
+
+    manager.release_results("t", &[set.id]);
+    let error = manager
+        .result_rows("t", set.id, 0, 10, None)
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("重新执行"), "{error}");
+}
+
+#[tokio::test]
+async fn result_columns_say_which_table_column_they_come_from() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = manager(&dir).await;
+    let source = |column: &str| {
+        Some(ColumnSource {
+            table: TableRef {
+                database: "main".into(),
+                schema: None,
+                table: "items".into(),
+            },
+            column: column.into(),
+        })
+    };
+    let outcome = run(
+        &manager,
+        "t",
+        "SELECT id, name AS label, price * 2 AS doubled FROM items",
+    )
+    .await;
+    let sources: Vec<_> = outcome.result_sets[0]
+        .columns
+        .iter()
+        .map(|c| c.source.clone())
+        .collect();
+    assert_eq!(sources, [source("id"), source("name"), None]);
+
+    // 没读到行的查询也带来源:空结果里一样能新增行。
+    let empty = run(&manager, "t", "SELECT id, name FROM items WHERE id < 0").await;
+    let set = &empty.result_sets[0];
+    assert!(set.rows.is_empty());
+    assert_eq!(set.columns[1].source, source("name"));
 }
 
 #[tokio::test]
@@ -205,4 +269,23 @@ async fn cancelling_before_the_statement_starts_skips_it() {
     } else {
         assert_eq!(count, CellValue::Int(1));
     }
+}
+
+#[tokio::test]
+async fn temporary_tables_are_flagged_read_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let manager = manager(&dir).await;
+    run(
+        &manager,
+        "t",
+        "CREATE TEMP TABLE scratch AS SELECT id, name FROM items",
+    )
+    .await;
+    let outcome = run(&manager, "t", "SELECT id, name FROM scratch").await;
+    let reason = outcome.result_sets[0].read_only.clone().unwrap_or_default();
+    assert!(reason.contains("临时表 scratch"), "{reason}");
+    assert_eq!(
+        run(&manager, "t", "SELECT id FROM items").await.result_sets[0].read_only,
+        None
+    );
 }

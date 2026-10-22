@@ -8,9 +8,9 @@ use sqlx::{Connection, Executor, Row, TypeInfo, ValueRef};
 
 use super::mysql::MysqlSession;
 use crate::error::CoreResult;
-use crate::query::ResultColumn;
-use crate::query::collect::{Collected, collect, described_columns};
-use crate::sql::{Dialect, dynamic, quote_ident};
+use crate::query::collect::{Collected, CollectedSet, collect, described_set, named_origin};
+use crate::sql::{Dialect, dynamic, qualified, quote_ident};
+use crate::table::TableRef;
 use crate::value::CellValue;
 
 pub(crate) struct MysqlEditor {
@@ -58,13 +58,41 @@ impl MysqlEditor {
         collect(
             stream,
             decode_text_cell,
+            named_origin,
             sqlx::mysql::MySqlQueryResult::rows_affected,
         )
         .await
     }
 
-    pub(crate) async fn describe(&mut self, sql: &str) -> Vec<ResultColumn> {
-        described_columns((&mut self.conn).prepare(dynamic(sql)).await)
+    pub(crate) async fn describe(&mut self, sql: &str) -> Option<CollectedSet> {
+        described_set((&mut self.conn).prepare(dynamic(sql)).await, named_origin)
+    }
+
+    /// 这些表在这个标签页的会话里是不是临时表。同名的临时表会遮住真表,而提交修改走连接池里的
+    /// 另一条连接,只看得到真表——只有在这条连接上用 SHOW CREATE TABLE 才分得出来。
+    pub(crate) async fn temporary_among(
+        &mut self,
+        tables: &[TableRef],
+    ) -> Result<Option<String>, sqlx::Error> {
+        for table in tables {
+            let sql = format!(
+                "SHOW CREATE TABLE {}",
+                qualified(Dialect::Mysql, &[&table.database, &table.table])
+            );
+            let row = (&mut self.conn).fetch_one(dynamic(sql)).await?;
+            let create = match row.try_get::<String, _>(1) {
+                Ok(text) => text,
+                Err(_) => String::from_utf8_lossy(&row.try_get::<Vec<u8>, _>(1)?).into_owned(),
+            };
+            if create
+                .trim_start()
+                .to_ascii_uppercase()
+                .starts_with("CREATE TEMPORARY")
+            {
+                return Ok(Some(table.table.clone()));
+            }
+        }
+        Ok(None)
     }
 
     pub(crate) async fn ping(&mut self) -> bool {

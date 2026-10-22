@@ -137,13 +137,22 @@ async fn query_results_rerun_on_the_tab_connection_or_use_shown_rows() {
         .unwrap();
     assert_eq!(read_text(&path), "id,name\r\n");
 
+    // 后端存着的结果直接写出来:分批读完,不重新执行。
+    let shown = sessions
+        .run_query(
+            "tab-1",
+            "c1",
+            &QueryScope::default(),
+            "SELECT 7 AS n UNION ALL SELECT NULL",
+        )
+        .await
+        .unwrap();
+    let set = &shown.result_sets[0];
     let rows = ExportRequest {
-        source: ExportSource::Rows {
-            columns: vec![ResultColumn {
-                name: "n".into(),
-                data_type: String::new(),
-            }],
-            rows: vec![vec![CellValue::Int(7)], vec![CellValue::Null]],
+        source: ExportSource::Result {
+            editor_id: "tab-1".into(),
+            result_id: set.id,
+            columns: set.columns.clone(),
         },
         options: csv(),
         ..request.clone()

@@ -49,7 +49,7 @@ impl HistoryEntry {
         sql: &str,
         outcome: &StatementOutcome,
     ) -> Self {
-        let rows: usize = outcome.result_sets.iter().map(|set| set.rows.len()).sum();
+        let rows: u64 = outcome.result_sets.iter().map(|set| set.total_rows).sum();
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             executed_at: Local::now().to_rfc3339_opts(SecondsFormat::Secs, false),
@@ -61,7 +61,7 @@ impl HistoryEntry {
             status: outcome.status,
             elapsed_ms: outcome.elapsed_ms,
             affected_rows: outcome.affected_rows,
-            row_count: (!outcome.result_sets.is_empty()).then_some(rows as u64),
+            row_count: (!outcome.result_sets.is_empty()).then_some(rows),
         }
     }
 

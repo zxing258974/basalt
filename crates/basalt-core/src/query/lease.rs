@@ -198,8 +198,8 @@ impl EditorLease {
         if let StreamQuery::Text(sql) = query
             && !driven.columns_seen
         {
-            let columns = self.open()?.conn.describe(sql).await;
-            sink.columns(&columns)?;
+            let described = self.open()?.conn.describe(sql).await;
+            sink.columns(&described.map(|set| set.columns).unwrap_or_default())?;
         }
         Ok(StreamEnd::Finished { rows: driven.rows })
     }

@@ -8,15 +8,14 @@ pub(crate) mod collect;
 pub(crate) mod editor;
 pub mod history;
 pub mod lease;
+pub mod results;
 pub mod saved;
 
 pub use editor::EditorRegistry;
 use serde::{Deserialize, Serialize};
 
+use crate::table::TableRef;
 use crate::value::CellValue;
-
-/// 一个结果集最多带回多少行。再多的行照常从服务器读完(连接才能接着用),但不解码、不传给前端。
-pub const MAX_RESULT_ROWS: usize = 5000;
 
 /// 查询标签页所在的库和 schema。MySQL 的库可以不选;schema 只有 PostgreSQL 用。
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,15 +33,32 @@ pub struct ResultColumn {
     pub name: String,
     /// 驱动报的类型名(小写),如 varchar、int4;认不出时为空。
     pub data_type: String,
+    /// 这一列直接取自哪张表的哪一列;表达式、聚合、驱动说不清的为 `None`。前端据此判断结果能不能改。
+    pub source: Option<ColumnSource>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ColumnSource {
+    pub table: TableRef,
+    /// 表里的列名(结果里可能起了别名)。
+    pub column: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResultSet {
+    /// 完整的结果存在后端(见 [`results`]),往下滚、排序时按这个编号去取。
+    pub id: u64,
     pub columns: Vec<ResultColumn>,
+    /// 前 [`results::FIRST_BATCH`] 行。
     pub rows: Vec<Vec<CellValue>>,
-    /// 超过 [`MAX_RESULT_ROWS`] 的行没有带回来。
+    /// 存下来的总行数。
+    pub total_rows: u64,
+    /// 结果太大(超出内存预算,见 [`results::MEMORY_BUDGET`]),只存了前 `total_rows` 行。
     pub truncated: bool,
+    /// 列的来源看得出、却不能在结果里改的原因,如来自临时表。
+    pub read_only: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,12 +180,23 @@ mod tests {
             status: OutcomeStatus::Cancelled,
             message: Some("Query execution was interrupted".into()),
             result_sets: vec![ResultSet {
+                id: 3,
                 columns: vec![ResultColumn {
                     name: "n".into(),
                     data_type: "bigint".into(),
+                    source: Some(ColumnSource {
+                        table: TableRef {
+                            database: "shop".into(),
+                            schema: None,
+                            table: "orders".into(),
+                        },
+                        column: "id".into(),
+                    }),
                 }],
                 rows: vec![vec![CellValue::Int(1)]],
+                total_rows: 1,
                 truncated: false,
+                read_only: None,
             }],
             affected_rows: None,
             elapsed_ms: 12,
@@ -185,9 +212,19 @@ mod tests {
                 "status": "cancelled",
                 "message": "Query execution was interrupted",
                 "resultSets": [{
-                    "columns": [{ "name": "n", "dataType": "bigint" }],
+                    "id": 3,
+                    "columns": [{
+                        "name": "n",
+                        "dataType": "bigint",
+                        "source": {
+                            "table": { "database": "shop", "schema": null, "table": "orders" },
+                            "column": "id"
+                        }
+                    }],
                     "rows": [[{ "kind": "int", "value": "1" }]],
-                    "truncated": false
+                    "totalRows": 1,
+                    "truncated": false,
+                    "readOnly": null
                 }],
                 "affectedRows": null,
                 "elapsedMs": 12,

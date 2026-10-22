@@ -224,9 +224,74 @@
   font-size: var(--text-2xs);
   color: var(--text-faint);
 }
+.query-result-tab:disabled {
+  color: var(--text-faint);
+}
+.query-result-tab:disabled:hover {
+  color: var(--text-faint);
+}
 .query-result-body {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* ---------- 结果表格:往下滚分批取行,单表结果可以直接改 ---------- */
+.result-grid {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.result-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  height: 32px;
+  flex: none;
+  padding: 0 var(--space-4) 0 var(--space-5);
+  border-top: 1px solid var(--line);
+  background: var(--surface-chrome);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.result-footer-count {
+  color: var(--text-strong);
+}
+.result-footer-loading {
+  color: var(--text-faint);
+}
+.result-footer-error {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--danger);
+}
+.result-footer-status {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.result-footer-readonly {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-faint);
+}
+.result-footer-readonly svg {
+  flex: none;
+  width: 11px;
+  height: 11px;
+}
+.result-footer .data-actions {
+  margin-left: 0;
 }

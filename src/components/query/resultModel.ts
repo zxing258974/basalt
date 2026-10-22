@@ -1,13 +1,12 @@
-// 查询结果交给 M2 的 DataGrid 显示:把结果集包成只读的 TablePage,排序在前端做。
-import type { ResultSet } from "../../lib/queryTypes";
+// 查询结果交给 M2 的 DataGrid 显示:把已经取到前端的行包成 TablePage。排序在后端做(见 useResultRows)。
+import type { ResultColumn, ResultSet, ResultSort } from "../../lib/queryTypes";
 import type { CellValue, ColumnInfo, SortSpec, TablePage } from "../../lib/types";
 
-export const RESULT_READ_ONLY = "查询结果只读。要改数据，请打开表数据。";
-
-function column(name: string, dataType: string): ColumnInfo {
+/** 只读结果的列:按文本显示。 */
+export function readOnlyColumn(column: ResultColumn): ColumnInfo {
   return {
-    name,
-    dataType,
+    name: column.name,
+    dataType: column.dataType,
     isPrimaryKey: false,
     nullable: true,
     hasDefault: false,
@@ -16,25 +15,20 @@ function column(name: string, dataType: string): ColumnInfo {
   };
 }
 
-const NUMERIC = new Set<CellValue["kind"]>(["int", "uint", "float", "decimal"]);
-
-/** NULL 排最前;数字按数值比,其余按文本比(中文按拼音)。 */
-export function compareCells(a: CellValue, b: CellValue): number {
-  if (a.kind === "null" || b.kind === "null") return a.kind === b.kind ? 0 : a.kind === "null" ? -1 : 1;
-  if (NUMERIC.has(a.kind) && NUMERIC.has(b.kind) && "value" in a && "value" in b) {
-    const diff = Number(a.value) - Number(b.value);
-    if (diff !== 0 && Number.isFinite(diff)) return Math.sign(diff);
-  }
-  const text = (cell: CellValue) => ("value" in cell ? String(typeof cell.value === "object" ? "" : cell.value) : "");
-  return text(a).localeCompare(text(b), "zh-CN", { numeric: true });
-}
-
-/** 按列序号排序(同名列也能分开),稳定排序。 */
-export function sortRows(rows: readonly CellValue[][], index: number, descending: boolean): CellValue[][] {
-  return rows
-    .map((row, at) => ({ row, at }))
-    .sort((x, y) => compareCells(x.row[index]!, y.row[index]!) * (descending ? -1 : 1) || x.at - y.at)
-    .map(({ row }) => row);
+/** `columns`:能改时用对上表结构的列,只读时为 null。 */
+export function resultPage(
+  set: ResultSet,
+  rows: CellValue[][],
+  columns: ColumnInfo[] | null,
+  readOnlyReason: string | null,
+): TablePage {
+  return {
+    columns: columns ?? set.columns.map(readOnlyColumn),
+    rows,
+    hasMore: false,
+    readOnlyReason,
+    sql: "",
+  };
 }
 
 /**
@@ -43,14 +37,14 @@ export function sortRows(rows: readonly CellValue[][], index: number, descending
  */
 export const sortKey = (index: number, name: string) => `${index}:${name}`;
 
-export function resultPage(set: ResultSet, sort: SortSpec | null): TablePage {
-  const index = sort ? Number(sort.column.split(":")[0]) : -1;
-  const rows = index >= 0 && index < set.columns.length ? sortRows(set.rows, index, sort!.descending) : set.rows;
-  return {
-    columns: set.columns.map((c) => column(c.name, c.dataType)),
-    rows,
-    hasMore: false,
-    readOnlyReason: RESULT_READ_ONLY,
-    sql: "",
-  };
+/** 交给后端的排序:按列序号。 */
+export function toResultSort(sort: SortSpec | null): ResultSort | null {
+  if (!sort) return null;
+  const column = Number(sort.column.split(":")[0]);
+  return Number.isInteger(column) && column >= 0 ? { column, descending: sort.descending } : null;
+}
+
+/** 下一批取多少行:越往后一批越大,翻到很靠后时不用来回太多次;后端一次最多给 5000 行。 */
+export function batchSize(loaded: number): number {
+  return Math.min(5000, Math.max(1000, Math.floor(loaded / 4)));
 }

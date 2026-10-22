@@ -1,8 +1,9 @@
-import { Check, FileDown, Minus, Plus, RefreshCw, RotateCcw, Undo2, X } from "lucide-react";
+import { FileDown, RefreshCw, X } from "lucide-react";
 import { Button } from "../ui/Button";
 import { keyLabel, shortcut } from "../../lib/platform";
+import { EditActions, type EditActionsProps } from "./EditActions";
 
-interface DataToolbarProps {
+interface DataToolbarProps extends EditActionsProps {
   filterDraft: string;
   appliedFilter: string | null;
   onFilterDraftChange(value: string): void;
@@ -12,15 +13,6 @@ interface DataToolbarProps {
   locked: boolean;
   refreshing: boolean;
   onRefresh(): void;
-  editable: boolean;
-  /** 选中的行已标记删除时,删除按钮变成恢复。 */
-  selectedDeleted: boolean;
-  canDelete: boolean;
-  onAddRow(): void;
-  onToggleDelete(): void;
-  pending: number;
-  onRevert(): void;
-  onCommit(): void;
   /** 导出这张表(带着当前的筛选条件)。 */
   onExport(): void;
 }
@@ -28,7 +20,7 @@ interface DataToolbarProps {
 const lockedHint = () => `先提交（${shortcut("S")}）或撤销未提交的修改`;
 
 export function DataToolbar(props: DataToolbarProps) {
-  const { filterDraft, appliedFilter, locked, editable, pending } = props;
+  const { filterDraft, appliedFilter, locked, pending } = props;
   const filtering = Boolean(appliedFilter);
   const draftChanged = filterDraft.trim() !== (appliedFilter ?? "");
 
@@ -82,33 +74,7 @@ export function DataToolbar(props: DataToolbarProps) {
           导出
         </Button>
         <span className="data-actions-divider" aria-hidden />
-        <Button variant="ghost" size="sm" icon={<Plus />} disabled={!editable} onClick={props.onAddRow}>
-          新增行
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={props.selectedDeleted ? <RotateCcw /> : <Minus />}
-          disabled={!editable || !props.canDelete}
-          title={shortcut("Backspace")}
-          onClick={props.onToggleDelete}
-        >
-          {props.selectedDeleted ? "恢复行" : "删除行"}
-        </Button>
-        <span className="data-actions-divider" aria-hidden />
-        <Button variant="ghost" size="sm" icon={<Undo2 />} disabled={pending === 0} onClick={props.onRevert}>
-          撤销修改
-        </Button>
-        <Button
-          variant={pending > 0 ? "primary" : "secondary"}
-          size="sm"
-          icon={<Check />}
-          disabled={pending === 0}
-          title={shortcut("S")}
-          onClick={props.onCommit}
-        >
-          提交{pending > 0 && <span className="commit-count">{pending}</span>}
-        </Button>
+        <EditActions {...props} />
       </div>
     </div>
   );

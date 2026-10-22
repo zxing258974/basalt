@@ -5,8 +5,9 @@ mod common;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use basalt_core::query::{OutcomeStatus, QueryScope, StatementOutcome};
+use basalt_core::query::{ColumnSource, OutcomeStatus, QueryScope, StatementOutcome};
 use basalt_core::session::SessionManager;
+use basalt_core::table::TableRef;
 use basalt_core::value::CellValue;
 use common::*;
 use tokio::sync::OnceCell;
@@ -311,4 +312,88 @@ async fn copy_from_stdin_is_explained_and_the_tab_recovers() {
         run(&manager, "t", "SELECT 1").await.status,
         OutcomeStatus::Ok
     );
+}
+
+#[tokio::test]
+async fn result_columns_say_which_table_column_they_come_from() {
+    let Some(manager) = manager().await else {
+        return;
+    };
+    let source = |column: &str| {
+        Some(ColumnSource {
+            table: TableRef {
+                database: DB.into(),
+                schema: Some("app".into()),
+                table: "items".into(),
+            },
+            column: column.into(),
+        })
+    };
+    let outcome = run(
+        &manager,
+        "t",
+        "SELECT i.id, i.name AS label, price * 2 AS doubled FROM items i",
+    )
+    .await;
+    assert_eq!(outcome.status, OutcomeStatus::Ok, "{:?}", outcome.message);
+    let sources: Vec<_> = outcome.result_sets[0]
+        .columns
+        .iter()
+        .map(|c| c.source.clone())
+        .collect();
+    assert_eq!(sources, [source("id"), source("name"), None]);
+
+    let empty = run(&manager, "t", "SELECT name FROM items WHERE false").await;
+    assert_eq!(empty.result_sets[0].columns[0].source, source("name"));
+}
+
+#[tokio::test]
+async fn temporary_tables_are_flagged_read_only() {
+    let Some(manager) = manager().await else {
+        return;
+    };
+    run(
+        &manager,
+        "tmp",
+        "CREATE TEMP TABLE scratch AS SELECT id, name FROM items",
+    )
+    .await;
+    let outcome = run(&manager, "tmp", "SELECT id, name FROM scratch").await;
+    let reason = outcome.result_sets[0].read_only.clone().unwrap_or_default();
+    assert!(reason.contains("临时表 scratch"), "{reason}");
+    let real = run(&manager, "tmp", "SELECT id, name FROM items").await;
+    assert_eq!(real.result_sets[0].read_only, None);
+}
+
+#[tokio::test]
+async fn committing_edits_gives_up_on_rows_a_tab_has_locked() {
+    let Some(manager) = manager().await else {
+        return;
+    };
+    run(&manager, "lock", "BEGIN").await;
+    run(
+        &manager,
+        "lock",
+        "SELECT id FROM items WHERE id = 2 FOR UPDATE",
+    )
+    .await;
+    let session = manager.get("c1").await.unwrap();
+    let table = TableRef {
+        database: DB.into(),
+        schema: Some("app".into()),
+        table: "items".into(),
+    };
+    let change = [basalt_core::table::RowChange::Update {
+        key: [("id".to_owned(), CellValue::Int(2))].into(),
+        values: [("name".to_owned(), Some("锁住了".to_owned()))].into(),
+    }];
+    let started = Instant::now();
+    let error = session
+        .apply_changes(&table, &change, None)
+        .await
+        .unwrap_err()
+        .to_string();
+    run(&manager, "lock", "ROLLBACK").await;
+    assert!(error.contains("行锁"), "{error}");
+    assert!(started.elapsed() < Duration::from_secs(20));
 }

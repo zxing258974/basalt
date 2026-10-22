@@ -13,7 +13,9 @@ use crate::driver::sqlite::SqliteSession;
 use crate::driver::{ConnectParams, ServerInfo, TableInfo};
 use crate::error::{CoreError, CoreResult};
 use crate::query::lease::EditorLease;
+use crate::query::results::ResultSort;
 use crate::query::{EditorRegistry, QueryScope, StatementOutcome};
+use crate::value::CellValue;
 
 pub enum Session {
     Mysql(MysqlSession),
@@ -227,6 +229,25 @@ impl SessionManager {
     /// 取消查询标签页正在执行的语句。没有在执行时返回 false。
     pub async fn cancel_query(&self, editor_id: &str) -> CoreResult<bool> {
         self.editors.cancel(editor_id).await
+    }
+
+    /// 取查询结果里的一段行(往下滚、排序时)。
+    pub async fn result_rows(
+        &self,
+        editor_id: &str,
+        result_id: u64,
+        offset: usize,
+        limit: usize,
+        sort: Option<ResultSort>,
+    ) -> CoreResult<Vec<Vec<CellValue>>> {
+        self.editors
+            .result_rows(editor_id, result_id, offset, limit, sort)
+            .await
+    }
+
+    /// 前端不再显示的结果,放掉它们占的内存。
+    pub fn release_results(&self, editor_id: &str, result_ids: &[u64]) {
+        self.editors.release_results(editor_id, result_ids);
     }
 
     /// 查询标签页关了,断开它的专用连接。

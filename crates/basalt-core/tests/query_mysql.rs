@@ -5,8 +5,9 @@ mod common;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use basalt_core::query::{OutcomeStatus, QueryScope, StatementOutcome};
+use basalt_core::query::{ColumnSource, OutcomeStatus, QueryScope, StatementOutcome};
 use basalt_core::session::SessionManager;
+use basalt_core::table::TableRef;
 use basalt_core::value::CellValue;
 use common::*;
 use tokio::sync::OnceCell;
@@ -267,5 +268,63 @@ async fn closing_the_connection_cancels_and_drops_editor_connections() {
             target.name
         );
         assert_ne!(long.await.unwrap().status, OutcomeStatus::Ok);
+    }
+}
+
+#[tokio::test]
+async fn result_columns_say_which_table_column_they_come_from() {
+    let source = |column: &str| {
+        Some(ColumnSource {
+            table: TableRef {
+                database: DB.into(),
+                schema: None,
+                table: "items".into(),
+            },
+            column: column.into(),
+        })
+    };
+    for (index, target) in targets() {
+        let manager = manager_for(index, target).await;
+        let outcome = run(
+            &manager,
+            "t",
+            "SELECT i.id, i.name AS label, price * 2 AS doubled FROM items i",
+        )
+        .await;
+        let sources: Vec<_> = outcome.result_sets[0]
+            .columns
+            .iter()
+            .map(|c| c.source.clone())
+            .collect();
+        assert_eq!(
+            sources,
+            [source("id"), source("name"), None],
+            "{}",
+            target.name
+        );
+    }
+}
+
+#[tokio::test]
+async fn temporary_tables_are_flagged_read_only() {
+    for (index, target) in targets() {
+        let manager = manager_for(index, target).await;
+        // 同名的临时表遮住了真表:提交修改走另一条连接,会改到真表上。
+        let created = run(
+            &manager,
+            "tmp",
+            "CREATE TEMPORARY TABLE items AS SELECT * FROM basalt_m3.items",
+        )
+        .await;
+        assert_eq!(created.status, OutcomeStatus::Ok, "{:?}", created.message);
+        let shadowed = run(&manager, "tmp", "SELECT id, name FROM items").await;
+        let reason = shadowed.result_sets[0]
+            .read_only
+            .clone()
+            .unwrap_or_default();
+        assert!(reason.contains("临时表 items"), "{}: {reason}", target.name);
+        run(&manager, "tmp", "DROP TEMPORARY TABLE items").await;
+        let real = run(&manager, "tmp", "SELECT id, name FROM items").await;
+        assert_eq!(real.result_sets[0].read_only, None, "{}", target.name);
     }
 }

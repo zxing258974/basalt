@@ -71,14 +71,22 @@ describe("exportModel", () => {
     expect(buildSource(tableTarget("id > 5"), "all")).toEqual({ kind: "table", table, filter: null, sort: null });
   });
 
-  it("query results rerun only when truncated", () => {
+  it("query results rerun only when the backend couldn't keep them whole", () => {
     const set: ResultSet = {
-      columns: [{ name: "n", dataType: "int4" }],
+      id: 7,
+      columns: [{ name: "n", dataType: "int4", source: null }],
       rows: [[{ kind: "int", value: "1" }]],
+      totalRows: 2500,
       truncated: false,
+      readOnly: null,
     };
-    expect(buildSource(queryTarget(set), "all")).toEqual({ kind: "rows", columns: set.columns, rows: set.rows });
-    expect(querySummary(set)).toContain("1 行");
+    expect(buildSource(queryTarget(set), "all")).toEqual({
+      kind: "result",
+      editorId: "tab",
+      resultId: 7,
+      columns: set.columns,
+    });
+    expect(querySummary(set)).toContain("2,500 行");
     const cut = { ...set, truncated: true };
     expect(buildSource(queryTarget(cut), "all")).toEqual({
       kind: "query",

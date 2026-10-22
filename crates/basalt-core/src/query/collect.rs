@@ -2,45 +2,90 @@
 //! 一条语句可以有多个结果集;没有行的「完成」带的是增删改的影响行数。
 
 use futures_util::{Stream, StreamExt};
-use sqlx::{Column, Either, Row, Statement, TypeInfo};
+use sqlx::{Column, Database, Either, Row, Statement, TypeInfo};
 
-use super::{MAX_RESULT_ROWS, ResultColumn, ResultSet};
+use super::ResultColumn;
+use super::results::{budget, row_bytes};
 use crate::value::CellValue;
 
+/// 驱动报的「这一列来自哪里」,还没换成 [`super::ColumnSource`]。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum RawOrigin {
+    None,
+    /// MySQL、SQLite:驱动给的表名(带库名时是「库.表」)和原来的列名。
+    Named {
+        table: String,
+        column: String,
+    },
+    /// PostgreSQL:表的 OID 和列号,执行完再查系统目录换成名字。
+    Relation {
+        oid: u32,
+        attnum: i16,
+    },
+}
+
+/// 一个结果集的全部行(超出内存预算的除外),还没存进 [`super::results::ResultStore`]。
+pub(crate) struct CollectedSet {
+    pub columns: Vec<ResultColumn>,
+    pub origins: Vec<RawOrigin>,
+    pub rows: Vec<Vec<CellValue>>,
+    /// 存下的行估算占多少内存。
+    pub bytes: usize,
+    /// 超出内存预算(见 [`budget`]),后面的行没有存。
+    pub truncated: bool,
+}
+
 pub(crate) struct Collected {
-    pub result_sets: Vec<ResultSet>,
+    pub result_sets: Vec<CollectedSet>,
     /// 不带行的「完成」里的影响行数之和。
     pub affected: u64,
     /// 中途出错(含被取消)时,之前读到的结果照样保留。
     pub error: Option<sqlx::Error>,
 }
 
-pub(crate) fn columns_of<R: Row>(row: &R) -> Vec<ResultColumn> {
-    row.columns()
-        .iter()
-        .map(|column| ResultColumn {
-            name: column.name().to_owned(),
-            data_type: type_label(column.type_info().name()),
-        })
-        .collect()
+/// 各驱动从列上读来源的函数。
+pub(crate) type OriginOf<DB> = fn(&<DB as Database>::Column) -> RawOrigin;
+
+/// MySQL、SQLite 的驱动直接给出来源。
+pub(crate) fn named_origin<C: Column>(column: &C) -> RawOrigin {
+    match column.origin() {
+        sqlx::ColumnOrigin::Table(source) => RawOrigin::Named {
+            table: source.table.to_string(),
+            column: source.name.to_string(),
+        },
+        _ => RawOrigin::None,
+    }
 }
 
-/// 没读到行的查询:预备一下(不执行)拿到的列名。预备不了就当没有结果集。
-pub(crate) fn described_columns<S: Statement>(
+fn result_column<C: Column>(column: &C) -> ResultColumn {
+    ResultColumn {
+        name: column.name().to_owned(),
+        data_type: type_label(column.type_info().name()),
+        source: None,
+    }
+}
+
+pub(crate) fn columns_of<R: Row>(row: &R) -> Vec<ResultColumn> {
+    row.columns().iter().map(result_column).collect()
+}
+
+/// 没读到行的查询:预备一下(不执行)拿到的列名和来源。预备不了就当没有结果集。
+pub(crate) fn described_set<S: Statement>(
     prepared: Result<S, sqlx::Error>,
-) -> Vec<ResultColumn> {
+    origin_of: OriginOf<S::Database>,
+) -> Option<CollectedSet> {
     match prepared {
-        Ok(statement) => statement
-            .columns()
-            .iter()
-            .map(|column| ResultColumn {
-                name: column.name().to_owned(),
-                data_type: type_label(column.type_info().name()),
-            })
-            .collect(),
+        Ok(statement) if !statement.columns().is_empty() => Some(CollectedSet {
+            columns: statement.columns().iter().map(result_column).collect(),
+            origins: statement.columns().iter().map(origin_of).collect(),
+            rows: Vec::new(),
+            bytes: 0,
+            truncated: false,
+        }),
+        Ok(_) => None,
         Err(error) => {
             log::debug!("取空结果的列名失败：{error}");
-            Vec::new()
+            None
         }
     }
 }
@@ -59,6 +104,7 @@ pub(crate) fn type_label(name: &str) -> String {
 pub(crate) async fn collect<S, Q, R>(
     mut stream: S,
     decode: fn(&R, usize) -> CellValue,
+    origin_of: OriginOf<R::Database>,
     affected_of: fn(&Q) -> u64,
 ) -> Collected
 where
@@ -70,20 +116,32 @@ where
         affected: 0,
         error: None,
     };
-    let mut current: Option<ResultSet> = None;
+    let mut current: Option<CollectedSet> = None;
+    // 一条语句的所有结果集合起来算预算;别的标签页存得多时,这里能存的就少。
+    let limit = budget();
+    let mut used = 0usize;
     while let Some(item) = stream.next().await {
         match item {
             Ok(Either::Right(row)) => {
-                let set = current.get_or_insert_with(|| ResultSet {
+                let set = current.get_or_insert_with(|| CollectedSet {
                     columns: columns_of(&row),
+                    origins: row.columns().iter().map(origin_of).collect(),
                     rows: Vec::new(),
+                    bytes: 0,
                     truncated: false,
                 });
-                if set.rows.len() < MAX_RESULT_ROWS {
-                    set.rows
-                        .push((0..set.columns.len()).map(|i| decode(&row, i)).collect());
-                } else {
+                if set.truncated {
+                    continue;
+                }
+                let values: Vec<CellValue> =
+                    (0..set.columns.len()).map(|i| decode(&row, i)).collect();
+                let size = row_bytes(&values);
+                used += size;
+                if used > limit {
                     set.truncated = true;
+                } else {
+                    set.bytes += size;
+                    set.rows.push(values);
                 }
             }
             Ok(Either::Left(done)) => match current.take() {

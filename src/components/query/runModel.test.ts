@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { StatementOutcome } from "../../lib/queryTypes";
+import type { ResultSet, StatementOutcome } from "../../lib/queryTypes";
 import {
   entryDetail,
   entryStatus,
@@ -26,10 +26,14 @@ function outcome(partial: Partial<StatementOutcome> = {}): StatementOutcome {
   };
 }
 
-const set = (rows: number, truncated = false) => ({
-  columns: [{ name: "n", dataType: "int" }],
-  rows: Array.from({ length: rows }, (_, i) => [{ kind: "int" as const, value: String(i) }]),
+/** 后端存着 `rows` 行的结果集;随结果带回前端的最多一行,够看出行数按后端的总数算。 */
+const set = (rows: number, truncated = false): ResultSet => ({
+  id: rows,
+  columns: [{ name: "n", dataType: "int", source: null }],
+  rows: Array.from({ length: Math.min(rows, 1) }, (_, i) => [{ kind: "int", value: String(i) }]),
+  totalRows: rows,
   truncated,
+  readOnly: null,
 });
 
 const entry = (sql: string, result: StatementOutcome | null, failure: string | null = null): RunEntry => ({
@@ -66,7 +70,7 @@ describe("entry text", () => {
     expect(entryDetail(entry("x", outcome({ resultSets: [set(3)] })))).toBe("3 行");
     expect(entryDetail(entry("x", outcome({ resultSets: [set(2), set(1)] })))).toBe("2 个结果集，共 3 行");
     expect(entryDetail(entry("x", outcome({ resultSets: [set(5000, true)] })))).toBe(
-      "5000 行（超出上限，后面的行没有带回来）",
+      "5000 行（结果太大，后面的行没有保留）",
     );
     expect(entryDetail(entry("x", outcome({ affectedRows: 0 })))).toBe("影响 0 行");
     expect(entryDetail(entry("x", outcome()))).toBe("执行成功");
@@ -115,10 +119,10 @@ describe("resultTabs", () => {
       entry("SELECT 1", outcome({ resultSets: [set(1)] })),
       entry("SELECT 2", null),
     ];
-    expect(resultTabs(entries).map((t) => [t.key, t.label, t.sql])).toEqual([
-      ["r0-0", "结果 1", "CALL p()"],
-      ["r0-1", "结果 2", "CALL p()"],
-      ["r2-0", "结果 3", "SELECT 1"],
+    expect(resultTabs(entries).map((t) => [t.key, t.label, t.sql, t.entry])).toEqual([
+      ["r0-0", "结果 1", "CALL p()", 0],
+      ["r0-1", "结果 2", "CALL p()", 0],
+      ["r2-0", "结果 3", "SELECT 1", 2],
     ]);
   });
 

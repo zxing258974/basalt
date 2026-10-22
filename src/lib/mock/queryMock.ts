@@ -6,7 +6,9 @@ import type {
   QueryImportCandidate,
   QueryImportReport,
   QueryScope,
+  ResultColumn,
   ResultSet,
+  ResultSort,
   SavedQueryInfo,
   SavedQueryRef,
   StatementOutcome,
@@ -14,7 +16,9 @@ import type {
 import type { CellValue, CommandError, ConnectionConfig } from "../types";
 import { seedTable } from "./seedTables";
 
-const MAX_ROWS = 5000;
+/** 执行完随结果带回的行数,和后端一样;其余的往下滚时再取。 */
+const FIRST_BATCH = 1000;
+const MAX_BATCH = 5000;
 /** 示例表里叫这些名字的当作不存在,用来演示报错。 */
 const MISSING_TABLE = /^(missing|no_such\w*|nope)$/i;
 
@@ -49,42 +53,84 @@ function literalCell(expression: string): CellValue {
   return { kind: "text", value: quoted ? quoted[1]!.replaceAll("''", "'") : trimmed };
 }
 
+const NUMERIC = new Set<CellValue["kind"]>(["int", "uint", "float", "decimal"]);
+
+/** 和后端的排序一样:NULL 排最前;数字按数值比,其余按文本比(中文按拼音)。 */
+export function compareCells(a: CellValue, b: CellValue): number {
+  if (a.kind === "null" || b.kind === "null") return a.kind === b.kind ? 0 : a.kind === "null" ? -1 : 1;
+  if (NUMERIC.has(a.kind) && NUMERIC.has(b.kind) && "value" in a && "value" in b) {
+    const diff = Number(a.value) - Number(b.value);
+    if (diff !== 0 && Number.isFinite(diff)) return Math.sign(diff);
+  }
+  const text = (cell: CellValue) => ("value" in cell ? String(typeof cell.value === "object" ? "" : cell.value) : "");
+  return text(a).localeCompare(text(b), "zh-CN", { numeric: true });
+}
+
+/** 稳定排序:值相同的行保持原来的先后。 */
+function sortRows(rows: readonly CellValue[][], sort: ResultSort): CellValue[][] {
+  return rows
+    .map((row, at) => ({ row, at }))
+    .sort((x, y) => compareCells(x.row[sort.column]!, y.row[sort.column]!) * (sort.descending ? -1 : 1) || x.at - y.at)
+    .map(({ row }) => row);
+}
+
+/** 执行出来的完整结果,结果集只带第一批行;存进标签页的结果里由 runStatement 补上编号。 */
+type FullSet = { columns: ResultColumn[]; rows: CellValue[][] };
+
 /** 没有 FROM 的 SELECT:每个逗号分开的表达式一列,`AS 别名` 当列名。 */
-function selectLiterals(list: string): ResultSet {
+function selectLiterals(list: string): FullSet {
   const parts = list.split(",").map((part) => {
     const alias = /^(.*?)\s+(?:as\s+)?([A-Za-z_]\w*)$/is.exec(part.trim());
     return alias && !/^'/.test(alias[2]!) ? { expr: alias[1]!, name: alias[2]! } : { expr: part, name: part.trim() };
   });
   return {
-    columns: parts.map((p) => ({ name: p.name, dataType: "" })),
+    columns: parts.map((p) => ({ name: p.name, dataType: "", source: null })),
     rows: [parts.map((p) => literalCell(p.expr))],
-    truncated: false,
   };
 }
 
-function select(sql: string, scope: QueryScope): StatementOutcome {
+type Executed = { outcome: StatementOutcome; sets: FullSet[] };
+
+const done = (outcome: StatementOutcome, sets: FullSet[] = []): Executed => ({ outcome, sets });
+
+/** SELECT … FROM 示例表:列都带来源,`*` 以外的列表只认 `列`、`列 AS 别名`,别的当表达式。 */
+function select(sql: string, scope: QueryScope): Executed {
   const from = /\bfrom\s+(?:[`"]?\w+[`"]?\.)?[`"]?(\w+)[`"]?/i.exec(sql);
   if (!from) {
     const list = /^\s*select\s+([\s\S]*?)\s*;?\s*$/i.exec(sql)?.[1] ?? "1";
-    return outcome(scope, { resultSets: [selectLiterals(list)] });
+    return done(outcome(scope, {}), [selectLiterals(list)]);
   }
   const name = from[1]!;
   if (MISSING_TABLE.test(name)) {
-    return outcome(scope, {
-      status: "error",
-      message: `1146 - Table '${scope.database ?? "db"}.${name}' doesn't exist`,
-    });
+    return done(
+      outcome(scope, {
+        status: "error",
+        message: `1146 - Table '${scope.database ?? "db"}.${name}' doesn't exist`,
+      }),
+    );
   }
   const table = seedTable(name);
+  const ref = { database: scope.database ?? "", schema: scope.schema, table: name };
   const limit = Number(/\blimit\s+(\d+)/i.exec(sql)?.[1] ?? Number.POSITIVE_INFINITY);
   const empty = /\bwhere\s+1\s*=\s*0\b/i.test(sql);
-  const rows = empty ? [] : table.rows.slice(0, Math.min(limit, MAX_ROWS));
-  return outcome(scope, {
-    resultSets: [
-      { columns: table.columns.map((c) => ({ name: c.name, dataType: c.dataType })), rows, truncated: false },
-    ],
-    elapsedMs: 12,
-  });
+  const rows = empty ? [] : table.rows.slice(0, limit);
+  const list = /^\s*select\s+([\s\S]*?)\s+from\b/i.exec(sql)?.[1]?.trim() ?? "*";
+  const picked =
+    list === "*"
+      ? table.columns.map((c, index) => ({ index, name: c.name, column: c.name }))
+      : list.split(",").map((part) => {
+          const [, expr = "", alias] = /^(.*?)(?:\s+as\s+([A-Za-z_]\w*))?$/is.exec(part.trim()) ?? [];
+          const bare = expr.replace(/^\w+\./, "").replace(/[`"]/g, "");
+          const index = table.columns.findIndex((c) => c.name === bare);
+          return { index, name: alias ?? expr, column: index >= 0 ? bare : null };
+        });
+  const columns = picked.map((p): ResultColumn => ({
+    name: p.name,
+    dataType: p.index >= 0 ? table.columns[p.index]!.dataType : "",
+    source: p.column !== null ? { table: ref, column: p.column } : null,
+  }));
+  const values = rows.map((row) => picked.map((p): CellValue => (p.index >= 0 ? row[p.index]! : { kind: "null" })));
+  return done(outcome(scope, { elapsedMs: 12 }), [{ columns, rows: values }]);
 }
 
 type SavedEntry = { sql: string; modifiedAt: string };
@@ -179,28 +225,50 @@ export function createMockQueries(connections: () => ConnectionConfig[], wait: (
       });
     });
 
-  async function execute(editorId: string, scope: QueryScope, sql: string): Promise<StatementOutcome> {
+  /** 每个查询标签页存着的完整结果,按编号取。 */
+  const stored = new Map<string, Map<number, CellValue[][]>>();
+  let nextResultId = 0;
+
+  /** 完整结果存起来,结果集里只带第一批行。 */
+  function keep(editorId: string, sets: FullSet[]): ResultSet[] {
+    const kept = stored.get(editorId) ?? new Map<number, CellValue[][]>();
+    stored.set(editorId, kept);
+    return sets.map((set) => {
+      nextResultId += 1;
+      kept.set(nextResultId, set.rows);
+      return {
+        id: nextResultId,
+        columns: set.columns,
+        rows: set.rows.slice(0, FIRST_BATCH),
+        totalRows: set.rows.length,
+        truncated: false,
+        readOnly: null,
+      };
+    });
+  }
+
+  async function execute(editorId: string, scope: QueryScope, sql: string): Promise<Executed> {
     const seconds = /(?:pg_)?sleep\s*\(\s*(\d+(?:\.\d+)?)/i.exec(sql);
     if (seconds) {
       const cancelled = await sleep(editorId, Math.min(Number(seconds[1]), 60));
       return cancelled
-        ? outcome(scope, { status: "cancelled", message: "Query execution was interrupted", elapsedMs: 800 })
-        : outcome(scope, { resultSets: [selectLiterals("0 AS slept")] });
+        ? done(outcome(scope, { status: "cancelled", message: "Query execution was interrupted", elapsedMs: 800 }))
+        : done(outcome(scope, {}), [selectLiterals("0 AS slept")]);
     }
     const word = keyword(sql);
     if (word === "SELECT" || word === "WITH" || word === "SHOW") return select(sql, scope);
-    if (word === "USE") return outcome({ ...scope, database: /use\s+[`"]?(\w+)/i.exec(sql)?.[1] ?? null }, {});
+    if (word === "USE") return done(outcome({ ...scope, database: /use\s+[`"]?(\w+)/i.exec(sql)?.[1] ?? null }, {}));
     if (["INSERT", "UPDATE", "DELETE", "REPLACE"].includes(word)) {
       const groups = sql.match(/\)\s*,\s*\(/g)?.length ?? 0;
-      return outcome(scope, { affectedRows: word === "INSERT" ? groups + 1 : 3 });
+      return done(outcome(scope, { affectedRows: word === "INSERT" ? groups + 1 : 3 }));
     }
-    if (!word) return outcome(scope, { status: "error", message: "1065 - Query was empty" });
-    return outcome(scope, {});
+    if (!word) return done(outcome(scope, { status: "error", message: "1065 - Query was empty" }));
+    return done(outcome(scope, {}));
   }
 
   function record(connectionId: string, scope: QueryScope, sql: string, result: StatementOutcome) {
     const connection = connections().find((c) => c.id === connectionId);
-    const rows = result.resultSets.reduce((sum, set) => sum + set.rows.length, 0);
+    const rows = result.resultSets.reduce((sum, set) => sum + set.totalRows, 0);
     history.push({
       id: crypto.randomUUID(),
       executedAt: new Date().toISOString(),
@@ -221,10 +289,24 @@ export function createMockQueries(connections: () => ConnectionConfig[], wait: (
   return {
     async runStatement(editorId: string, connectionId: string, scope: QueryScope, sql: string) {
       await wait(40);
-      const result = await execute(editorId, scope, sql);
+      const executed = await execute(editorId, scope, sql);
+      const result = { ...executed.outcome, resultSets: keep(editorId, executed.sets) };
       record(connectionId, scope, sql, result);
       return result;
     },
+    async resultRows(editorId: string, resultId: number, offset: number, limit: number, sort: ResultSort | null) {
+      await wait(30);
+      const rows = stored.get(editorId)?.get(resultId);
+      if (!rows) fail("not_found", "这个结果已经释放了，请重新执行。");
+      const ordered = sort ? sortRows(rows, sort) : rows;
+      return ordered.slice(offset, offset + Math.min(limit, MAX_BATCH));
+    },
+    async releaseResults(editorId: string, resultIds: number[]) {
+      await wait(10);
+      for (const id of resultIds) stored.get(editorId)?.delete(id);
+    },
+    /** 导出时报的行数。 */
+    resultSize: (editorId: string, resultId: number) => stored.get(editorId)?.get(resultId)?.length,
     async cancelStatement(editorId: string) {
       await wait(20);
       const stop = sleeping.get(editorId);
@@ -233,6 +315,7 @@ export function createMockQueries(connections: () => ConnectionConfig[], wait: (
     },
     async closeEditor(editorId: string) {
       sleeping.get(editorId)?.();
+      stored.delete(editorId);
       await wait(10);
     },
     async searchHistory(query: string, connectionId: string | null, limit: number) {

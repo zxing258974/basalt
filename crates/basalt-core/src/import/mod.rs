@@ -61,7 +61,7 @@ pub struct SourceConnection {
 }
 
 impl SourceConnection {
-    /// 导入时提交的表单。带着明文密码的才标为「保存密码」并写进钥匙串;没有密码的不标,
+    /// 导入时提交的表单。带着明文密码的才标为「保存密码」并写进密码存储;没有密码的不标,
     /// 打开前就会弹密码框,而不是先拿空密码登录失败一次(会计入服务器的登录失败锁定)。
     /// 不支持的连接返回 `None`。
     pub fn to_draft(&self) -> Option<ConnectionDraft> {

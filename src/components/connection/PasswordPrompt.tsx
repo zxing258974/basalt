@@ -7,7 +7,6 @@ import { Dialog } from "../ui/Dialog";
 import { Checkbox, Field } from "../ui/Field";
 import { sshSecretLabel } from "./connectionForm";
 import { endpointSummary, needsSshPrompt, tunnelSummary } from "./driverMeta";
-import { secretStoreName } from "../../lib/platform";
 
 export function PasswordPrompt() {
   const prompt = useUi((s) => s.passwordPrompt);
@@ -36,7 +35,7 @@ function PasswordPromptDialog({ prompt }: { prompt: PasswordPromptState }) {
   if ((wanted.database && !asked.database) || (wanted.ssh && !asked.ssh)) {
     setAsked({ database: asked.database || wanted.database, ssh: asked.ssh || wanted.ssh });
   }
-  // 默认记住:连接成功后写进钥匙串并把 savePassword 置为 true,用户只需输一次。
+  // 默认记住:连接成功后存进本机的密码文件并把 savePassword 置为 true,用户只需输一次。
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   /** 认证失败由 open() 重新调用 askPassword 带回 prompt.error;其他错误记在这里。 */
@@ -109,11 +108,7 @@ function PasswordPromptDialog({ prompt }: { prompt: PasswordPromptState }) {
             autoFocus={!asked.ssh}
           />
         )}
-        <Checkbox
-          label={`连接成功后把密码保存到${secretStoreName()}`}
-          checked={remember}
-          onCheckedChange={setRemember}
-        />
+        <Checkbox label="连接成功后把密码保存在本机" checked={remember} onCheckedChange={setRemember} />
         <footer className="connection-form-footer">
           <span className="footer-spacer" />
           <Button variant="ghost" onClick={() => askPassword(null)}>

@@ -201,6 +201,6 @@ describe("on Windows", () => {
     await user.keyboard("{Control>}n{/Control}");
     const dialog = within(screen.getByRole("dialog", { name: "新建连接" }));
     await user.click(dialog.getByText("MySQL", { exact: true }));
-    expect(dialog.getByLabelText("把密码保存到Windows 凭据管理器")).toBeInTheDocument();
+    expect(dialog.getByLabelText("把密码保存在本机")).toBeInTheDocument();
   });
 });

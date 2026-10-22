@@ -1,5 +1,5 @@
 // 导入连接,与 crates/basalt-core/src/import 和 src-tauri/src/service/import.rs 的序列化结构对应。
-// 这里没有任何明文密码:预览只说「含不含密码」,密码由后端直接写进钥匙串。
+// 这里没有任何明文密码:预览只说「含不含密码」,密码由后端直接写进密码存储。
 import type { DriverKind, Endpoint, SshTunnel, SslMode } from "./types";
 
 export type ImportSource = { kind: "localNavicat" } | { kind: "ncxFile"; path: string };
@@ -40,7 +40,7 @@ export interface ImportedConnection {
   passwordSaved: boolean;
   /** 经 SSH 隧道。 */
   tunneled: boolean;
-  /** SSH 密码(或私钥口令)已存入钥匙串。 */
+  /** SSH 密码(或私钥口令)已存入密码存储。 */
   sshSecretSaved: boolean;
 }
 

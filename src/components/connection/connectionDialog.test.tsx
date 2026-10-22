@@ -111,7 +111,7 @@ describe("editing", () => {
 
     const dialog = within(screen.getByRole("dialog", { name: "编辑连接" }));
     expect(dialog.getByLabelText("类型")).toBeDisabled();
-    expect(dialog.getByLabelText("密码")).toHaveAttribute("placeholder", "已保存在钥匙串");
+    expect(dialog.getByLabelText("密码")).toHaveAttribute("placeholder", "已保存在本机");
     expect(dialog.queryByRole("button", { name: "← 换类型" })).not.toBeInTheDocument();
 
     await user.type(dialog.getByLabelText("密码"), "x");

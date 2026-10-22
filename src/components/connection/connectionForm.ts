@@ -24,10 +24,10 @@ export interface ConnectionForm {
   database: string;
   path: string;
   password: string;
-  /** 编辑已有连接时,没动过密码框就沿用钥匙串里的密码。 */
+  /** 编辑已有连接时,没动过密码框就沿用密码存储里的密码。 */
   passwordTouched: boolean;
   savePassword: boolean;
-  /** 打开表单时钥匙串里已经存着密码(原配置 savePassword 为真)。 */
+  /** 打开表单时密码存储里已经存着密码(原配置 savePassword 为真)。 */
   hadSavedPassword: boolean;
   /** 「SSH」页:关掉时下面的设置保留,只是不用。 */
   sshEnabled: boolean;
@@ -222,7 +222,7 @@ export function toDraft(form: ConnectionForm): ConnectionDraft {
       password: null,
     };
   }
-  // 只有钥匙串里本来就有密码时,「没动密码框」才意味着沿用;否则就用框里的内容(可以是空密码)。
+  // 只有密码存储里本来就有密码时,「没动密码框」才意味着沿用;否则就用框里的内容(可以是空密码)。
   const keepSavedPassword = form.hadSavedPassword && !form.passwordTouched;
   return {
     ...base,

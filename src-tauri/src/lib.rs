@@ -11,25 +11,23 @@ mod webview_windows;
 
 use std::sync::Arc;
 
-use basalt_core::secret::{CachedSecretStore, KeychainStore, SecretStore};
+use basalt_core::secret::{FileSecretStore, KeychainStore, SecretStore};
 use tauri::Manager;
 
-/// 钥匙串里的服务名。
+/// 以前存密码的钥匙串服务名:只在把旧密码搬进 secrets.json 时读。
 const KEYCHAIN_SERVICE: &str = "dev.basalt.app";
 
-/// 密码和 API Key 放哪儿。两边都在内存里缓存读到的结果:同一条一次运行只读一次,不会每发一句话都弹框。
-/// macOS 上全部合成钥匙串里的一条:包是临时签名,每次重装都要重新放行,条目越少问得越少。
-/// Windows 凭据管理器单条有长度上限,还是一条连接一条(那边也不会弹框)。
+/// 密码和 API Key 放哪儿:配置目录的 secrets.json,只有当前用户能读写。不用钥匙串,也就不弹授权框。
+/// 以前存在钥匙串里的(macOS 合成的那一条和更早的单条;Windows 凭据管理器),第一次用到时只读地搬过来一次。
 fn secret_store(config_dir: &std::path::Path) -> Arc<dyn SecretStore> {
-    let keychain = KeychainStore::new(KEYCHAIN_SERVICE);
+    let legacy = KeychainStore::new(KEYCHAIN_SERVICE);
     #[cfg(target_os = "macos")]
-    let keychain = basalt_core::secret::VaultSecretStore::new(
-        keychain,
+    let legacy = basalt_core::secret::VaultSecretStore::new(
+        legacy,
         config_dir.join("pending-secret-deletes.json"),
-    );
-    #[cfg(not(target_os = "macos"))]
-    let _ = config_dir;
-    Arc::new(CachedSecretStore::new(keychain))
+    )
+    .read_only();
+    Arc::new(FileSecretStore::new(config_dir.join("secrets.json")).with_legacy(Box::new(legacy)))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

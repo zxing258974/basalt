@@ -100,7 +100,7 @@ describe("import dialog", () => {
 
     await user.click(screen.getByRole("button", { name: /^导入 \d+ 个连接$/ }));
     expect(await screen.findByText(/已导入 \d+ 个连接/)).toBeInTheDocument();
-    expect(screen.getAllByText("密码已存入钥匙串").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("密码已保存在本机").length).toBeGreaterThan(0);
     expect(
       within(screen.getByText("跳板机后的库").closest("li")!).getByText(
         "首次打开时输入密码，经 SSH 隧道（SSH 密码也已存入）",

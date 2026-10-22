@@ -37,7 +37,7 @@ afterEach(() => setBackendForTesting(null));
 describe("password prompt remember default", () => {
   it("is checked by default and remembers the password after a successful open", async () => {
     const backend = renderPrompt(base);
-    expect(screen.getByLabelText("连接成功后把密码保存到钥匙串")).toBeChecked();
+    expect(screen.getByLabelText("连接成功后把密码保存在本机")).toBeChecked();
 
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("密码"), "pw");
@@ -50,7 +50,7 @@ describe("password prompt remember default", () => {
   it("does not remember when the user unticks it", async () => {
     const backend = renderPrompt(base);
     const user = userEvent.setup();
-    await user.click(screen.getByLabelText("连接成功后把密码保存到钥匙串"));
+    await user.click(screen.getByLabelText("连接成功后把密码保存在本机"));
     await user.type(screen.getByLabelText("密码"), "pw");
     await user.click(screen.getByRole("button", { name: "连接" }));
 

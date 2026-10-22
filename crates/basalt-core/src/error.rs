@@ -19,13 +19,6 @@ impl FieldError {
     }
 }
 
-/// 存密码的地方叫什么:macOS 是钥匙串,Windows 是凭据管理器。
-pub const SECRET_STORE: &str = if cfg!(target_os = "macos") {
-    "钥匙串"
-} else {
-    "Windows 凭据管理器"
-};
-
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
     #[error("连接配置有误")]
@@ -42,7 +35,8 @@ pub enum CoreError {
     Network(String),
     #[error("连接超时，请检查地址、端口和网络")]
     Timeout,
-    #[error("{store}操作失败：{0}", store = SECRET_STORE)]
+    /// 读写本机的密码文件失败,或者从钥匙串搬旧密码时被拒绝。
+    #[error("保存或读取密码失败：{0}")]
     Secret(String),
     #[error("配置文件读写失败：{0}")]
     Storage(String),

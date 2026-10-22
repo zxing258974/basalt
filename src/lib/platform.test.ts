@@ -1,4 +1,4 @@
-// 平台差异:macOS 用 ⌘ 和钥匙串,Windows 用 Ctrl 和凭据管理器。其余测试固定按 macOS 跑(见 test/setup.ts)。
+// 平台差异:macOS 用 ⌘ 和访达,Windows 用 Ctrl 和资源管理器。其余测试固定按 macOS 跑(见 test/setup.ts)。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   fileManagerName,
@@ -6,7 +6,6 @@ import {
   hasPrimaryModifier,
   keyLabel,
   platform,
-  secretStoreName,
   setPlatformForTesting,
   shortcut,
 } from "./platform";
@@ -30,16 +29,16 @@ describe("platform", () => {
     expect(platform()).toBe("windows");
   });
 
-  it("uses ⌘ and the keychain on macOS", () => {
+  it("uses ⌘ and Finder on macOS", () => {
     setPlatformForTesting("mac");
     expect([hasPrimaryModifier(key(true, false)), hasPrimaryModifier(key(false, true))]).toEqual([true, false]);
     expect(hasPrimaryModifier(key(true, true))).toBe(false);
     expect([shortcut("S"), shortcut("Enter", { shift: true }), shortcut("Backspace")]).toEqual(["⌘S", "⇧⌘↩", "⌘⌫"]);
-    expect([secretStoreName(), fileManagerName()]).toEqual(["钥匙串", "访达"]);
+    expect(fileManagerName()).toBe("访达");
     expect([keyLabel("Enter"), keyLabel("Esc")]).toEqual(["↩", "Esc"]);
   });
 
-  it("uses Ctrl and the Credential Manager on Windows", () => {
+  it("uses Ctrl and Explorer on Windows", () => {
     setPlatformForTesting("windows");
     expect([hasPrimaryModifier(key(false, true)), hasPrimaryModifier(key(true, false))]).toEqual([true, false]);
     expect([shortcut("S"), shortcut("Enter", { shift: true }), shortcut(".")]).toEqual([
@@ -47,7 +46,7 @@ describe("platform", () => {
       "Ctrl+Shift+Enter",
       "Ctrl+.",
     ]);
-    expect([secretStoreName(), fileManagerName()]).toEqual(["Windows 凭据管理器", "资源管理器"]);
+    expect(fileManagerName()).toBe("资源管理器");
     expect(keyLabel("Enter")).toBe("Enter");
   });
 

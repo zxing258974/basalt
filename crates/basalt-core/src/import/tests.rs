@@ -39,7 +39,7 @@ fn saved(name: &str, driver: DriverKind, endpoint: Endpoint) -> ConnectionConfig
     }
 }
 
-/// 已经在钥匙串里存了密码的已有连接。
+/// 已经在密码存储里存了密码的已有连接。
 fn with_saved_password(config: ConnectionConfig) -> ConnectionConfig {
     ConnectionConfig {
         save_password: true,

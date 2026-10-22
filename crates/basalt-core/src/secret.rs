@@ -1,4 +1,5 @@
-//! 连接密码的存放处。正式环境用 macOS 钥匙串,测试用内存实现。
+//! 连接密码的存放处。正式环境存在配置目录的 secrets.json(见 [`FileSecretStore`]),
+//! 以前存在钥匙串里的第一次用到时搬过来;测试用内存实现。
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -6,11 +7,13 @@ use std::sync::Mutex;
 use crate::error::{CoreError, CoreResult};
 
 mod cached;
+mod file;
 #[cfg(target_os = "macos")]
 mod macos;
 mod vault;
 
 pub use cached::CachedSecretStore;
+pub use file::FileSecretStore;
 pub use vault::VaultSecretStore;
 
 /// [`SecretStore::delete_quietly`] 的结果。

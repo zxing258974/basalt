@@ -24,7 +24,7 @@ import { driverMeta, DRIVERS } from "./driverMeta";
 import { DriverPicker } from "./DriverPicker";
 import { withHostKeyTrust } from "./hostKeyTrust";
 import { SshPage, SslPage } from "./TransportFields";
-import { platform, secretStoreName } from "../../lib/platform";
+import { platform } from "../../lib/platform";
 
 type TestResult = { ok: true; message: string } | { ok: false; message: string } | null;
 
@@ -276,7 +276,7 @@ function GeneralPage({ form, update, errorFor, autoFocus }: GeneralPageProps) {
             label="密码"
             type="password"
             value={form.password}
-            placeholder={form.hadSavedPassword && !form.passwordTouched ? `已保存在${secretStoreName()}` : ""}
+            placeholder={form.hadSavedPassword && !form.passwordTouched ? "已保存在本机" : ""}
             onValueChange={(password) => update({ password, passwordTouched: true })}
           />
           <Field
@@ -287,7 +287,7 @@ function GeneralPage({ form, update, errorFor, autoFocus }: GeneralPageProps) {
           />
           <div className="span-full">
             <Checkbox
-              label={`把密码保存到${secretStoreName()}`}
+              label="把密码保存在本机"
               checked={form.savePassword}
               onCheckedChange={(savePassword) => update({ savePassword })}
             />

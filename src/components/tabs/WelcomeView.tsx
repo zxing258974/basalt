@@ -2,7 +2,7 @@ import { Plus } from "lucide-react";
 import { useConnections } from "../../hooks/useCatalog";
 import { useUi } from "../../stores/ui";
 import { Button } from "../ui/Button";
-import { keyLabel, secretStoreName, shortcut } from "../../lib/platform";
+import { keyLabel, shortcut } from "../../lib/platform";
 
 /** 快捷键按平台写:macOS 是 ⌘,Windows 是 Ctrl。 */
 const shortcuts = (): [string, string][] => [
@@ -31,7 +31,7 @@ export function WelcomeView() {
         </h1>
         <p className="welcome-lede">
           {isEmpty
-            ? `还没有连接。先新建一个，或者点工具栏的「导入」把 Navicat 里的连接搬过来；配置只保存在本机，密码进${secretStoreName()}。`
+            ? `还没有连接。先新建一个，或者点工具栏的「导入」把 Navicat 里的连接搬过来；配置和密码都只保存在本机。`
             : "MySQL、MariaDB、PostgreSQL、SQLite。在左侧展开连接，双击库或 schema 打开它的对象列表。"}
         </p>
         <Button

@@ -74,7 +74,7 @@ pub async fn list_connections(state: &AppState) -> CommandResult<Vec<ConnectionV
         .collect())
 }
 
-/// 保存连接时对钥匙串里密码的处理。
+/// 保存连接时对密码存储里密码的处理。
 #[derive(Debug, PartialEq, Eq)]
 enum SecretChange {
     Keep,
@@ -105,18 +105,18 @@ fn needs_reconnect(
     })
 }
 
-/// 把钥匙串恢复成改动前的值。恢复失败只能记日志:原操作的错误更重要。
+/// 把密码存储恢复成改动前的值。恢复失败只能记日志:原操作的错误更重要。
 fn restore_secret(state: &AppState, key: &str, previous: Option<&str>) {
     let restored = match previous {
         Some(secret) => state.secrets.set(key, secret),
         None => state.secrets.delete(key),
     };
     if let Err(error) = restored {
-        log::error!("回滚钥匙串失败，{key} 可能与配置不一致：{error}");
+        log::error!("回滚密码存储失败，{key} 可能与配置不一致：{error}");
     }
 }
 
-/// 写钥匙串在前、写配置在后:钥匙串被拒绝时配置原样不动;配置写失败时把钥匙串回滚。
+/// 写密码存储在前、写配置在后:密码存储被拒绝时配置原样不动;配置写失败时把密码存储回滚。
 /// 数据库密码和 SSH 密码各是一条,一起写、一起回滚。
 pub async fn save_connection(
     state: &AppState,
@@ -141,8 +141,8 @@ pub async fn save_connection(
         None => None,
     };
 
-    // 原来就没存密码(或者是新建的连接)时钥匙串里没有它的密码,不用去读:
-    // 不需要密码的连接(如 SQLite)保存时不会触发钥匙串授权。
+    // 原来就没存密码(或者是新建的连接)时密码存储里没有它的密码,不用去读:
+    // 不需要密码的连接(如 SQLite)保存时不会触发授权。
     let had_password = previous.as_ref().is_some_and(|p| p.save_password);
     let previous_ssh = previous.as_ref().and_then(|p| p.ssh.as_ref());
     let had_ssh_secret = previous_ssh.is_some_and(|t| t.save_secret);
@@ -165,7 +165,7 @@ pub async fn save_connection(
     Ok(config)
 }
 
-/// 密码框里勾了「记住」:连接已经成功后再调用,只写钥匙串和 savePassword,不碰会话。
+/// 密码框里勾了「记住」:连接已经成功后再调用,只写密码存储和 savePassword,不碰会话。
 pub async fn remember_password(state: &AppState, id: &str, password: String) -> CommandResult<()> {
     let store = state.store().await;
     let list = store.load()?;
@@ -193,12 +193,12 @@ pub async fn remember_password(state: &AppState, id: &str, password: String) -> 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeletedConnection {
-    /// 密码没能从钥匙串里删掉,还留在那里。
+    /// 密码没能从密码存储里删掉,还留在那里。
     pub password_left: bool,
 }
 
-/// 配置删掉就算成功。之后清理钥匙串不弹授权框:删连接不该要用户输登录密码,
-/// 何况配置已经没了,拒绝授权也挽回不了;删不掉的密码留在钥匙串里,如实告诉前端。
+/// 配置删掉就算成功。之后清理密码存储不弹授权框:删连接不该要用户输登录密码,
+/// 何况配置已经没了,拒绝授权也挽回不了;删不掉的密码留在密码存储里,如实告诉前端。
 pub async fn delete_connection(state: &AppState, id: &str) -> CommandResult<DeletedConnection> {
     let password_left = {
         let store = state.store().await;
@@ -213,11 +213,11 @@ pub async fn delete_connection(state: &AppState, id: &str) -> CommandResult<Dele
             .map(|key| match state.secrets.delete_quietly(key) {
                 Ok(QuietDelete::Removed) => false,
                 Ok(QuietDelete::NeedsAuthorization) => {
-                    log::warn!("连接 {id} 已删除，{key} 要授权才能删，留在了钥匙串里");
+                    log::warn!("连接 {id} 已删除，{key} 要授权才能删，留在了密码存储里");
                     true
                 }
                 Err(error) => {
-                    log::warn!("连接 {id} 已删除，但清理钥匙串里的 {key} 失败：{error}");
+                    log::warn!("连接 {id} 已删除，但清理密码存储里的 {key} 失败：{error}");
                     true
                 }
             })
@@ -263,7 +263,7 @@ pub async fn duplicate_connection(state: &AppState, id: &str) -> CommandResult<C
     Ok(copy)
 }
 
-/// 测试表单里的连接(经隧道时连隧道一起测)。表单没填密码且是已保存的连接时,沿用钥匙串里的密码;
+/// 测试表单里的连接(经隧道时连隧道一起测)。表单没填密码且是已保存的连接时,沿用密码存储里的密码;
 /// SSH 密码同理。
 pub async fn test_connection(
     state: &AppState,

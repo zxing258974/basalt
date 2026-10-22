@@ -1,4 +1,4 @@
-//! 导入连接:扫描来源生成预览,再按勾选项写入钥匙串与配置。
+//! 导入连接:扫描来源生成预览,再按勾选项写入密码存储与配置。
 //! 扫描与导入各自重新解析来源,明文密码只在导入这一次调用里经过内存,不回传前端。
 
 use std::collections::{HashMap, HashSet};
@@ -29,11 +29,11 @@ pub struct ImportedConnection {
     pub(crate) name: String,
     /// SQLite 这类文件库没有密码,汇报时不必提示输入。
     pub(crate) driver: DriverKind,
-    /// 密码已写进钥匙串;否则首次打开时要输入。
+    /// 密码已写进密码存储;否则首次打开时要输入。
     pub(crate) password_saved: bool,
     /// 经 SSH 隧道。
     pub(crate) tunneled: bool,
-    /// SSH 密码(或私钥口令)已写进钥匙串。
+    /// SSH 密码(或私钥口令)已写进密码存储。
     pub(crate) ssh_secret_saved: bool,
 }
 
@@ -60,7 +60,7 @@ pub struct ImportReport {
     pub(crate) skipped: Vec<SkippedConnection>,
 }
 
-/// 给已有连接补密码:写进它的钥匙串条目,并把它标为「保存密码」。
+/// 给已有连接补密码:写进它的密码条目,并把它标为「保存密码」。
 struct Fill {
     existing_id: String,
     existing_name: String,
@@ -123,9 +123,9 @@ fn plan(source: &SourceConnection) -> Result<Planned, String> {
     })
 }
 
-/// 导入勾选的连接。和保存单个连接一样:先写钥匙串、再写配置,配置写失败就把这次动过的钥匙串条目恢复原样。
+/// 导入勾选的连接。和保存单个连接一样:先写密码存储、再写配置,配置写失败就把这次动过的密码条目恢复原样。
 /// 「新增 / 补密码 / 已存在」在持锁后对照最新配置重新判定,不沿用扫描时的结果。
-/// 单个连接不合格只记进「跳过」,钥匙串或配置文件出错才让整次导入失败。
+/// 单个连接不合格只记进「跳过」,密码存储或配置文件出错才让整次导入失败。
 pub async fn import_connections(
     state: &AppState,
     source: &ImportSource,
@@ -179,7 +179,7 @@ pub async fn import_connections(
         return Ok(report);
     }
 
-    // (钥匙串条目, 写之前的值):失败时按原值恢复。
+    // (密码条目, 写之前的值):失败时按原值恢复。
     let mut written: Vec<(String, Option<String>)> = Vec::new();
     let secrets = creates
         .iter()
@@ -254,7 +254,7 @@ pub async fn import_connections(
     Ok(report)
 }
 
-/// 把这次写过的钥匙串条目恢复成写之前的值(没有原值的删掉)。
+/// 把这次写过的密码条目恢复成写之前的值(没有原值的删掉)。
 fn rollback(state: &AppState, written: &[(String, Option<String>)]) {
     for (key, previous) in written {
         restore_secret(state, key, previous.as_deref());

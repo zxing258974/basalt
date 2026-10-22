@@ -88,7 +88,7 @@ export interface Backend {
   maintainTable(id: string, table: TableRef, operation: Maintenance): Promise<MaintenanceOutcome>;
   /** 信息面板:表或视图的属性和建表语句。 */
   tableDetails(id: string, table: TableRef): Promise<TableDetails>;
-  /** SQL 助手:模型配置。API Key 在钥匙串里,不随列表返回。 */
+  /** SQL 助手:模型配置。API Key 在密码存储里,不随列表返回。 */
   listLlmModels(): Promise<LlmSettings>;
   saveLlmModel(draft: LlmModelDraft): Promise<LlmModel>;
   deleteLlmModel(id: string): Promise<LlmSettings>;
@@ -115,7 +115,7 @@ export interface Backend {
   pickCredentialFile(kind: CredentialFile): Promise<string | null>;
   /** 扫描导入来源,给出预览;不写任何东西。 */
   scanImportSource(source: ImportSource): Promise<ImportCandidate[]>;
-  /** 导入勾选的连接:密码由后端直接写进钥匙串。 */
+  /** 导入勾选的连接:密码由后端直接写进密码存储。 */
   importConnections(source: ImportSource, ids: string[]): Promise<ImportReport>;
   pickNcxFile(): Promise<string | null>;
   /** 在查询标签页 `editorId` 的专用连接上执行一条语句;数据库报错也是一个结果,不会 reject。 */

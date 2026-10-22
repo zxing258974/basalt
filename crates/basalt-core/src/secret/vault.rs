@@ -51,6 +51,8 @@ pub struct VaultSecretStore<S> {
     /// 还没读进钥匙串那一条时要删的键。
     pending_path: PathBuf,
     vault: Mutex<Option<Vault>>,
+    /// 只读:从这里往本机密码文件搬家时用,读的时候不往钥匙串里写任何东西。
+    read_only: bool,
 }
 
 impl<S: SecretStore> VaultSecretStore<S> {
@@ -59,7 +61,14 @@ impl<S: SecretStore> VaultSecretStore<S> {
             inner,
             pending_path: pending_path.into(),
             vault: Mutex::new(None),
+            read_only: false,
         }
+    }
+
+    /// 只读地用:读到的旧单条不搬进合并的那一条,待删清单只在内存里生效,不改钥匙串、不改文件。
+    pub fn read_only(mut self) -> Self {
+        self.read_only = true;
+        self
     }
 
     fn lock(&self) -> CoreResult<MutexGuard<'_, Option<Vault>>> {
@@ -84,6 +93,8 @@ impl<S: SecretStore> VaultSecretStore<S> {
         let pending = read_pending(&self.pending_path)?;
         let vault = if pending.is_empty() {
             vault
+        } else if self.read_only {
+            vault.without(&pending)
         } else {
             let next = vault.without(&pending);
             self.save(&next)?;
@@ -125,6 +136,9 @@ impl<S: SecretStore> SecretStore for VaultSecretStore<S> {
         let Some(secret) = self.inner.get(key)? else {
             return Ok(None);
         };
+        if self.read_only {
+            return Ok(Some(secret));
+        }
         // 搬家失败不影响这次用:下次还会从旧条目读。
         match self.replace(&mut slot, vault.with_secret(key, &secret)) {
             Ok(()) => {

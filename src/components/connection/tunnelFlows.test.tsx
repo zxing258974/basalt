@@ -72,7 +72,7 @@ describe("opening through a tunnel", () => {
     const prompt = within(await screen.findByRole("dialog", { name: "连接到「跳板机后的库」" }));
     await user.type(prompt.getByLabelText("SSH 密码"), "ssh");
     await user.type(prompt.getByLabelText("密码"), "db");
-    await user.click(prompt.getByLabelText("连接成功后把密码保存到钥匙串"));
+    await user.click(prompt.getByLabelText("连接成功后把密码保存在本机"));
     await user.click(prompt.getByRole("button", { name: "连接" }));
     await trustFingerprint(user);
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

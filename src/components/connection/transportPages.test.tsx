@@ -70,7 +70,7 @@ describe("pages", () => {
     await user.click(dialog.getByRole("tab", tab("SSH")));
     expect(dialog.getByLabelText("SSH 主机")).toBeDisabled();
     expect(dialog.getByLabelText("SSH 端口")).toHaveValue("22");
-    expect(dialog.getByLabelText("把 SSH 密码保存到钥匙串")).toBeDisabled();
+    expect(dialog.getByLabelText("把 SSH 密码保存在本机")).toBeDisabled();
     await user.click(dialog.getByLabelText("经 SSH 隧道连接"));
     expect(dialog.getByLabelText("SSH 主机")).toBeEnabled();
     // 页签上的小圆点说明这一页开着。
@@ -161,7 +161,7 @@ describe("SSH", () => {
     expect(dialog.getByLabelText("私钥口令")).toHaveAttribute("placeholder", "没有口令就留空");
     await user.click(dialog.getByRole("button", { name: "选择私钥文件" }));
     expect(await dialog.findByDisplayValue("/Users/me/.ssh/id_ed25519")).toBeInTheDocument();
-    expect(dialog.getByLabelText("把私钥口令保存到钥匙串")).toBeChecked();
+    expect(dialog.getByLabelText("把私钥口令保存在本机")).toBeChecked();
     await user.click(dialog.getByRole("button", { name: "保存" }));
 
     await screen.findByRole("treeitem", { name: "本地 MySQL" });
@@ -184,7 +184,7 @@ describe("SSH", () => {
     await user.click(dialog.getByRole("tab", tab("SSH")));
     expect(dialog.getByLabelText("经 SSH 隧道连接")).toBeChecked();
     expect(dialog.getByLabelText("SSH 端口")).toHaveValue("2222");
-    expect(dialog.getByLabelText("私钥口令")).toHaveAttribute("placeholder", "已保存在钥匙串");
+    expect(dialog.getByLabelText("私钥口令")).toHaveAttribute("placeholder", "已保存在本机");
     // 换了登录方式,存着的是密码还是口令说不准:框清空。
     await user.selectOptions(dialog.getByLabelText("登录方式"), "密码");
     expect(dialog.getByLabelText("SSH 密码")).toHaveAttribute("placeholder", "");

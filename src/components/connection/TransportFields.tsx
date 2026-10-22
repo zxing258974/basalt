@@ -1,7 +1,6 @@
 // 连接对话框的「SSH」「SSL」两页。表单状态在 ConnectionDialog 里,这里只负责显示和改。
 import { FolderOpen } from "lucide-react";
 import { getBackend, type CredentialFile } from "../../lib/api";
-import { secretStoreName } from "../../lib/platform";
 import type { SshAuthMethod, SslMode } from "../../lib/types";
 import { Button } from "../ui/Button";
 import { Checkbox, Field, SelectField } from "../ui/Field";
@@ -71,11 +70,7 @@ export function SshPage({ form, update, replace, errorFor }: PageProps) {
   const off = !form.sshEnabled;
   const secretLabel = sshSecretLabel(form.sshAuth);
   const keepsSaved = form.hadSavedSshSecret && !form.sshSecretTouched;
-  const secretPlaceholder = keepsSaved
-    ? `已保存在${secretStoreName()}`
-    : form.sshAuth === "privateKey"
-      ? "没有口令就留空"
-      : "";
+  const secretPlaceholder = keepsSaved ? "已保存在本机" : form.sshAuth === "privateKey" ? "没有口令就留空" : "";
   return (
     <div className="form-grid">
       <div className="span-full connection-page-intro">
@@ -138,7 +133,7 @@ export function SshPage({ form, update, replace, errorFor }: PageProps) {
       )}
       <div className="span-full">
         <Checkbox
-          label={`${before("把", secretLabel)}保存到${secretStoreName()}`}
+          label={`${before("把", secretLabel)}保存在本机`}
           checked={form.sshSaveSecret}
           disabled={off}
           onCheckedChange={(sshSaveSecret) => update({ sshSaveSecret })}

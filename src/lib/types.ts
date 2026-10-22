@@ -15,7 +15,7 @@ export interface SshTunnel {
   username: string;
   auth: SshAuthMethod;
   privateKeyPath?: string | null;
-  /** SSH 密码(或私钥口令)存在钥匙串里。 */
+  /** SSH 密码(或私钥口令)存在密码存储里。 */
   saveSecret: boolean;
 }
 

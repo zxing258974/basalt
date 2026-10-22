@@ -1,4 +1,4 @@
-// 平台差异:macOS 用 ⌘、钥匙串、访达;Windows 用 Ctrl、凭据管理器、资源管理器。
+// 平台差异:macOS 用 ⌘、访达;Windows 用 Ctrl、资源管理器。
 // 按 WebView 的 User-Agent 判断:macOS 的 WKWebView 带「Macintosh」,Windows 的 WebView2 带「Windows」。
 
 export type Platform = "mac" | "windows";
@@ -35,10 +35,6 @@ export function shortcut(key: string, options: { shift?: boolean } = {}): string
 }
 
 /** 存密码的地方叫什么。 */
-export function secretStoreName(): string {
-  return platform() === "mac" ? "钥匙串" : "Windows 凭据管理器";
-}
-
 /** 系统的文件管理器叫什么(「在访达中显示」)。 */
 /** 路径里的文件名。Windows 路径用反斜杠,macOS 用正斜杠,两种都认。 */
 export function fileName(path: string): string {

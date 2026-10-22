@@ -4,7 +4,6 @@ import { errorMessage } from "../../lib/types";
 import { useUi } from "../../stores/ui";
 import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
-import { secretStoreName } from "../../lib/platform";
 
 export function DeleteConnectionDialog() {
   const pending = useUi((s) => s.pendingDelete);
@@ -50,7 +49,7 @@ export function DeleteConnectionDialog() {
         </>
       }
     >
-      <p className="dialog-text">只删除本机保存的连接配置和{secretStoreName()}里的密码，数据库本身不受影响。</p>
+      <p className="dialog-text">只删除本机保存的连接配置和密码，数据库本身不受影响。</p>
       {error && <p className="field-error">{error}</p>}
     </Dialog>
   );

@@ -1,4 +1,4 @@
-//! SQL 助手:模型配置(Key 进钥匙串)、流式对话、表结构概要。逻辑在 core 的 `llm` 里。
+//! SQL 助手:模型配置(Key 进密码存储)、流式对话、表结构概要。逻辑在 core 的 `llm` 里。
 //!
 //! 对话由前端起一个请求 id:命令还没返回时也能按它取消。取消就是中止那个任务,
 //! 正在读的 HTTP 响应随之丢弃、连接断开。
@@ -18,7 +18,7 @@ use tokio::task::AbortHandle;
 use super::CommandResult;
 use crate::state::AppState;
 
-/// 一个对话:命令一进来就登记(这时还在读配置、钥匙串),任务开始后再挂上中止句柄。
+/// 一个对话:命令一进来就登记(这时还在读配置、密码存储),任务开始后再挂上中止句柄。
 /// 登记之后、开始之前来的取消只记下来,开始时看到就不开始。
 #[derive(Default)]
 struct Chat {
@@ -111,7 +111,7 @@ pub async fn list_llm_models(state: &AppState) -> CommandResult<LlmSettings> {
     Ok(state.llm.load()?)
 }
 
-/// 先校验,再改钥匙串,最后写配置。
+/// 先校验,再改密码存储,最后写配置。
 pub async fn save_llm_model(state: &AppState, draft: LlmModelDraft) -> CommandResult<LlmModel> {
     let _guard = state.llm_lock.lock().await;
     let settings = state.llm.load()?;
@@ -156,14 +156,14 @@ pub async fn delete_llm_model(state: &AppState, id: &str) -> CommandResult<LlmSe
         .ok_or_else(|| CoreError::NotFound(format!("找不到模型：{id}")))?;
     let next = settings.removed(id);
     state.llm.save(&next)?;
-    // 和删连接一样:不弹钥匙串授权框,删不掉就留着。
+    // 和删连接一样:不弹授权框,删不掉就留着。
     if model.has_api_key {
         match state.secrets.delete_quietly(&api_key_slot(id)) {
             Ok(QuietDelete::Removed) => {}
             Ok(QuietDelete::NeedsAuthorization) => {
-                log::warn!("模型 {id} 已删除，它的 API Key 要授权才能删，留在了钥匙串里")
+                log::warn!("模型 {id} 已删除，它的 API Key 要授权才能删，留在了密码存储里")
             }
-            Err(error) => log::warn!("模型 {id} 已删除，但清理钥匙串失败：{error}"),
+            Err(error) => log::warn!("模型 {id} 已删除，但清理密码存储失败：{error}"),
         }
     }
     Ok(next)
@@ -176,7 +176,7 @@ pub async fn set_active_llm_model(state: &AppState, id: &str) -> CommandResult<L
     Ok(next)
 }
 
-/// 表单里的 Key:没填时用钥匙串里已经存的(编辑已有模型、地址的主机没变时)。
+/// 表单里的 Key:没填时用密码存储里已经存的(编辑已有模型、地址的主机没变时)。
 fn key_for(state: &AppState, draft: &LlmModelDraft) -> CommandResult<Option<String>> {
     match draft.api_key.as_deref().map(str::trim) {
         Some("") => Ok(None),
@@ -186,7 +186,7 @@ fn key_for(state: &AppState, draft: &LlmModelDraft) -> CommandResult<Option<Stri
                 let settings = state.llm.load()?;
                 let saved = settings.get(id);
                 check_key_origin(saved, draft)?;
-                // 没存过 Key 的模型不去读钥匙串,免得白弹一次授权框。
+                // 没存过 Key 的模型不去读密码存储,免得白弹一次授权框。
                 if saved.is_some_and(|m| m.has_api_key) {
                     Ok(state.secrets.get(&api_key_slot(id))?)
                 } else {
@@ -222,7 +222,7 @@ pub async fn llm_chat(
     request: ChatRequest,
     mut on_text: impl FnMut(&str) + Send + 'static,
 ) -> CommandResult<ChatOutcome> {
-    // 先登记:读配置、读钥匙串(可能弹授权框)期间点的「停止」也算数。
+    // 先登记:读配置、读密码存储(可能弹授权框)期间点的「停止」也算数。
     let _registered = state.chats.register(request_id)?;
     let model = state
         .llm

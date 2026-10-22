@@ -222,3 +222,37 @@ fn missing_secrets_are_not_stored() {
     assert_eq!(store.get("connection:none:password").unwrap(), None);
     assert_eq!(setup.keychain.raw(VAULT_KEY), None, "没东西可存时不建条目");
 }
+
+#[test]
+fn read_only_use_never_writes_the_keychain_or_the_pending_list() {
+    let setup = Setup::new();
+    setup.run().set("connection:a:password", "pa").unwrap();
+    setup
+        .keychain
+        .put_legacy("connection:old:password", "old", false);
+    setup
+        .run()
+        .delete_quietly("connection:a:password")
+        .unwrap_or(QuietDelete::Removed);
+    let vault_before = setup.keychain.raw(VAULT_KEY);
+
+    let reader = VaultSecretStore::new(setup.keychain.clone(), setup.pending()).read_only();
+    assert_eq!(
+        reader.get("connection:old:password").unwrap().as_deref(),
+        Some("old")
+    );
+    assert_eq!(
+        reader.get("connection:a:password").unwrap(),
+        None,
+        "待删的照样当作删了"
+    );
+    assert_eq!(
+        setup.keychain.raw(VAULT_KEY),
+        vault_before,
+        "没往合并的那一条里写"
+    );
+    assert!(
+        setup.keychain.raw("connection:old:password").is_some(),
+        "旧单条也没删"
+    );
+}

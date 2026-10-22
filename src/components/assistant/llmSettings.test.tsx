@@ -81,7 +81,7 @@ describe("model settings", { timeout: 15_000 }, () => {
     const save = vi.spyOn(backend, "saveLlmModel");
     const { user, dialog } = await openSettings(backend);
     await user.click(dialog.getByRole("button", { name: /DeepSeek/ }));
-    expect(dialog.getByLabelText("API Key")).toHaveAttribute("placeholder", "已存在钥匙串里，留空不改");
+    expect(dialog.getByLabelText("API Key")).toHaveAttribute("placeholder", "已保存在本机，留空不改");
     expect(dialog.getByLabelText("temperature")).toHaveValue("0.2");
 
     await user.type(dialog.getByLabelText("最多输出 tokens"), "abc");

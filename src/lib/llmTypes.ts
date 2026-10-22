@@ -11,7 +11,7 @@ export interface LlmModel {
   model: string;
   maxTokens: number | null;
   temperature: number | null;
-  /** 钥匙串里存了 API Key。 */
+  /** 密码存储里存了 API Key。 */
   hasApiKey: boolean;
 }
 
@@ -24,7 +24,7 @@ export interface LlmModelDraft {
   model: string;
   maxTokens: number | null;
   temperature: number | null;
-  /** null:不改钥匙串里的;"":删掉;其余:换成这个。 */
+  /** null:不改密码存储里的;"":删掉;其余:换成这个。 */
   apiKey: string | null;
 }
 

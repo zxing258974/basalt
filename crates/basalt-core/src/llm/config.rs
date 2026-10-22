@@ -1,4 +1,4 @@
-//! SQL 助手的模型配置:配置目录下的 `llm-models.json`,不含 API Key(Key 在钥匙串里,见 [`api_key_slot`])。
+//! SQL 助手的模型配置:配置目录下的 `llm-models.json`,不含 API Key(Key 在密码存储里,见 [`api_key_slot`])。
 
 use std::path::{Path, PathBuf};
 
@@ -22,7 +22,7 @@ pub struct LlmModel {
     pub max_tokens: Option<u32>,
     #[serde(default)]
     pub temperature: Option<f64>,
-    /// 钥匙串里存了 API Key。记在这里,列模型时不必去读钥匙串(读别的版本存的条目会弹授权框)。
+    /// 密码存储里存了 API Key。记在这里,列模型时不必去读密码存储(读别的版本存的条目会弹授权框)。
     #[serde(default)]
     pub has_api_key: bool,
 }
@@ -42,13 +42,13 @@ pub struct LlmModelDraft {
     pub max_tokens: Option<u32>,
     #[serde(default)]
     pub temperature: Option<f64>,
-    /// `None`:不改钥匙串里的;`Some("")`:删掉;其余:换成这个。
+    /// `None`:不改密码存储里的;`Some("")`:删掉;其余:换成这个。
     #[serde(default)]
     pub api_key: Option<String>,
 }
 
 impl LlmModelDraft {
-    /// 校验并转成要保存的模型。`has_api_key` 是保存之后钥匙串里有没有 Key。
+    /// 校验并转成要保存的模型。`has_api_key` 是保存之后密码存储里有没有 Key。
     pub fn into_model(self, id: String, has_api_key: bool) -> CoreResult<LlmModel> {
         let mut errors = Vec::new();
         let name = self.name.trim().to_owned();
@@ -109,7 +109,7 @@ pub fn same_origin(saved: &str, base_url: &str) -> bool {
     matches!((origin(saved), origin(base_url)), (Some(a), Some(b)) if a == b)
 }
 
-/// 模型 API Key 在钥匙串里的账户名。
+/// 模型 API Key 在密码存储里的账户名。
 pub fn api_key_slot(model_id: &str) -> String {
     format!("llm:{model_id}:api_key")
 }

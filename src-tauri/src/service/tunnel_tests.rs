@@ -276,7 +276,7 @@ fn route_changes_ignore_the_save_flag() {
 
 #[tokio::test]
 async fn unknown_ssh_server_error_carries_the_host_key_to_the_frontend() {
-    // 进程内起不了 SSH 服务器(那在 core 的隧道测试里);这里只看错误怎么转给前端、确认后记下。
+    // 进程内起不了 SSH 服务器(那在 core 的隧道测试里);这里只看错误怎么转给前端。
     let host_key = HostKey {
         host: "jump".into(),
         port: 22,
@@ -293,15 +293,18 @@ async fn unknown_ssh_server_error_carries_the_host_key_to_the_frontend() {
     let plain = serde_json::to_value(CommandError::from(CoreError::Timeout)).unwrap();
     assert!(plain.get("hostKey").is_none());
 
+    // 前端(或者被注入的脚本)自己编一把交过来:服务器没出示过,不记。
+    // 真的出示过再确认的那条路在 tunneled_connection_from_form_to_open_session(BASALT_IT)。
     let h = harness();
-    service::trust_host_key(&h.state, &host_key).await.unwrap();
-    let text = std::fs::read_to_string(h.state.known_hosts.path()).unwrap();
-    assert!(text.contains("jump ssh-ed25519 AAAAC3"), "{text}");
-    let tampered = HostKey {
-        fingerprint: "SHA256:something-else".into(),
-        ..host_key
-    };
-    assert!(service::trust_host_key(&h.state, &tampered).await.is_err());
+    let error = service::trust_host_key(&h.state, &host_key)
+        .await
+        .unwrap_err();
+    assert!(
+        error.message.contains("不是刚才服务器出示的"),
+        "{}",
+        error.message
+    );
+    assert!(!h.state.known_hosts.path().exists());
 }
 
 #[tokio::test]

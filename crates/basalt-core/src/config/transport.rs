@@ -119,7 +119,25 @@ impl SslSettings {
 }
 
 fn non_blank(value: Option<String>) -> Option<String> {
-    value.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
+    value
+        .map(|v| expand_home(v.trim()))
+        .filter(|v| !v.is_empty())
+}
+
+/// 路径开头的 `~` 换成用户主目录(私钥常写成 `~/.ssh/id_ed25519`)。别的写法原样返回。
+pub(crate) fn expand_home(path: &str) -> String {
+    let rest = match path {
+        "~" => "",
+        _ => match path.strip_prefix("~/") {
+            Some(rest) => rest,
+            None => return path.to_owned(),
+        },
+    };
+    match std::env::home_dir() {
+        Some(home) if rest.is_empty() => home.display().to_string(),
+        Some(home) => home.join(rest).display().to_string(),
+        None => path.to_owned(),
+    }
 }
 
 /// 整理表单里的隧道和 SSL:去首尾空白,用不到的路径清掉。
@@ -131,7 +149,7 @@ pub(super) fn normalize(
 }
 
 fn absolute(path: &str) -> bool {
-    Path::new(path.trim()).is_absolute()
+    Path::new(&expand_home(path.trim())).is_absolute()
 }
 
 pub(super) fn validate_ssh(ssh: &SshTunnel, errors: &mut Vec<FieldError>) {
@@ -140,6 +158,12 @@ pub(super) fn validate_ssh(ssh: &SshTunnel, errors: &mut Vec<FieldError>) {
         errors.push(FieldError::new("sshHost", "请填写 SSH 主机地址"));
     } else if host.chars().any(char::is_whitespace) {
         errors.push(FieldError::new("sshHost", "SSH 主机地址不能包含空格"));
+    } else if !crate::tunnel::valid_host(host) {
+        // `,` `|` `*` 这些在 known_hosts 里有特别的意思,记主机密钥时会多匹配上别的主机。
+        errors.push(FieldError::new(
+            "sshHost",
+            "SSH 主机地址只能有字母、数字和 . - _ :（IPv6 不用加方括号）",
+        ));
     }
     if ssh.port == 0 {
         errors.push(FieldError::new("sshPort", "端口范围是 1–65535"));

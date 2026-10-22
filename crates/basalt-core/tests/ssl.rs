@@ -206,3 +206,24 @@ async fn missing_certificate_files_are_reported_before_connecting() {
         assert_eq!(error.code(), "file", "{error}");
     }
 }
+
+/// 和 libpq、mysql 客户端一样:「必须」又给了 CA 证书,就按它校验(不是悄悄不用)。
+#[tokio::test]
+async fn required_with_a_ca_file_verifies_against_it() {
+    for target in [POSTGRES, MYSQL57] {
+        if !selected(target) {
+            continue;
+        }
+        let error = connect_error(&direct(
+            target,
+            ssl(SslMode::Required, Some("other-ca.crt")),
+        ))
+        .await;
+        assert!(
+            error.to_string().contains("不是由所选的 CA 签发的"),
+            "{}: {error}",
+            target.name
+        );
+        assert!(encrypted(&direct(target, ssl(SslMode::Required, Some("ca.crt")))).await);
+    }
+}

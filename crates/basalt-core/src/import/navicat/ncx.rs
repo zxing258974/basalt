@@ -86,7 +86,9 @@ fn raw_connection(attrs: &HashMap<String, String>) -> RawConnection {
     let ssl = flag("SSL").then(|| RawSsl {
         pg_mode: text("SSL_PGSSLMode"),
         verify_ca: flag("SSL_VerifyCACert"),
-        allow_invalid_host_name: flag("SSL_AllowInvalidHostName"),
+        allow_invalid_host_name: attrs
+            .get("SSL_AllowInvalidHostName")
+            .map(|v| v.eq_ignore_ascii_case("true")),
         client_auth: flag("SSL_Authen"),
         ca_cert: text("SSL_CACert"),
         client_cert: text("SSL_ClientCert"),

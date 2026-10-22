@@ -144,7 +144,7 @@ fn mysql_ssl_is_required_or_verifies_the_ca() {
 fn hostname_check_is_relaxed_when_allowed_or_tunneled() {
     let full = RawSsl {
         pg_mode: "VERIFY-FULL".into(),
-        allow_invalid_host_name: true,
+        allow_invalid_host_name: Some(true),
         ..RawSsl::default()
     };
     let mapped = map_transport(DriverKind::Postgres, None, Some(&full));
@@ -152,7 +152,7 @@ fn hostname_check_is_relaxed_when_allowed_or_tunneled() {
     assert!(mapped.warnings.is_empty());
 
     let tunneled = RawSsl {
-        allow_invalid_host_name: false,
+        allow_invalid_host_name: Some(false),
         ..full
     };
     let raw_ssh = ssh("PASSWORD");
@@ -207,5 +207,33 @@ fn client_certificate_needs_both_files_and_extras_are_reported() {
         "吊销列表",
     ] {
         assert!(joined.contains(needle), "缺「{needle}」：{joined}");
+    }
+}
+
+#[test]
+fn mysql_keeps_the_host_name_check_navicat_had() {
+    let strict = RawSsl {
+        verify_ca: true,
+        allow_invalid_host_name: Some(false),
+        ..RawSsl::default()
+    };
+    let mapped = map_transport(DriverKind::Mysql, None, Some(&strict));
+    assert_eq!(mapped.ssl.mode, SslMode::VerifyIdentity);
+    assert!(mapped.warnings.is_empty());
+
+    // 经隧道时核对不了主机名:照旧降成校验 CA 并提醒。
+    let raw_ssh = ssh("PASSWORD");
+    let tunneled = map_transport(DriverKind::Mysql, Some(&raw_ssh), Some(&strict));
+    assert_eq!(tunneled.ssl.mode, SslMode::VerifyCa);
+    assert!(tunneled.warnings.iter().any(|w| w.contains("校验 CA")));
+
+    // 允许无效主机名、或者老文件里没有这一项:只校验 CA。
+    for allow in [Some(true), None] {
+        let relaxed = RawSsl {
+            allow_invalid_host_name: allow,
+            ..strict.clone()
+        };
+        let mapped = map_transport(DriverKind::Mariadb, None, Some(&relaxed));
+        assert_eq!(mapped.ssl.mode, SslMode::VerifyCa, "{allow:?}");
     }
 }

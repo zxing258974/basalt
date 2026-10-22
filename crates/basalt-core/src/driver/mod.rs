@@ -25,14 +25,14 @@ mod table_ops;
 
 use std::fmt;
 use std::net::Ipv4Addr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::Serialize;
 
 use crate::config::{ConnectionConfig, DriverKind, Endpoint, SslSettings};
 use crate::error::{CoreError, CoreResult};
-use crate::tunnel::{KnownHosts, SshParams, Tunnel};
+use crate::tunnel::{KnownHosts, LocalEndpoint, SshParams, Tunnel};
 
 /// 建立连接(含握手与认证)的最长等待时间。
 pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -115,21 +115,63 @@ impl ConnectParams {
     }
 }
 
-/// 驱动实际要连的地方:直连就是原参数;有 SSH 隧道时先建隧道,改连本机的转发端口。
+/// 驱动实际要连的地方。
+#[derive(Debug)]
+pub(crate) struct Route {
+    /// 直连时就是原参数;经隧道的 TCP 入口时主机、端口换成本机的;经 Unix 套接字时不变,
+    /// 主机名留给 TLS 核对证书用。
+    pub params: ConnectParams,
+    /// 经隧道的 Unix 套接字:PostgreSQL 给目录,MySQL 给文件。
+    pub socket: Option<PathBuf>,
+    pub tunnel: Option<Tunnel>,
+}
+
+/// 直连就是原参数;有 SSH 隧道时先建隧道,改连它在本机的入口。
 /// 先查证书文件在不在,免得 TLS 握手时报一句看不懂的 I/O 错误。
-pub(crate) async fn route(params: &ConnectParams) -> CoreResult<(ConnectParams, Option<Tunnel>)> {
+pub(crate) async fn route(params: &ConnectParams) -> CoreResult<Route> {
     check_ssl_files(&params.ssl)?;
     let Some(ssh) = &params.ssh else {
-        return Ok((params.clone(), None));
+        return Ok(Route {
+            params: params.clone(),
+            socket: None,
+            tunnel: None,
+        });
     };
-    let tunnel = Tunnel::open(ssh, &params.host, params.port).await?;
+    let postgres = params.driver == DriverKind::Postgres;
+    // PostgreSQL 按「目录/.s.PGSQL.端口」找套接字。
+    let socket_name = if postgres {
+        format!(".s.PGSQL.{}", params.port)
+    } else {
+        "mysqld.sock".to_owned()
+    };
+    let tunnel = Tunnel::open(ssh, &params.host, params.port, &socket_name).await?;
     let direct = ConnectParams {
-        host: Ipv4Addr::LOCALHOST.to_string(),
-        port: tunnel.local_port(),
         ssh: None,
         ..params.clone()
     };
-    Ok((direct, Some(tunnel)))
+    let (params, socket) = match tunnel.endpoint() {
+        LocalEndpoint::Unix(file) => {
+            let socket = if postgres {
+                file.parent().map(Path::to_path_buf)
+            } else {
+                Some(file.clone())
+            };
+            (direct, socket)
+        }
+        LocalEndpoint::Tcp(address) => (
+            ConnectParams {
+                host: Ipv4Addr::LOCALHOST.to_string(),
+                port: address.port(),
+                ..direct
+            },
+            None,
+        ),
+    };
+    Ok(Route {
+        params,
+        socket,
+        tunnel: Some(tunnel),
+    })
 }
 
 /// 经隧道连库失败:换成隧道记下的真正原因,再把隧道关掉。
@@ -359,9 +401,9 @@ mod tests {
     #[tokio::test]
     async fn route_without_tunnel_is_direct_and_checks_certificate_files() {
         let params = ConnectParams::network(DriverKind::Mysql, "db", 3306, "root");
-        let (direct, tunnel) = route(&params).await.unwrap();
-        assert_eq!(direct, params);
-        assert!(tunnel.is_none());
+        let direct = route(&params).await.unwrap();
+        assert_eq!(direct.params, params);
+        assert!(direct.tunnel.is_none() && direct.socket.is_none());
 
         let missing = ConnectParams {
             ssl: SslSettings {

@@ -46,6 +46,8 @@ fn with_ssl(options: PgConnectOptions, ssl: &SslSettings) -> PgConnectOptions {
     let mode = match ssl.mode {
         SslMode::Disabled => return options.ssl_mode(PgSslMode::Disable),
         SslMode::Preferred => PgSslMode::Prefer,
+        // 和 libpq 一样:require 又给了根证书,就等于 verify-ca。
+        SslMode::Required if ssl.ca_path.is_some() => PgSslMode::VerifyCa,
         SslMode::Required => PgSslMode::Require,
         SslMode::VerifyCa => PgSslMode::VerifyCa,
         SslMode::VerifyIdentity => PgSslMode::VerifyFull,
@@ -131,8 +133,16 @@ fn local_time_zone() -> Option<String> {
 
 impl PgSession {
     pub async fn open(params: &ConnectParams) -> CoreResult<Self> {
-        let (direct, tunnel) = super::route(params).await?;
+        let super::Route {
+            params: direct,
+            socket,
+            tunnel,
+        } = super::route(params).await?;
         let base = connect_options(&direct);
+        let base = match &socket {
+            Some(dir) => base.socket(dir),
+            None => base,
+        };
         let default_database = initial_database(params);
         let (pool, version) = match connect_pool(base.clone().database(&default_database)).await {
             Ok(connected) => connected,
@@ -317,7 +327,8 @@ mod tests {
         ));
         for (mode, expected) in [
             (SslMode::Disabled, PgSslMode::Disable),
-            (SslMode::Required, PgSslMode::Require),
+            // 和 libpq 一样:require 加根证书等于 verify-ca。
+            (SslMode::Required, PgSslMode::VerifyCa),
             (SslMode::VerifyCa, PgSslMode::VerifyCa),
             (SslMode::VerifyIdentity, PgSslMode::VerifyFull),
         ] {
@@ -336,6 +347,17 @@ mod tests {
                 "{mode:?}"
             );
         }
+        let required = ConnectParams {
+            ssl: SslSettings {
+                mode: SslMode::Required,
+                ..SslSettings::default()
+            },
+            ..params(None)
+        };
+        assert!(matches!(
+            connect_options(&required).get_ssl_mode(),
+            PgSslMode::Require
+        ));
     }
 
     #[test]

@@ -3,13 +3,26 @@
 //!
 //! 第一次连接某台服务器时拒绝连接,把指纹交给用户核对,用户确认后才记下;
 //! 之后密钥变了一律拒绝,并说清楚记下的和这次的分别是什么、怎么处理。
+//!
+//! - 只记服务器真正出示过、还在等确认的那把([`KnownHosts::expect`]):前端交回来的必须一模一样,
+//!   网页里就算被注入了脚本,也没法给随便哪台主机钉上它自己的密钥。
+//! - 记过别的类型的密钥、这次却拿出另一种:和密钥变了一样拒绝(中间人可以只拿出服务器没有的那种)。
+//! - 文件在但读不了、解析不了:拒绝,不当成空的(当成空的就会弹「第一次连接」的框)。
+//! - 写入在一把锁里先查再写,写临时文件再改名,写到一半崩了也不会留下半行。
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use russh::keys::{HashAlg, PublicKey};
+use russh::keys::{Algorithm, HashAlg, PublicKey};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CoreError, CoreResult};
+
+/// 同一个进程里写 known_hosts 的只能有一个:检查和追加之间不能被别的写插进来。
+static WRITE_LOCK: Mutex<()> = Mutex::new(());
+/// 等用户确认的主机密钥最多留几把,多了丢最早的。
+const MAX_PENDING: usize = 16;
 
 /// 一台 SSH 服务器出示的主机密钥。只有公钥,可以交给前端显示、再原样交回来确认。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,55 +52,153 @@ impl HostKey {
     pub fn address(&self) -> String {
         address(&self.host, self.port)
     }
+
+    /// 是不是同一台服务器出示的同一把钥匙。
+    fn same_as(&self, other: &HostKey) -> bool {
+        normalize_host(&self.host) == normalize_host(&other.host)
+            && self.port == other.port
+            && self.public_key.trim() == other.public_key.trim()
+    }
+}
+
+/// known_hosts 里这台服务器的一条记录。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordedKey {
+    /// 文件里的行号(从 1 起)。
+    pub line: usize,
+    pub algorithm: String,
+    pub fingerprint: String,
 }
 
 /// 核对的结果。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HostKeyCheck {
     Trusted,
-    /// 这台服务器(主机名 + 端口)还没有这种算法的记录。
+    /// 这台服务器(主机名 + 端口)还没有任何记录。
     Unknown,
-    /// 记下的同算法密钥和这次的不一样。`line` 是文件里的行号,`recorded` 是记下的那把的指纹。
+    /// 记下的同类型密钥和这次的不一样。`recorded` 是记下的那把的指纹。
     Changed {
         line: usize,
         recorded: Option<String>,
     },
+    /// 这台服务器只记过别的类型的密钥,这次拿出来的类型没记过。
+    OtherType {
+        recorded: Vec<RecordedKey>,
+    },
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// `pending` 是服务器出示过、还在等用户确认的主机密钥,所有克隆共用一份。
+#[derive(Clone, Debug)]
 pub struct KnownHosts {
     path: PathBuf,
+    pending: Arc<Mutex<Vec<HostKey>>>,
 }
+
+/// 只看是不是同一个文件。
+impl PartialEq for KnownHosts {
+    fn eq(&self, other: &Self) -> bool {
+        self.path == other.path
+    }
+}
+
+impl Eq for KnownHosts {}
 
 impl KnownHosts {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self {
+            path: path.into(),
+            pending: Arc::default(),
+        }
     }
 
     pub fn path(&self) -> &Path {
         &self.path
     }
 
-    pub fn check(&self, host: &str, port: u16, key: &PublicKey) -> CoreResult<HostKeyCheck> {
-        let host = normalize_host(host);
-        match russh::keys::check_known_hosts_path(&host, port, key, &self.path) {
-            Ok(true) => Ok(HostKeyCheck::Trusted),
-            Ok(false) => Ok(HostKeyCheck::Unknown),
-            Err(russh::keys::Error::KeyChanged { line }) => {
-                let recorded =
-                    russh::keys::known_hosts::known_host_keys_path(&host, port, &self.path)
-                        .ok()
-                        .and_then(|keys| keys.into_iter().find(|(at, _)| *at == line))
-                        .map(|(_, key)| fingerprint(&key));
-                Ok(HostKeyCheck::Changed { line, recorded })
-            }
-            Err(error) => Err(self.storage_error(error)),
+    /// 这台服务器记下的所有密钥。文件不存在算没有记录;在但读不了、解析不了就报错。
+    fn recorded(&self, host: &str, port: u16) -> CoreResult<Vec<(usize, PublicKey)>> {
+        match std::fs::File::open(&self.path) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(self.unreadable(error)),
         }
+        russh::keys::known_hosts::known_host_keys_path(host, port, &self.path)
+            .map_err(|error| self.unreadable(error))
     }
 
-    /// 用户核对过指纹后记下这把密钥。交回来的指纹和公钥对不上就拒绝:
-    /// 记进文件的必须是用户看过的那一把。
+    pub fn check(&self, host: &str, port: u16, key: &PublicKey) -> CoreResult<HostKeyCheck> {
+        let host = normalize_host(host);
+        let recorded = self.recorded(&host, port)?;
+        let same_type: Vec<_> = recorded
+            .iter()
+            .filter(|(_, k)| k.algorithm() == key.algorithm())
+            .collect();
+        if same_type
+            .iter()
+            .any(|(_, k)| k.key_data() == key.key_data())
+        {
+            return Ok(HostKeyCheck::Trusted);
+        }
+        if let Some((line, old)) = same_type.first() {
+            return Ok(HostKeyCheck::Changed {
+                line: *line,
+                recorded: Some(fingerprint(old)),
+            });
+        }
+        if recorded.is_empty() {
+            return Ok(HostKeyCheck::Unknown);
+        }
+        Ok(HostKeyCheck::OtherType {
+            recorded: recorded
+                .iter()
+                .map(|(line, k)| RecordedKey {
+                    line: *line,
+                    algorithm: k.algorithm().as_str().to_owned(),
+                    fingerprint: fingerprint(k),
+                })
+                .collect(),
+        })
+    }
+
+    /// 记下的密钥类型,连接时排在前面:服务器有好几种主机密钥时,先拿出我们认得的那种。
+    pub(crate) fn recorded_algorithms(&self, host: &str, port: u16) -> Vec<Algorithm> {
+        self.recorded(&normalize_host(host), port)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(_, key)| key.algorithm())
+            .collect()
+    }
+
+    /// 服务器出示了一把没见过的密钥:先记在内存里,等用户确认。
+    pub(crate) fn expect(&self, seen: &HostKey) {
+        let Ok(mut pending) = self.pending.lock() else {
+            return;
+        };
+        pending.retain(|key| !(key.host == seen.host && key.port == seen.port));
+        pending.push(seen.clone());
+        let overflow = pending.len().saturating_sub(MAX_PENDING);
+        pending.drain(..overflow);
+    }
+
+    /// 取走等确认的那一把;交回来的和服务器出示的不完全一样就拒绝。
+    fn take_pending(&self, host_key: &HostKey) -> CoreResult<()> {
+        let mut pending = self
+            .pending
+            .lock()
+            .map_err(|_| CoreError::Storage("主机密钥列表的锁已损坏".into()))?;
+        let Some(at) = pending.iter().position(|key| key.same_as(host_key)) else {
+            return Err(CoreError::Unsupported(
+                "这把主机密钥不是刚才服务器出示的那一把，没有记下，请重新连接一次再核对".into(),
+            ));
+        };
+        pending.remove(at);
+        Ok(())
+    }
+
+    /// 用户核对过指纹后记下这把密钥。只认服务器刚出示过、还在等确认的那一把;已经记着的直接算成功
+    /// (同一台服务器同时开两个连接,两边都会来确认)。
     pub fn trust(&self, host_key: &HostKey) -> CoreResult<()> {
+        let host = checked_host(&host_key.host)?;
         let key = PublicKey::from_openssh(host_key.public_key.trim()).map_err(|_| {
             CoreError::Unsupported("主机密钥的格式不对，没有记下，请重新连接一次再确认".into())
         })?;
@@ -96,17 +207,69 @@ impl KnownHosts {
                 "主机密钥和确认过的指纹对不上，没有记下，请重新连接一次再确认".into(),
             ));
         }
-        let host = normalize_host(&host_key.host);
-        if let HostKeyCheck::Changed { .. } = self.check(&host, host_key.port, &key)? {
-            // 换了密钥的服务器只能手动删掉旧记录,不能在界面上点一下就覆盖。
-            return Err(CoreError::HostKeyChanged(format!(
-                "{} 已经记着另一把密钥，没有覆盖。确认服务器换了密钥后，先删掉 {} 里它的那一行",
-                address(&host, host_key.port),
-                self.path.display()
-            )));
+        if self.check(&host, host_key.port, &key)? == HostKeyCheck::Trusted {
+            return Ok(());
         }
-        russh::keys::known_hosts::learn_known_hosts_path(&host, host_key.port, &key, &self.path)
-            .map_err(|error| self.storage_error(error))
+        self.take_pending(host_key)?;
+        self.learn(&host, host_key.port, &key)
+    }
+
+    /// 记进文件。检查和写入在同一把锁里;写同目录的临时文件再改名,崩在半路也不会留下半行。
+    pub(crate) fn learn(&self, host: &str, port: u16, key: &PublicKey) -> CoreResult<()> {
+        let host = checked_host(host)?;
+        let _guard = WRITE_LOCK
+            .lock()
+            .map_err(|_| CoreError::Storage("known_hosts 的写锁已损坏".into()))?;
+        match self.check(&host, port, key)? {
+            HostKeyCheck::Trusted => return Ok(()),
+            HostKeyCheck::Unknown => {}
+            HostKeyCheck::Changed { .. } | HostKeyCheck::OtherType { .. } => {
+                // 换了密钥的服务器只能手动删掉旧记录,不能在界面上点一下就覆盖。
+                return Err(CoreError::HostKeyChanged(format!(
+                    "{} 已经记着另一把密钥，没有覆盖。确认服务器换了密钥后，先删掉 {} 里它的记录",
+                    address(&host, port),
+                    self.path.display()
+                )));
+            }
+        }
+        let mut text = match std::fs::read_to_string(&self.path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(error) => return Err(self.unreadable(error)),
+        };
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        let line = key
+            .to_openssh()
+            .map_err(|error| self.storage_error(error))?;
+        text.push_str(&format!("{} {}\n", host_pattern(&host, port), line.trim()));
+        self.replace_file(&text)
+    }
+
+    fn replace_file(&self, text: &str) -> CoreResult<()> {
+        let dir = self
+            .path
+            .parent()
+            .ok_or_else(|| self.storage_error("路径不对"))?;
+        std::fs::create_dir_all(dir).map_err(|error| self.storage_error(error))?;
+        let name = self
+            .path
+            .file_name()
+            .map_or_else(|| "known_hosts".into(), |n| n.to_string_lossy());
+        let tmp = dir.join(format!(".{name}.{}.tmp", uuid::Uuid::new_v4().simple()));
+        let written = (|| {
+            let mut file = std::fs::File::create(&tmp)?;
+            file.write_all(text.as_bytes())?;
+            file.sync_all()?;
+            restrict_to_owner(&tmp)?;
+            std::fs::rename(&tmp, &self.path)
+        })();
+        if let Err(error) = written {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(self.storage_error(error));
+        }
+        Ok(())
     }
 
     /// 密钥变了时给用户的说明。
@@ -127,9 +290,52 @@ impl KnownHosts {
         )
     }
 
+    /// 只记过别的类型时的说明:当成密钥变了,不弹「第一次连接」的框。
+    pub(crate) fn other_type_message(&self, seen: &HostKey, recorded: &[RecordedKey]) -> String {
+        let listed: Vec<_> = recorded
+            .iter()
+            .map(|r| {
+                format!(
+                    "第 {} 行 {} {}",
+                    r.line,
+                    key_type(&r.algorithm),
+                    r.fingerprint
+                )
+            })
+            .collect();
+        format!(
+            "SSH 服务器 {} 这次拿出的是 {} 主机密钥（{}），可是记下的是另一种：{}。已拒绝连接：\
+             冒充它的人可以只拿出服务器没有的那种密钥。确认是服务器换了密钥类型，\
+             再删掉 {} 里它的这些记录，重新连接时核对新指纹。",
+            seen.address(),
+            key_type(&seen.algorithm),
+            seen.fingerprint,
+            listed.join("；"),
+            self.path.display(),
+        )
+    }
+
+    fn unreadable(&self, error: impl std::fmt::Display) -> CoreError {
+        CoreError::Storage(format!(
+            "读不了记着 SSH 主机密钥的 {}（{error}），为安全起见拒绝连接。请检查这个文件，读不懂的行删掉",
+            self.path.display()
+        ))
+    }
+
     fn storage_error(&self, error: impl std::fmt::Display) -> CoreError {
         CoreError::Storage(format!("{}：{error}", self.path.display()))
     }
+}
+
+#[cfg(unix)]
+fn restrict_to_owner(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+}
+
+#[cfg(not(unix))]
+fn restrict_to_owner(_path: &Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 /// OpenSSH 记主机名时不分大小写。
@@ -137,11 +343,51 @@ fn normalize_host(host: &str) -> String {
     host.trim().to_ascii_lowercase()
 }
 
+/// 能写进 known_hosts 的主机名:字母数字和 `. - _ :`(IPv6)、`%`(IPv6 网卡)。
+/// `,` 会在同一行里多写一个主机,`|` `@` `*` `?` `!` `[` `]` 是 known_hosts 的语法,一律不收。
+pub(crate) fn valid_host(host: &str) -> bool {
+    !host.is_empty()
+        && host
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '.' | '-' | '_' | ':' | '%'))
+}
+
+fn checked_host(host: &str) -> CoreResult<String> {
+    let host = normalize_host(host);
+    if valid_host(&host) {
+        Ok(host)
+    } else {
+        Err(CoreError::Unsupported(format!(
+            "SSH 主机地址「{host}」里有不能用的字符，没有记下它的主机密钥"
+        )))
+    }
+}
+
+/// known_hosts 里的写法:22 端口只写主机名,别的端口写成 `[host]:port`。
+fn host_pattern(host: &str, port: u16) -> String {
+    if port == 22 {
+        host.to_owned()
+    } else {
+        format!("[{host}]:{port}")
+    }
+}
+
 fn address(host: &str, port: u16) -> String {
     if host.contains(':') {
         format!("[{host}]:{port}")
     } else {
         format!("{host}:{port}")
+    }
+}
+
+/// ssh-ed25519 → ED25519,ecdsa-sha2-nistp256 → ECDSA,ssh-rsa → RSA。
+fn key_type(algorithm: &str) -> String {
+    if algorithm.starts_with("ecdsa") {
+        "ECDSA".into()
+    } else if algorithm.contains("rsa") {
+        "RSA".into()
+    } else {
+        algorithm.trim_start_matches("ssh-").to_ascii_uppercase()
     }
 }
 

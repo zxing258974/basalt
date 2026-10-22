@@ -243,3 +243,39 @@ async fn changed_host_key_is_refused_against_the_real_server() {
     assert_eq!(error.code(), "host_key_changed", "{error}");
     assert!(error.to_string().contains("第 1 行"), "{error}");
 }
+
+/// 经隧道时驱动连的是只有当前用户能进的临时目录里的 Unix 套接字,TLS 照样协商、照样校验 CA。
+#[tokio::test]
+async fn mysql_through_the_jump_host_with_tls_over_the_local_socket() {
+    if !enabled(MYSQL57) {
+        return;
+    }
+    let jump = jump();
+    let params = ConnectParams {
+        ssl: SslSettings {
+            mode: SslMode::VerifyCa,
+            ca_path: Some(fixture("tls/ca.crt")),
+            ..SslSettings::default()
+        },
+        ..via_jump(MYSQL57, &jump, SSHD_USER, password())
+    };
+    open_trusting(&params).await.close().await;
+    let manager = SessionManager::default();
+    manager.open("c1", &params).await.unwrap();
+    let outcome = manager
+        .run_query(
+            "tab",
+            "c1",
+            &QueryScope::default(),
+            "SHOW SESSION STATUS LIKE 'Ssl_cipher'",
+        )
+        .await
+        .unwrap();
+    // 第二列是 Ssl_cipher 的值,非空说明这条连接是 TLS。
+    assert!(
+        matches!(&outcome.result_sets[0].rows[0][1], CellValue::Text(v) if !v.is_empty()),
+        "{:?}",
+        outcome.result_sets[0].rows
+    );
+    manager.close("c1").await;
+}

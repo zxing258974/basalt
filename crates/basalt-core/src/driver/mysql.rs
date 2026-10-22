@@ -45,6 +45,8 @@ fn with_ssl(options: MySqlConnectOptions, ssl: &SslSettings) -> MySqlConnectOpti
     let mode = match ssl.mode {
         SslMode::Disabled => return options.ssl_mode(MySqlSslMode::Disabled),
         SslMode::Preferred => MySqlSslMode::Preferred,
+        // 和 mysql 客户端一样:「必须」又给了 CA 证书,就按它校验。
+        SslMode::Required if ssl.ca_path.is_some() => MySqlSslMode::VerifyCa,
         SslMode::Required => MySqlSslMode::Required,
         SslMode::VerifyCa => MySqlSslMode::VerifyCa,
         SslMode::VerifyIdentity => MySqlSslMode::VerifyIdentity,
@@ -62,8 +64,16 @@ fn with_ssl(options: MySqlConnectOptions, ssl: &SslSettings) -> MySqlConnectOpti
 
 impl MysqlSession {
     pub async fn open(params: &ConnectParams) -> CoreResult<Self> {
-        let (direct, tunnel) = super::route(params).await?;
+        let super::Route {
+            params: direct,
+            socket,
+            tunnel,
+        } = super::route(params).await?;
         let options = connect_options(&direct);
+        let options = match &socket {
+            Some(path) => options.socket(path),
+            None => options,
+        };
         let version = match probe(&options).await {
             Ok(version) => version,
             Err(error) => return Err(super::abandon(tunnel, error).await),
@@ -219,7 +229,8 @@ mod tests {
         ));
         for (mode, expected) in [
             (SslMode::Disabled, MySqlSslMode::Disabled),
-            (SslMode::Required, MySqlSslMode::Required),
+            // 给了 CA 的「必须」按 CA 校验。
+            (SslMode::Required, MySqlSslMode::VerifyCa),
             (SslMode::VerifyCa, MySqlSslMode::VerifyCa),
             (SslMode::VerifyIdentity, MySqlSslMode::VerifyIdentity),
         ] {
@@ -238,6 +249,17 @@ mod tests {
                 "{mode:?}"
             );
         }
+        let required = ConnectParams {
+            ssl: SslSettings {
+                mode: SslMode::Required,
+                ..SslSettings::default()
+            },
+            ..base
+        };
+        assert!(matches!(
+            connect_options(&required).get_ssl_mode(),
+            MySqlSslMode::Required
+        ));
     }
 
     #[test]

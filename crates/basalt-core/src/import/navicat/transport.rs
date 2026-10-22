@@ -21,13 +21,14 @@ pub(super) struct RawSsh {
 }
 
 /// .ncx 里 `SSL="true"` 时的那些属性。
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(super) struct RawSsl {
     /// PostgreSQL 的 sslmode:REQUIRE、VERIFY-CA、VERIFY-FULL……
     pub pg_mode: String,
     /// MySQL 的「验证 CA 证书」。
     pub verify_ca: bool,
-    pub allow_invalid_host_name: bool,
+    /// 「允许无效的主机名」;老的导出文件没有这一项时为 `None`(不知道当时核不核对主机名)。
+    pub allow_invalid_host_name: Option<bool>,
     /// 「使用验证」:用客户端证书登录。
     pub client_auth: bool,
     pub ca_cert: String,
@@ -135,10 +136,12 @@ fn map_ssl(
 ) -> SslSettings {
     let mut mode = match driver {
         DriverKind::Postgres => pg_mode(&raw.pg_mode, warnings),
+        // Navicat 校验 CA、又明确不允许无效主机名:原来是连主机名一起核对的,不能导进来就变弱。
+        _ if raw.verify_ca && raw.allow_invalid_host_name == Some(false) => SslMode::VerifyIdentity,
         _ if raw.verify_ca => SslMode::VerifyCa,
         _ => SslMode::Required,
     };
-    if mode == SslMode::VerifyIdentity && raw.allow_invalid_host_name {
+    if mode == SslMode::VerifyIdentity && raw.allow_invalid_host_name == Some(true) {
         mode = SslMode::VerifyCa;
     }
     if mode == SslMode::VerifyIdentity && tunneled {

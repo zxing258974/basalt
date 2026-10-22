@@ -1,25 +1,31 @@
-//! SSH 隧道(本地端口转发):登录 SSH 服务器,在 127.0.0.1 的随机端口上监听,
-//! 每进来一条连接就开一个 direct-tcpip 通道转发到数据库。驱动只管连本机这个端口,不知道有隧道。
+//! SSH 隧道(本地端口转发):登录 SSH 服务器,在本机开一个入口(Unix 上是只有当前用户能连的
+//! Unix 套接字,见 [`local`]),每进来一条连接就开一个 direct-tcpip 通道转发到数据库。
+//! 驱动只管连这个入口,不知道有隧道。
 //!
 //! 隧道归会话所有:会话关闭时先关连接池,再关隧道。SSH 连接断了(网络切换、服务器重启)不用重开会话,
 //! 下一条新连接进来时重新登录;主机密钥照样核对。
 
 mod auth;
 mod known_hosts;
+mod local;
 
+use std::borrow::Cow;
 use std::fmt;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use russh::client;
-use russh::keys::PublicKeyOrCertificate;
-use tokio::net::{TcpListener, TcpStream};
+use russh::keys::{Algorithm, PublicKeyOrCertificate};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Mutex;
 use tokio::task::{JoinHandle, JoinSet};
 
-pub use known_hosts::{HostKey, HostKeyCheck, KnownHosts, fingerprint};
+pub(crate) use known_hosts::valid_host;
+pub use known_hosts::{HostKey, HostKeyCheck, KnownHosts, RecordedKey, fingerprint};
+pub use local::LocalEndpoint;
+use local::{LocalListener, LocalStream};
 
 use crate::config::{SshAuthMethod, SshTunnel};
 use crate::driver::CONNECT_TIMEOUT;
@@ -27,8 +33,11 @@ use crate::error::{CoreError, CoreResult};
 
 /// 空闲时每隔多久发一次心跳,免得路由器、防火墙把安静的连接掐掉;连着 3 次没回应算断开。
 const KEEPALIVE: Duration = Duration::from_secs(30);
-/// 本机端口 accept 出错(比如文件句柄用完)后歇一会儿再接,不空转。
+/// 本机入口 accept 出错(比如文件句柄用完)后歇一会儿再接,不空转。
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(200);
+/// 同时经隧道的连接最多几条。连接池、查询标签页、取消用的连接加起来远到不了;
+/// 超了多半是有别的程序在乱连,不再为它开通道。
+const MAX_FORWARDS: usize = 64;
 
 /// SSH 登录方式和凭据。`Debug` 不输出密码和口令。
 #[derive(Clone, PartialEq, Eq)]
@@ -115,15 +124,30 @@ impl fmt::Debug for SshParams {
 }
 
 pub struct Tunnel {
-    local: SocketAddr,
+    endpoint: LocalEndpoint,
+    /// Unix 套接字所在的临时目录,关隧道时删掉。
+    socket_dir: Option<PathBuf>,
     shared: Arc<Shared>,
     forwarder: JoinHandle<()>,
 }
 
 impl Tunnel {
-    /// 登录 SSH 服务器并开始在本机端口上转发到 `target_host:target_port`(从 SSH 服务器那边看的地址)。
-    pub async fn open(params: &SshParams, target_host: &str, target_port: u16) -> CoreResult<Self> {
-        Self::open_with(params, target_host, target_port, CONNECT_TIMEOUT).await
+    /// 登录 SSH 服务器并开始把本机入口转发到 `target_host:target_port`(从 SSH 服务器那边看的地址)。
+    /// `socket_name` 是 Unix 套接字的文件名,由驱动定(PostgreSQL 要 `.s.PGSQL.<端口>`)。
+    pub async fn open(
+        params: &SshParams,
+        target_host: &str,
+        target_port: u16,
+        socket_name: &str,
+    ) -> CoreResult<Self> {
+        Self::open_with(
+            params,
+            target_host,
+            target_port,
+            socket_name,
+            CONNECT_TIMEOUT,
+        )
+        .await
     }
 
     /// `channel_timeout`:开一个转发通道最多等多久(测试里调短)。
@@ -131,15 +155,13 @@ impl Tunnel {
         params: &SshParams,
         target_host: &str,
         target_port: u16,
+        socket_name: &str,
         channel_timeout: Duration,
     ) -> CoreResult<Self> {
         let handle = connect(params).await?;
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        let bound = local::bind(socket_name)
             .await
-            .map_err(|error| CoreError::Ssh(format!("没能在本机开转发端口：{error}")))?;
-        let local = listener
-            .local_addr()
-            .map_err(|error| CoreError::Ssh(format!("没能在本机开转发端口：{error}")))?;
+            .map_err(|error| CoreError::Ssh(format!("没能在本机开转发入口：{error}")))?;
         let shared = Arc::new(Shared {
             params: params.clone(),
             target_host: target_host.to_owned(),
@@ -149,21 +171,23 @@ impl Tunnel {
             closed: AtomicBool::new(false),
             channel_timeout,
         });
-        let forwarder = tokio::spawn(forward(listener, shared.clone()));
+        let forwarder = tokio::spawn(forward(bound.listener, shared.clone()));
         log::info!(
-            "SSH 隧道已建立：127.0.0.1:{} → {} → {target_host}:{target_port}",
-            local.port(),
+            "SSH 隧道已建立：{:?} → {} → {target_host}:{target_port}",
+            bound.endpoint,
             params.address()
         );
         Ok(Self {
-            local,
+            endpoint: bound.endpoint,
+            socket_dir: bound.socket_dir,
             shared,
             forwarder,
         })
     }
 
-    pub fn local_port(&self) -> u16 {
-        self.local.port()
+    /// 驱动该连的本机入口。
+    pub fn endpoint(&self) -> &LocalEndpoint {
+        &self.endpoint
     }
 
     /// 最近一次转发失败的原因(SSH 服务器拒绝转发、连不上目标……)。数据库那边只看到连接被断开,
@@ -185,6 +209,9 @@ impl Tunnel {
         // 先立牌子:已经排在锁上的转发看到它就不会再去重新登录。
         self.shared.closed.store(true, Ordering::SeqCst);
         self.forwarder.abort();
+        if let Some(dir) = &self.socket_dir {
+            local::remove_socket_dir(dir);
+        }
         let handle = self.shared.ssh.lock().await.take();
         let Some(handle) = handle else {
             return;
@@ -200,19 +227,17 @@ impl Tunnel {
 
 impl Drop for Tunnel {
     fn drop(&mut self) {
-        // 没走 close() 就被丢掉(比如打开到一半失败):至少别让本机端口和转发留着。
+        // 没走 close() 就被丢掉(比如打开到一半失败):至少别让本机入口和转发留着。
         self.forwarder.abort();
+        if let Some(dir) = &self.socket_dir {
+            local::remove_socket_dir(dir);
+        }
     }
 }
 
 impl fmt::Debug for Tunnel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Tunnel(127.0.0.1:{} → {:?})",
-            self.local.port(),
-            self.shared.params
-        )
+        write!(f, "Tunnel({:?} → {:?})", self.endpoint, self.shared.params)
     }
 }
 
@@ -245,13 +270,14 @@ impl Shared {
 
     /// 开一个转发通道。SSH 连接半死不活(睡眠唤醒、NAT 超时)时心跳要两分钟才认定它断了,
     /// 这期间开通道会一直等:超时就丢掉这条 SSH 连接,下一条转发重新登录。
-    async fn open_channel(&self, peer: SocketAddr) -> CoreResult<russh::Channel<client::Msg>> {
+    async fn open_channel(&self) -> CoreResult<russh::Channel<client::Msg>> {
         let handle = self.handle().await?;
         let opening = handle.channel_open_direct_tcpip(
             self.target_host.clone(),
             u32::from(self.target_port),
-            peer.ip().to_string(),
-            u32::from(peer.port()),
+            // 发起方地址只是给服务器记日志的;本机入口是套接字时没有端口。
+            "127.0.0.1".to_owned(),
+            0,
         );
         match tokio::time::timeout(self.channel_timeout, opening).await {
             Ok(opened) => opened.map_err(|error| CoreError::Ssh(self.channel_error(&error))),
@@ -300,14 +326,21 @@ impl Shared {
     }
 }
 
-async fn forward(listener: TcpListener, shared: Arc<Shared>) {
+async fn forward(listener: LocalListener, shared: Arc<Shared>) {
     // 每条转发一个任务,放在 JoinSet 里:隧道关闭(这个任务被 abort)时它们跟着一起结束。
     let mut relays = JoinSet::new();
     loop {
         tokio::select! {
             accepted = listener.accept() => match accepted {
-                Ok((socket, peer)) => {
-                    relays.spawn(relay(shared.clone(), socket, peer));
+                Ok(_) if relays.len() >= MAX_FORWARDS => {
+                    shared.record(format!("同时经 SSH 隧道的连接超过 {MAX_FORWARDS} 条，这一条没有转发"));
+                }
+                Ok(LocalStream::Tcp(socket)) => {
+                    relays.spawn(relay(shared.clone(), socket));
+                }
+                #[cfg(unix)]
+                Ok(LocalStream::Unix(socket)) => {
+                    relays.spawn(relay(shared.clone(), socket));
                 }
                 Err(error) => {
                     log::warn!("SSH 隧道接受本机连接失败：{error}");
@@ -319,8 +352,8 @@ async fn forward(listener: TcpListener, shared: Arc<Shared>) {
     }
 }
 
-async fn relay(shared: Arc<Shared>, mut socket: TcpStream, peer: SocketAddr) {
-    let channel = match shared.open_channel(peer).await {
+async fn relay<S: AsyncRead + AsyncWrite + Unpin>(shared: Arc<Shared>, mut socket: S) {
+    let channel = match shared.open_channel().await {
         Ok(channel) => channel,
         Err(error) => {
             // 本机这条连接直接关掉,数据库驱动看到的是连接被断开;原因记下来给驱动解释。
@@ -328,9 +361,6 @@ async fn relay(shared: Arc<Shared>, mut socket: TcpStream, peer: SocketAddr) {
             return;
         }
     };
-    if let Err(error) = socket.set_nodelay(true) {
-        log::debug!("设置 TCP_NODELAY 失败：{error}");
-    }
     let mut stream = channel.into_stream();
     if let Err(error) = tokio::io::copy_bidirectional(&mut socket, &mut stream).await {
         log::debug!("SSH 转发的连接结束：{error}");
@@ -348,9 +378,17 @@ async fn connect(params: &SshParams) -> CoreResult<client::Handle<Client>> {
             known_hosts: params.known_hosts.clone(),
             verdict: verdict.clone(),
         };
+        let mut preferred = russh::Preferred::default();
+        preferred.key = Cow::Owned(prefer_recorded(
+            &preferred.key,
+            &params
+                .known_hosts
+                .recorded_algorithms(&params.host, params.port),
+        ));
         let config = Arc::new(client::Config {
             keepalive_interval: Some(KEEPALIVE),
             nodelay: true,
+            preferred,
             ..client::Config::default()
         });
         let mut handle =
@@ -371,6 +409,20 @@ async fn connect(params: &SshParams) -> CoreResult<client::Handle<Client>> {
                 "连接 SSH 服务器 {address} 超时，请检查地址、端口和网络"
             ))
         })?
+}
+
+/// 主机密钥算法按记下的类型优先:服务器有好几种主机密钥时(新加了 Ed25519,原来记的是 RSA),
+/// 先拿出我们认得的那种,不会因为换了类型被当成「密钥变了」拒绝。
+fn prefer_recorded(defaults: &[Algorithm], recorded: &[Algorithm]) -> Vec<Algorithm> {
+    let known = |algorithm: &Algorithm| {
+        recorded.iter().any(|r| {
+            r == algorithm
+                || (matches!(r, Algorithm::Rsa { .. })
+                    && matches!(algorithm, Algorithm::Rsa { .. }))
+        })
+    };
+    let (first, rest): (Vec<_>, Vec<_>) = defaults.iter().cloned().partition(|a| known(a));
+    first.into_iter().chain(rest).collect()
 }
 
 fn connect_error(address: &str, error: russh::Error) -> CoreError {
@@ -401,10 +453,17 @@ impl Client {
         let seen = HostKey::new(&self.host, self.port, key);
         match self.known_hosts.check(&self.host, self.port, key) {
             Ok(HostKeyCheck::Trusted) => None,
-            Ok(HostKeyCheck::Unknown) => Some(CoreError::HostKeyUnknown(Box::new(seen))),
+            Ok(HostKeyCheck::Unknown) => {
+                // 只有服务器真出示过的这一把,用户确认后才能记进去。
+                self.known_hosts.expect(&seen);
+                Some(CoreError::HostKeyUnknown(Box::new(seen)))
+            }
             Ok(HostKeyCheck::Changed { line, recorded }) => Some(CoreError::HostKeyChanged(
                 self.known_hosts
                     .changed_message(&seen, line, recorded.as_deref()),
+            )),
+            Ok(HostKeyCheck::OtherType { recorded }) => Some(CoreError::HostKeyChanged(
+                self.known_hosts.other_type_message(&seen, &recorded),
             )),
             Err(error) => Some(error),
         }

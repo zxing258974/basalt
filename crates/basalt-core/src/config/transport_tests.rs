@@ -210,3 +210,59 @@ fn serializes_with_camel_case_names() {
     assert_eq!(ssl["mode"], "verifyIdentity");
     assert_eq!(ssl["caPath"], serde_json::Value::Null);
 }
+
+#[test]
+fn ssh_host_names_cannot_carry_known_hosts_syntax() {
+    for bad in [
+        "jump,prod.example.com",
+        "*.example.com",
+        "[::1]",
+        "@cert",
+        "a|b",
+    ] {
+        let draft = draft(
+            Some(SshTunnel {
+                host: bad.into(),
+                ..tunnel(SshAuthMethod::Password, None)
+            }),
+            SslSettings::default(),
+        );
+        assert_eq!(fields(&draft), ["sshHost"], "{bad}");
+    }
+    let ipv6 = SshTunnel {
+        host: "fe80::1".into(),
+        ..tunnel(SshAuthMethod::Password, None)
+    };
+    assert!(fields(&draft(Some(ipv6), SslSettings::default())).is_empty());
+}
+
+#[test]
+fn a_leading_tilde_means_the_home_folder() {
+    let home = std::env::home_dir().expect("测试机有主目录");
+    assert_eq!(
+        expand_home("~/.ssh/id_ed25519"),
+        home.join(".ssh/id_ed25519").display().to_string()
+    );
+    assert_eq!(expand_home("~"), home.display().to_string());
+    assert_eq!(expand_home("/abs/~/x"), "/abs/~/x");
+    assert_eq!(expand_home("~other/x"), "~other/x", "别人的主目录不展开");
+
+    let key = draft(
+        Some(tunnel(SshAuthMethod::PrivateKey, Some("~/.ssh/id_ed25519"))),
+        SslSettings {
+            mode: SslMode::VerifyCa,
+            ca_path: Some("~/certs/ca.pem".into()),
+            ..SslSettings::default()
+        },
+    );
+    assert!(fields(&key).is_empty(), "~ 开头算绝对路径");
+    let config = key.into_config("c".into()).unwrap();
+    assert_eq!(
+        config.ssh.unwrap().private_key_path,
+        Some(home.join(".ssh/id_ed25519").display().to_string())
+    );
+    assert_eq!(
+        config.ssl.ca_path,
+        Some(home.join("certs/ca.pem").display().to_string())
+    );
+}

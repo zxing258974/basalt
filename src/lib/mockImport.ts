@@ -1,10 +1,20 @@
 // mock 后端的导入来源:几条虚构的 Navicat 连接,以及和 Rust 端一致的「已存在」判定。
 import type { ImportCandidate, ImportReport, ImportSource } from "./importTypes";
-import type { CommandError, ConnectionConfig, Endpoint } from "./types";
+import type { CommandError, ConnectionConfig, Endpoint, SshTunnel } from "./types";
 
 type MockSource = Omit<ImportCandidate, "status"> & { unsupportedReason?: string };
 
-const TUNNEL_SSL_WARNING = "隧道 / SSL 设置未迁移（M4 支持）";
+const PLIST_SSH_WARNING =
+  "SSH 隧道没有迁移（本机 Navicat 配置里隧道的写法没有核实过）：请在 Navicat 里导出 .ncx 再导入，或者导入后在「SSH」页补上";
+
+const jump = (host: string, username: string): SshTunnel => ({
+  host,
+  port: 22,
+  username,
+  auth: "password",
+  privateKeyPath: null,
+  saveSecret: true,
+});
 const UNSUPPORTED = (label: string) => `Basalt 暂不支持 ${label}，目前只支持 MySQL、MariaDB、PostgreSQL 和 SQLite`;
 
 const net = (host: string, port: number, username: string, database?: string): Endpoint => ({
@@ -23,6 +33,9 @@ function source(id: string, partial: Partial<MockSource> & Pick<MockSource, "nam
     driver: "mysql",
     endpoint: null,
     password: "absent",
+    ssh: null,
+    sshSecret: null,
+    sslMode: "preferred",
     warnings: [],
     ...partial,
   };
@@ -34,7 +47,7 @@ const LOCAL_NAVICAT: MockSource[] = [
   source("MySQL:测试库", {
     name: "测试库",
     endpoint: net("mysql-test.example.test", 13306, "tester"),
-    warnings: [TUNNEL_SSL_WARNING],
+    warnings: [PLIST_SSH_WARNING],
   }),
   source("PostgreSQL:分析库", {
     name: "分析库",
@@ -58,7 +71,15 @@ const NCX_EXPORT: MockSource[] = [
     driver: "postgres",
     endpoint: net("192.0.2.10", 5433, "report_ro", "reports"),
     password: "included",
-    warnings: [TUNNEL_SSL_WARNING],
+    sslMode: "verifyIdentity",
+  }),
+  source("MARIADB:跳板机后的库", {
+    name: "跳板机后的库",
+    sourceType: "MariaDB",
+    driver: "mariadb",
+    endpoint: net("10.0.0.8", 3307, "ops"),
+    ssh: jump("bastion.example.test", "jump"),
+    sshSecret: "included",
   }),
   source("MYSQL:旧版导出", {
     name: "旧版导出",
@@ -100,8 +121,14 @@ function sameAddress(a: Endpoint, b: Endpoint): boolean {
   return a.host.toLowerCase() === b.host.toLowerCase() && a.port === b.port && a.username === b.username;
 }
 
+/** 隧道后面的库地址常常都是 127.0.0.1,要连同 SSH 服务器一起比。 */
+function sameTunnel(a: SshTunnel | null | undefined, b: SshTunnel | null | undefined): boolean {
+  if (!a || !b) return !a && !b;
+  return a.host.toLowerCase() === b.host.toLowerCase() && a.port === b.port && a.username === b.username;
+}
+
 /** 判重用的连接要素;本次来源里的重复项没有 id,只能跳过、不能补密码。 */
-type Known = Pick<ConnectionConfig, "name" | "driver" | "endpoint" | "savePassword"> & { id: string | null };
+type Known = Pick<ConnectionConfig, "name" | "driver" | "endpoint" | "savePassword" | "ssh"> & { id: string | null };
 
 /** 与 Rust 端一致:同一来源里后出现的重复项也算已存在;只有地址对得上、来源带密码、
  *  已有连接还没存密码时才「补密码」,只靠名字对上的绝不补。 */
@@ -119,10 +146,10 @@ export function classifyMockImport(
         status: { kind: "unsupported", reason: unsupportedReason ?? "" },
       };
     }
-    const { driver, endpoint } = rest;
-    const same = (c: Known) => c.driver === driver && sameAddress(c.endpoint, endpoint);
+    const { driver, endpoint, ssh } = rest;
+    const same = (c: Known) => c.driver === driver && sameAddress(c.endpoint, endpoint) && sameTunnel(c.ssh, ssh);
     const match = known.find((c) => same(c) || c.name === rest.name);
-    known = [...known, { id: null, name: rest.name, driver, endpoint, savePassword: false }];
+    known = [...known, { id: null, name: rest.name, driver, endpoint, savePassword: false, ssh }];
     if (!match) return { ...rest, status: { kind: "new" } };
     const fillable =
       match.id !== null &&
@@ -161,6 +188,8 @@ export function planMockImport(
     driver: s.driver!,
     endpoint: s.endpoint!,
     savePassword: s.password === "included",
+    ssh: s.ssh ? { ...s.ssh, saveSecret: s.sshSecret === "included" } : null,
+    ssl: { mode: s.sslMode },
   }));
   const known = new Set(sources.map((s) => s.id));
   const report: ImportReport = {
@@ -169,6 +198,8 @@ export function planMockImport(
       name: c.name,
       driver: c.driver,
       passwordSaved: importable[i]!.password === "included",
+      tunneled: importable[i]!.ssh !== null,
+      sshSecretSaved: importable[i]!.sshSecret === "included",
     })),
     passwordFilled: fills.map(({ id, name }) => ({ id, name })),
     skipped: [

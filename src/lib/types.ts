@@ -6,6 +6,38 @@ export type Endpoint =
   | { kind: "network"; host: string; port: number; username: string; database?: string | null }
   | { kind: "file"; path: string };
 
+export type SshAuthMethod = "password" | "privateKey";
+
+/** 经 SSH 服务器转发;数据库的主机、端口是从 SSH 服务器那边看的地址。密码不在这里。 */
+export interface SshTunnel {
+  host: string;
+  port: number;
+  username: string;
+  auth: SshAuthMethod;
+  privateKeyPath?: string | null;
+  /** SSH 密码(或私钥口令)存在钥匙串里。 */
+  saveSecret: boolean;
+}
+
+export type SslMode = "disabled" | "preferred" | "required" | "verifyCa" | "verifyIdentity";
+
+export interface SslSettings {
+  mode: SslMode;
+  caPath?: string | null;
+  clientCertPath?: string | null;
+  clientKeyPath?: string | null;
+}
+
+/** 第一次连接的 SSH 服务器出示的主机密钥,交给用户核对指纹。 */
+export interface HostKey {
+  host: string;
+  port: number;
+  algorithm: string;
+  /** SHA256: 开头。 */
+  fingerprint: string;
+  publicKey: string;
+}
+
 export interface ConnectionConfig {
   id: string;
   name: string;
@@ -13,6 +45,9 @@ export interface ConnectionConfig {
   driver: DriverKind;
   endpoint: Endpoint;
   savePassword: boolean;
+  /** M4 以前保存的连接没有这两项:当作直连、SSL 优先。 */
+  ssh?: SshTunnel | null;
+  ssl?: SslSettings;
 }
 
 /** 信息面板里一个属性的值;数字交给前端排版。 */
@@ -98,6 +133,10 @@ export interface ConnectionDraft {
   savePassword: boolean;
   /** 不传表示沿用已保存的密码。 */
   password?: string | null;
+  ssh?: SshTunnel | null;
+  ssl?: SslSettings;
+  /** SSH 密码或私钥口令,规则同 password。 */
+  sshSecret?: string | null;
 }
 
 export interface ServerInfo {
@@ -196,6 +235,8 @@ export interface CommandError {
   code: string;
   message: string;
   fields: FieldError[];
+  /** code 为 host_key_unknown 时:要用户核对的 SSH 主机密钥。 */
+  hostKey?: HostKey;
 }
 
 export function isCommandError(value: unknown): value is CommandError {

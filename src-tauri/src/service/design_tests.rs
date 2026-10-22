@@ -1,6 +1,7 @@
 //! 表结构设计命令的 service 层测试:与前端走同一条路径(保存连接 → 打开 → 预览 → 执行 →
 //! 再读)。SQLite 总会运行;BASALT_IT 选中时再连 MySQL 8.4 与 PostgreSQL 17。
 
+use basalt_core::config::SslSettings;
 use std::sync::Arc;
 
 use basalt_core::config::{ConnectionDraft, DriverKind, Endpoint};
@@ -131,6 +132,9 @@ async fn sqlite_design_round_trip() {
         },
         save_password: false,
         password: None,
+        ssh: None,
+        ssl: SslSettings::default(),
+        ssh_secret: None,
     };
     let saved = service::save_connection(&state, draft).await.unwrap();
     let table = TableRef {
@@ -143,7 +147,7 @@ async fn sqlite_design_round_trip() {
         .unwrap_err();
     assert_eq!(closed.code, "not_connected");
 
-    service::open_connection(&state, &saved.id, None)
+    service::open_connection(&state, &saved.id, None, None)
         .await
         .unwrap();
     create_and_rename(&state, &saved.id, table, "INTEGER", ExecMode::Transaction).await;
@@ -163,9 +167,12 @@ async fn network(state: &AppState, driver: DriverKind, port: u16, username: &str
         },
         save_password: true,
         password: Some(TEST_PASSWORD.into()),
+        ssh: None,
+        ssl: SslSettings::default(),
+        ssh_secret: None,
     };
     let saved = service::save_connection(state, draft).await.unwrap();
-    service::open_connection(state, &saved.id, None)
+    service::open_connection(state, &saved.id, None, None)
         .await
         .unwrap();
     saved.id

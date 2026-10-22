@@ -25,6 +25,14 @@ const draft: ConnectionDraft = {
   password: null,
 };
 
+const hostKey = {
+  host: "jump",
+  port: 22,
+  algorithm: "ssh-ed25519",
+  fingerprint: "SHA256:abc",
+  publicKey: "ssh-ed25519 AAAA",
+};
+
 describe("getBackend in a plain browser", () => {
   it("falls back to the mock backend and keeps using the same instance", async () => {
     expect(isTauriRuntime()).toBe(false);
@@ -58,13 +66,26 @@ describe("Tauri backend", () => {
     ["deleteConnection", (b) => b.deleteConnection("c1"), "delete_connection", { id: "c1" }],
     ["duplicateConnection", (b) => b.duplicateConnection("c1"), "duplicate_connection", { id: "c1" }],
     ["testConnection", (b) => b.testConnection(draft), "test_connection", { draft }],
-    ["openConnection without password", (b) => b.openConnection("c1"), "open_connection", { id: "c1", password: null }],
+    [
+      "openConnection without password",
+      (b) => b.openConnection("c1"),
+      "open_connection",
+      { id: "c1", password: null, sshSecret: null },
+    ],
     [
       "openConnection with password",
       (b) => b.openConnection("c1", "pw"),
       "open_connection",
-      { id: "c1", password: "pw" },
+      { id: "c1", password: "pw", sshSecret: null },
     ],
+    [
+      "openConnection with an SSH password",
+      (b) => b.openConnection("c1", undefined, "ssh"),
+      "open_connection",
+      { id: "c1", password: null, sshSecret: "ssh" },
+    ],
+    ["rememberSshSecret", (b) => b.rememberSshSecret("c1", "ssh"), "remember_ssh_secret", { id: "c1", secret: "ssh" }],
+    ["trustHostKey", (b) => b.trustHostKey(hostKey), "trust_host_key", { hostKey }],
     ["closeConnection", (b) => b.closeConnection("c1"), "close_connection", { id: "c1" }],
     ["listDatabases", (b) => b.listDatabases("c1"), "list_databases", { id: "c1" }],
     ["listSchemas", (b) => b.listSchemas("c1", "folio"), "list_schemas", { id: "c1", database: "folio" }],

@@ -50,6 +50,47 @@ test("new connection: MySQL form", async ({ page }) => {
   await snapshot(page, "new-connection-form");
 });
 
+/** 新建 MySQL 连接,在「SSH」页开隧道、填好跳板机。 */
+async function fillTunnel(page: Page) {
+  await openWelcome(page);
+  await page.getByRole("banner").getByRole("button", { name: "新建连接" }).click();
+  const dialog = page.getByRole("dialog", { name: "新建连接" });
+  await dialog.getByText("MySQL", { exact: true }).click();
+  await dialog.getByRole("tab", { name: "SSH" }).click();
+  await dialog.getByLabel("经 SSH 隧道连接").check();
+  await dialog.getByLabel("SSH 主机").fill("jump.example.test");
+  await dialog.getByLabel("SSH 用户名").fill("deploy");
+  return dialog;
+}
+
+test("new connection: SSH page", async ({ page }) => {
+  const dialog = await fillTunnel(page);
+  await dialog.getByLabel("登录方式").selectOption("privateKey");
+  await dialog.getByRole("button", { name: "选择私钥文件" }).click();
+  await expect(dialog.getByLabel("私钥文件", { exact: true })).toHaveValue("/Users/me/.ssh/id_ed25519");
+  await snapshot(page, "new-connection-ssh");
+});
+
+test("new connection: SSL page", async ({ page }) => {
+  await openWelcome(page);
+  await page.getByRole("banner").getByRole("button", { name: "新建连接" }).click();
+  const dialog = page.getByRole("dialog", { name: "新建连接" });
+  await dialog.getByText("PostgreSQL", { exact: true }).click();
+  await dialog.getByRole("tab", { name: "SSL" }).click();
+  await dialog.getByLabel("SSL 模式").selectOption("verifyCa");
+  await dialog.getByRole("button", { name: "选择 CA 证书" }).click();
+  await expect(dialog.getByLabel("CA 证书", { exact: true })).toHaveValue("/Users/me/certs/ca.pem");
+  await snapshot(page, "new-connection-ssl");
+});
+
+test("new connection: check the SSH host key", async ({ page }) => {
+  const dialog = await fillTunnel(page);
+  await dialog.getByLabel("SSH 密码", { exact: true }).fill("ssh-pass");
+  await dialog.getByRole("button", { name: "测试连接" }).click();
+  await expect(page.getByRole("dialog", { name: "核对 SSH 服务器" }).getByLabel("指纹")).toContainText("SHA256:");
+  await snapshot(page, "ssh-host-key");
+});
+
 /** 选中 customers:右侧信息面板显示它的属性(窄窗口默认收着,点工具栏的「信息」打开)。 */
 test("inspector: table properties", async ({ page }) => {
   await inspectCustomers(page);

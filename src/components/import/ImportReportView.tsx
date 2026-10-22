@@ -10,7 +10,9 @@ interface ImportReportViewProps {
 
 function passwordNote(item: ImportedConnection): string {
   if (item.driver === "sqlite") return "无需密码";
-  return item.passwordSaved ? `密码已存入${secretStoreName()}` : "首次打开时输入密码";
+  const password = item.passwordSaved ? `密码已存入${secretStoreName()}` : "首次打开时输入密码";
+  if (!item.tunneled) return password;
+  return `${password}，经 SSH 隧道${item.sshSecretSaved ? "（SSH 密码也已存入）" : ""}`;
 }
 
 export function ImportReportView({ report, source }: ImportReportViewProps) {

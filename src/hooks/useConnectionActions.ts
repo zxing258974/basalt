@@ -2,6 +2,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { needsPasswordPrompt } from "../components/connection/driverMeta";
+import { withHostKeyTrust } from "../components/connection/hostKeyTrust";
 import { connectionKey, folderKey } from "../components/sidebar/treeKeys";
 import { getBackend } from "../lib/api";
 import { errorMessage, isCommandError, type ConnectionConfig } from "../lib/types";
@@ -17,6 +18,15 @@ export function passwordLeftNotice(): string {
     ? "连接已删除，但密码还留在钥匙串里（多半是旧版 Basalt 存的，删除要授权）；可在「钥匙串访问」里搜索 dev.basalt.app 手动删。"
     : "连接已删除，但密码没能从 Windows 凭据管理器里删掉；可在「控制面板 → 凭据管理器 → Windows 凭据」里找 dev.basalt.app 手动删。";
 }
+
+/** 密码框里输的:没存的数据库密码、SSH 密码或私钥口令。没输的不传,后端用存着的。 */
+export interface Credentials {
+  password?: string;
+  sshSecret?: string;
+}
+
+/** SSH 那边要密码、口令,或者给的不对:重新问 SSH 那一个。 */
+const SSH_SECRET_ERRORS = new Set(["ssh_authentication", "ssh_secret_required"]);
 
 export function useConnectionActions() {
   const queryClient = useQueryClient();
@@ -53,21 +63,26 @@ export function useConnectionActions() {
 
   /**
    * 已打开则什么都不做;需要密码时弹出密码框,由密码框完成打开。
-   * `prompt: false`(启动时自动重连):要密码或密码不对时不弹框,直接返回 false。
+   * 经 SSH 隧道第一次连某台服务器时先请用户核对指纹,用户不信任就当没打开。
+   * `prompt: false`(启动时自动重连):要密码、密码不对、要核对主机密钥时都不弹框,
+   * 要密码、密码不对时返回 false,没见过的主机密钥照常报错(由调用方说明原因)。
    */
   const open = useCallback(
     async (
       connection: ConnectionConfig & { isOpen?: boolean },
-      password?: string,
+      credentials?: Credentials,
       { prompt = true }: { prompt?: boolean } = {},
     ) => {
       if (connection.isOpen) return true;
-      if (password === undefined && needsPasswordPrompt(connection)) {
+      if (credentials === undefined && needsPasswordPrompt(connection)) {
         if (prompt) askPassword({ connection });
         return false;
       }
       try {
-        const server = await (await getBackend()).openConnection(connection.id, password);
+        const backend = await getBackend();
+        const connect = () => backend.openConnection(connection.id, credentials?.password, credentials?.sshSecret);
+        const server = prompt ? await withHostKeyTrust(connect) : await connect();
+        if (!server) return false;
         queryClient.setQueryData(catalogKeys.server(connection.id), server);
         await refreshConnections();
         reveal(connection);
@@ -75,6 +90,10 @@ export function useConnectionActions() {
       } catch (error) {
         if (isCommandError(error) && error.code === "authentication") {
           if (prompt) askPassword({ connection, error: error.message });
+          return false;
+        }
+        if (isCommandError(error) && SSH_SECRET_ERRORS.has(error.code)) {
+          if (prompt) askPassword({ connection, sshError: error.message });
           return false;
         }
         throw error;
@@ -111,6 +130,14 @@ export function useConnectionActions() {
   const rememberPassword = useCallback(
     async (id: string, password: string) => {
       await (await getBackend()).rememberPassword(id, password);
+      await refreshConnections();
+    },
+    [refreshConnections],
+  );
+
+  const rememberSshSecret = useCallback(
+    async (id: string, secret: string) => {
+      await (await getBackend()).rememberSshSecret(id, secret);
       await refreshConnections();
     },
     [refreshConnections],
@@ -171,5 +198,16 @@ export function useConnectionActions() {
     [notify],
   );
 
-  return { open, openWithFeedback, afterSave, rememberPassword, close, duplicate, remove, refresh, withNotice };
+  return {
+    open,
+    openWithFeedback,
+    afterSave,
+    rememberPassword,
+    rememberSshSecret,
+    close,
+    duplicate,
+    remove,
+    refresh,
+    withNotice,
+  };
 }

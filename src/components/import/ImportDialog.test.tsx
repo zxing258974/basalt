@@ -51,7 +51,11 @@ describe("import dialog", () => {
     const redis = screen.getByRole("checkbox", { name: "选择「会话缓存」" });
     expect(redis).toBeDisabled();
     expect(within(row("会话缓存")).getByText(/暂不支持 Redis/)).toBeInTheDocument();
-    expect(within(row("测试库")).getByText("隧道 / SSL 设置未迁移（M4 支持）")).toBeInTheDocument();
+    expect(
+      within(row("测试库")).getByText(
+        "SSH 隧道没有迁移（本机 Navicat 配置里隧道的写法没有核实过）：请在 Navicat 里导出 .ncx 再导入，或者导入后在「SSH」页补上",
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByText(/密码存在它自己的钥匙串里/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "导入 3 个连接" })).toBeEnabled();
   });
@@ -88,11 +92,25 @@ describe("import dialog", () => {
     expect(await screen.findByRole("checkbox", { name: "选择「报表 PG」" })).toBeChecked();
     expect(within(row("报表 PG")).getByText("含密码")).toBeInTheDocument();
     expect(within(row("旧版导出")).getByText("无法解密")).toBeInTheDocument();
+    expect(within(row("报表 PG")).getByText("SSL：校验主机名")).toBeInTheDocument();
+    expect(
+      within(row("跳板机后的库")).getByText("经 jump@bastion.example.test:22 的 SSH 隧道，含 SSH 密码"),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/密码存在它自己的钥匙串里/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /^导入 \d+ 个连接$/ }));
     expect(await screen.findByText(/已导入 \d+ 个连接/)).toBeInTheDocument();
     expect(screen.getAllByText("密码已存入钥匙串").length).toBeGreaterThan(0);
+    expect(
+      within(screen.getByText("跳板机后的库").closest("li")!).getByText(
+        "首次打开时输入密码，经 SSH 隧道（SSH 密码也已存入）",
+      ),
+    ).toBeInTheDocument();
+    const imported = await backend.listConnections();
+    expect(imported.find((c) => c.name === "跳板机后的库")?.ssh).toMatchObject({
+      host: "bastion.example.test",
+      saveSecret: true,
+    });
     expect(within(screen.getByText("本地笔记").closest("li")!).getByText("无需密码")).toBeInTheDocument();
     const reminder = screen.getByRole("note");
     expect(reminder).toHaveTextContent("请删除");
@@ -186,7 +204,9 @@ describe("import dialog", () => {
     expect(onClose).not.toHaveBeenCalled();
 
     finish({
-      imported: [{ id: "x", name: "订单库", driver: "mysql", passwordSaved: false }],
+      imported: [
+        { id: "x", name: "订单库", driver: "mysql", passwordSaved: false, tunneled: false, sshSecretSaved: false },
+      ],
       passwordFilled: [],
       skipped: [],
     });

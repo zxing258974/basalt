@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { ConnectionConfig } from "../../lib/types";
-import { defaultName, emptyForm, formFromConfig, toDraft, withDriver } from "./connectionForm";
+import {
+  defaultName,
+  emptyForm,
+  formFromConfig,
+  toDraft,
+  withDriver,
+  pageIsActive,
+  pageOfField,
+  sshSecretLabel,
+  withSshAuth,
+} from "./connectionForm";
 
 describe("emptyForm", () => {
   it("prefills sensible defaults per driver", () => {
@@ -52,6 +62,9 @@ describe("toDraft", () => {
       endpoint: { kind: "network", host: "127.0.0.1", port: 3306, username: "root", database: "shop" },
       savePassword: true,
       password: "pw",
+      ssh: null,
+      sshSecret: null,
+      ssl: { mode: "preferred", caPath: null, clientCertPath: null, clientKeyPath: null },
     });
   });
 
@@ -93,5 +106,68 @@ describe("toDraft", () => {
     expect(form.hadSavedPassword).toBe(false);
     expect(toDraft(form).password).toBe("");
     expect(toDraft({ ...form, password: "pw", passwordTouched: true }).password).toBe("pw");
+  });
+});
+
+describe("tunnel and SSL", () => {
+  const tunneled: ConnectionConfig = {
+    id: "t1",
+    name: "跳板机后的库",
+    driver: "postgres",
+    endpoint: { kind: "network", host: "127.0.0.1", port: 5432, username: "app", database: null },
+    savePassword: true,
+    ssh: {
+      host: "jump",
+      port: 2222,
+      username: "deploy",
+      auth: "privateKey",
+      privateKeyPath: "/k/id",
+      saveSecret: true,
+    },
+    ssl: { mode: "verifyCa", caPath: "/c/ca.pem" },
+  };
+
+  it("round-trips a saved tunnel and keeps its saved secret untouched", () => {
+    const form = formFromConfig(tunneled);
+    expect(form).toMatchObject({
+      sshEnabled: true,
+      sshPort: "2222",
+      sshAuth: "privateKey",
+      hadSavedSshSecret: true,
+      sslMode: "verifyCa",
+      sslCa: "/c/ca.pem",
+      sslCert: "",
+    });
+    const draft = toDraft(form);
+    expect(draft.ssh).toEqual(tunneled.ssh);
+    expect(draft.sshSecret).toBeUndefined();
+    expect(draft.ssl).toEqual({ mode: "verifyCa", caPath: "/c/ca.pem", clientCertPath: null, clientKeyPath: null });
+  });
+
+  it("sends what was typed, an empty passphrase, or nothing for an empty SSH password", () => {
+    const form = formFromConfig(tunneled);
+    expect(toDraft({ ...form, sshSecret: "kp", sshSecretTouched: true }).sshSecret).toBe("kp");
+    expect(toDraft({ ...form, sshSecret: "", sshSecretTouched: true }).sshSecret).toBe("");
+    const password = withSshAuth(form, "password");
+    expect(password).toMatchObject({ sshSecret: "", sshSecretTouched: true });
+    expect(toDraft(password).sshSecret).toBeNull();
+    expect(toDraft(password).ssh?.privateKeyPath).toBeNull();
+    expect(withSshAuth(password, "password")).toBe(password);
+  });
+
+  it("drops the tunnel when it is switched off", () => {
+    const off = { ...formFromConfig(tunneled), sshEnabled: false };
+    expect(toDraft(off)).toMatchObject({ ssh: null, sshSecret: null });
+    expect(pageIsActive(off, "ssh")).toBe(false);
+    expect(pageIsActive(off, "ssl")).toBe(true);
+    expect(pageIsActive(off, "general")).toBe(false);
+  });
+
+  it("knows which page a field error belongs to", () => {
+    expect(pageOfField("sshHost")).toBe("ssh");
+    expect(pageOfField("sslKey")).toBe("ssl");
+    expect(pageOfField("host")).toBe("general");
+    expect(sshSecretLabel("password")).toBe("SSH 密码");
+    expect(sshSecretLabel("privateKey")).toBe("私钥口令");
   });
 });

@@ -1,8 +1,9 @@
 //! 集成测试共用的测试目标与连接参数。
 //!
 //! MySQL / MariaDB / PostgreSQL 需要先起 `docker-compose.test.yml` 里的容器,
-//! 并用 `BASALT_IT` 选择目标:`BASALT_IT=1` 等于 `mysql57,postgres`,
-//! `BASALT_IT=all` 是全部四个,也可以写逗号分隔的名单。没选中的目标直接跳过。
+//! 并用 `BASALT_IT` 选择目标:`BASALT_IT=1` 等于 `mysql57,postgres,sshd`,
+//! `BASALT_IT=all` 是全部,也可以写逗号分隔的名单。没选中的目标直接跳过。
+//! sshd 是 SSH 跳板机,经它连库的测试同时要选中 sshd 和那个库。
 #![allow(dead_code)]
 
 use std::path::Path;
@@ -49,14 +50,36 @@ pub const POSTGRES: Target = Target {
 pub const MYSQL_FAMILY: [Target; 3] = [MYSQL57, MYSQL84, MARIADB];
 
 pub fn selected(target: Target) -> bool {
+    selected_name(target.name)
+}
+
+fn selected_name(name: &str) -> bool {
     let Ok(raw) = std::env::var("BASALT_IT") else {
         return false;
     };
     match raw.trim() {
-        "1" => matches!(target.name, "mysql57" | "postgres"),
+        "1" => matches!(name, "mysql57" | "postgres" | "sshd"),
         "all" => true,
-        list => list.split(',').any(|n| n.trim() == target.name),
+        list => list.split(',').any(|n| n.trim() == name),
     }
+}
+
+/// docker-compose.test.yml 里的 SSH 跳板机:只监听本机 20022,用户 basalt / noforward(不许转发)。
+pub const SSHD_PORT: u16 = 20022;
+pub const SSHD_USER: &str = "basalt";
+pub const SSHD_NO_FORWARD_USER: &str = "noforward";
+
+pub fn sshd_selected() -> bool {
+    selected_name("sshd")
+}
+
+/// tests/fixtures 下某个文件的绝对路径。
+pub fn fixture(relative: &str) -> String {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(relative)
+        .to_string_lossy()
+        .into_owned()
 }
 
 pub fn params(target: Target, password: &str, database: Option<&str>) -> ConnectParams {
@@ -68,6 +91,8 @@ pub fn params(target: Target, password: &str, database: Option<&str>) -> Connect
         password: Some(password.into()),
         database: database.map(str::to_owned),
         file_path: None,
+        ssl: basalt_core::config::SslSettings::default(),
+        ssh: None,
     }
 }
 
@@ -95,6 +120,8 @@ pub fn sqlite_params(path: &str) -> ConnectParams {
         password: None,
         database: None,
         file_path: Some(path.into()),
+        ssl: basalt_core::config::SslSettings::default(),
+        ssh: None,
     }
 }
 

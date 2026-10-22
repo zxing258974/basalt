@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions};
+use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgSslMode};
 use sqlx::{ConnectOptions, Connection, Row};
 use tokio::sync::{Mutex, OnceCell};
 
@@ -11,7 +11,9 @@ use super::{
     ACQUIRE_TIMEOUT, APPLICATION_NAME, CONNECT_TIMEOUT, ConnectParams, MAX_POOL_CONNECTIONS,
     ServerInfo, TableInfo, TableKind, non_empty,
 };
+use crate::config::{SslMode, SslSettings};
 use crate::error::{CoreError, CoreResult};
+use crate::tunnel::Tunnel;
 
 const DEFAULT_DATABASE: &str = "postgres";
 
@@ -23,6 +25,8 @@ pub struct PgSession {
     default_database: String,
     pools: Mutex<HashMap<String, PoolCell>>,
     server: ServerInfo,
+    /// 经 SSH 隧道时,各个库的池都连它的本机端口;池都关掉之后再关它。
+    tunnel: Option<Tunnel>,
 }
 
 pub(crate) fn connect_options(params: &ConnectParams) -> PgConnectOptions {
@@ -31,9 +35,29 @@ pub(crate) fn connect_options(params: &ConnectParams) -> PgConnectOptions {
         .port(params.port)
         .username(&params.username)
         .application_name(APPLICATION_NAME);
-    match &params.password {
+    let options = match &params.password {
         Some(password) => options.password(password),
         None => options,
+    };
+    with_ssl(options, &params.ssl)
+}
+
+fn with_ssl(options: PgConnectOptions, ssl: &SslSettings) -> PgConnectOptions {
+    let mode = match ssl.mode {
+        SslMode::Disabled => return options.ssl_mode(PgSslMode::Disable),
+        SslMode::Preferred => PgSslMode::Prefer,
+        SslMode::Required => PgSslMode::Require,
+        SslMode::VerifyCa => PgSslMode::VerifyCa,
+        SslMode::VerifyIdentity => PgSslMode::VerifyFull,
+    };
+    let options = options.ssl_mode(mode);
+    let options = match &ssl.ca_path {
+        Some(path) => options.ssl_root_cert(path),
+        None => options,
+    };
+    match (&ssl.client_cert_path, &ssl.client_key_path) {
+        (Some(cert), Some(key)) => options.ssl_client_cert(cert).ssl_client_key(key),
+        _ => options,
     }
 }
 
@@ -107,9 +131,13 @@ fn local_time_zone() -> Option<String> {
 
 impl PgSession {
     pub async fn open(params: &ConnectParams) -> CoreResult<Self> {
-        let base = connect_options(params);
+        let (direct, tunnel) = super::route(params).await?;
+        let base = connect_options(&direct);
         let default_database = initial_database(params);
-        let (pool, version) = connect_pool(base.clone().database(&default_database)).await?;
+        let (pool, version) = match connect_pool(base.clone().database(&default_database)).await {
+            Ok(connected) => connected,
+            Err(error) => return Err(super::abandon(tunnel, error).await),
+        };
         Ok(Self {
             base,
             pools: Mutex::new(HashMap::from([(
@@ -121,6 +149,7 @@ impl PgSession {
                 product: "PostgreSQL".into(),
                 version,
             },
+            tunnel,
         })
     }
 
@@ -232,6 +261,9 @@ impl PgSession {
         for pool in cells.iter().filter_map(|cell| cell.get()) {
             pool.close().await;
         }
+        if let Some(tunnel) = &self.tunnel {
+            tunnel.close().await;
+        }
     }
 }
 
@@ -263,6 +295,8 @@ mod tests {
             password: None,
             database: database.map(str::to_owned),
             file_path: None,
+            ssl: crate::config::SslSettings::default(),
+            ssh: None,
         }
     }
 
@@ -273,6 +307,35 @@ mod tests {
         assert_eq!(options.get_port(), 6543);
         assert_eq!(options.get_username(), "app");
         assert_eq!(options.get_application_name(), Some(APPLICATION_NAME));
+    }
+
+    #[test]
+    fn ssl_settings_map_to_postgres_modes() {
+        assert!(matches!(
+            connect_options(&params(None)).get_ssl_mode(),
+            PgSslMode::Prefer
+        ));
+        for (mode, expected) in [
+            (SslMode::Disabled, PgSslMode::Disable),
+            (SslMode::Required, PgSslMode::Require),
+            (SslMode::VerifyCa, PgSslMode::VerifyCa),
+            (SslMode::VerifyIdentity, PgSslMode::VerifyFull),
+        ] {
+            let with_ssl = ConnectParams {
+                ssl: SslSettings {
+                    mode,
+                    ca_path: Some("/certs/ca.pem".into()),
+                    client_cert_path: Some("/certs/client.pem".into()),
+                    client_key_path: Some("/certs/client.key".into()),
+                },
+                ..params(None)
+            };
+            assert_eq!(
+                std::mem::discriminant(&connect_options(&with_ssl).get_ssl_mode()),
+                std::mem::discriminant(&expected),
+                "{mode:?}"
+            );
+        }
     }
 
     #[test]

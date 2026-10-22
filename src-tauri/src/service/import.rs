@@ -9,7 +9,7 @@ use basalt_core::import::navicat::{self, NavicatLocation};
 use basalt_core::import::{
     CandidateStatus, ImportCandidate, SourceConnection, SourcePassword, SourceTarget, classify,
 };
-use basalt_core::secret::password_key;
+use basalt_core::secret::{password_key, ssh_secret_key};
 use serde::{Deserialize, Serialize};
 
 use super::{CommandResult, restore_secret};
@@ -31,6 +31,10 @@ pub struct ImportedConnection {
     pub(crate) driver: DriverKind,
     /// 密码已写进钥匙串;否则首次打开时要输入。
     pub(crate) password_saved: bool,
+    /// 经 SSH 隧道。
+    pub(crate) tunneled: bool,
+    /// SSH 密码(或私钥口令)已写进钥匙串。
+    pub(crate) ssh_secret_saved: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -84,10 +88,11 @@ pub async fn scan_import_source(
     Ok(classify(&sources, &state.load()?))
 }
 
-/// 一个准备写入的连接和它的明文密码。
+/// 一个准备写入的连接和它的明文密码、SSH 密码。
 struct Planned {
     config: ConnectionConfig,
     password: Option<String>,
+    ssh_secret: Option<String>,
 }
 
 fn plan(source: &SourceConnection) -> Result<Planned, String> {
@@ -96,6 +101,7 @@ fn plan(source: &SourceConnection) -> Result<Planned, String> {
         SourceTarget::Supported { .. } => "无法导入".to_owned(),
     })?;
     let password = draft.password.clone();
+    let ssh_secret = draft.ssh_secret.clone();
     let config = draft
         .into_config(uuid::Uuid::new_v4().to_string())
         .map_err(|error| {
@@ -110,7 +116,11 @@ fn plan(source: &SourceConnection) -> Result<Planned, String> {
                 fields.join("；")
             }
         })?;
-    Ok(Planned { config, password })
+    Ok(Planned {
+        config,
+        password,
+        ssh_secret,
+    })
 }
 
 /// 导入勾选的连接。和保存单个连接一样:先写钥匙串、再写配置,配置写失败就把这次动过的钥匙串条目恢复原样。
@@ -173,18 +183,20 @@ pub async fn import_connections(
     let mut written: Vec<(String, Option<String>)> = Vec::new();
     let secrets = creates
         .iter()
-        .filter_map(|c| {
-            c.password
-                .as_ref()
-                .map(|p| (c.config.id.as_str(), p.as_str()))
+        .flat_map(|c| {
+            let id = c.config.id.as_str();
+            [
+                c.password.as_deref().map(|p| (password_key(id), p)),
+                c.ssh_secret.as_deref().map(|s| (ssh_secret_key(id), s)),
+            ]
         })
+        .flatten()
         .chain(
             fills
                 .iter()
-                .map(|f| (f.existing_id.as_str(), f.password.as_str())),
+                .map(|f| (password_key(&f.existing_id), f.password.as_str())),
         );
-    for (id, password) in secrets {
-        let key = password_key(id);
+    for (key, password) in secrets {
         let previous = match state.secrets.get(&key) {
             Ok(previous) => previous,
             Err(error) => {
@@ -228,6 +240,8 @@ pub async fn import_connections(
             name: item.config.name,
             driver: item.config.driver,
             password_saved: item.password.is_some(),
+            tunneled: item.config.ssh.is_some(),
+            ssh_secret_saved: item.ssh_secret.is_some(),
         })
         .collect();
     report.password_filled = fills

@@ -31,6 +31,8 @@ pub async fn open_sqlite(script: &str) -> (tempfile::TempDir, SessionManager) {
         password: None,
         database: None,
         file_path: Some(path.to_string_lossy().into_owned()),
+        ssl: crate::config::SslSettings::default(),
+        ssh: None,
     };
     let sessions = SessionManager::default();
     sessions.open("c1", &params).await.unwrap();

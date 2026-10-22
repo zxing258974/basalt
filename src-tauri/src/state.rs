@@ -5,8 +5,9 @@ use basalt_core::config::{ConnectionConfig, ConnectionList, ConnectionRepository
 use basalt_core::llm::config::LlmRepository;
 use basalt_core::query::history::HistoryStore;
 use basalt_core::query::saved::SavedQueryStore;
-use basalt_core::secret::{SecretStore, password_key};
+use basalt_core::secret::{SecretStore, password_key, ssh_secret_key};
 use basalt_core::session::SessionManager;
+use basalt_core::tunnel::KnownHosts;
 use basalt_core::workspace::WorkspaceStore;
 use basalt_core::{CoreError, CoreResult};
 use tokio::sync::{Mutex, MutexGuard};
@@ -33,6 +34,8 @@ pub struct AppState {
     pub chats: LlmChats,
     /// 上次开着的标签页(workspace.json),下次启动时恢复。
     pub workspace: WorkspaceStore,
+    /// 信任过的 SSH 服务器主机密钥(配置目录里的 known_hosts)。
+    pub known_hosts: KnownHosts,
 }
 
 /// 持有写锁期间对配置文件的读写。锁随它一起释放。
@@ -69,6 +72,7 @@ impl AppState {
             llm_lock: Mutex::new(()),
             chats: LlmChats::default(),
             workspace: WorkspaceStore::new(dir.join("workspace.json")),
+            known_hosts: KnownHosts::new(dir.join("known_hosts")),
         }
     }
 
@@ -106,5 +110,13 @@ impl AppState {
             return Ok(None);
         }
         self.secrets.get(&password_key(&config.id))
+    }
+
+    /// SSH 密码或私钥口令,同样只在存过时才读。
+    pub fn saved_ssh_secret(&self, config: &ConnectionConfig) -> CoreResult<Option<String>> {
+        match &config.ssh {
+            Some(tunnel) if tunnel.save_secret => self.secrets.get(&ssh_secret_key(&config.id)),
+            _ => Ok(None),
+        }
     }
 }

@@ -24,6 +24,7 @@ use basalt_core::transfer::import::{self as transfer_import, ImportPreview, Impo
 use basalt_core::transfer::progress::Progress;
 use basalt_core::transfer::report::ImportFailure;
 use basalt_core::transfer::source::SourceSpec;
+use basalt_core::tunnel::HostKey;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -77,12 +78,27 @@ pub async fn test_connection(
 }
 
 #[tauri::command]
+pub async fn remember_ssh_secret(
+    state: State<'_, AppState>,
+    id: String,
+    secret: String,
+) -> CommandResult<()> {
+    service::remember_ssh_secret(&state, &id, secret).await
+}
+
+#[tauri::command]
+pub async fn trust_host_key(state: State<'_, AppState>, host_key: HostKey) -> CommandResult<()> {
+    service::trust_host_key(&state, &host_key).await
+}
+
+#[tauri::command]
 pub async fn open_connection(
     state: State<'_, AppState>,
     id: String,
     password: Option<String>,
+    ssh_secret: Option<String>,
 ) -> CommandResult<ServerInfo> {
-    service::open_connection(&state, &id, password).await
+    service::open_connection(&state, &id, password, ssh_secret).await
 }
 
 #[tauri::command]

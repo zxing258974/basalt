@@ -41,6 +41,7 @@ import type {
   CopyTableOutcome,
   TableDetails,
   DeletedConnection,
+  HostKey,
   Maintenance,
   MaintenanceOutcome,
   PageRequest,
@@ -58,11 +59,16 @@ export interface Backend {
   saveConnection(draft: ConnectionDraft): Promise<ConnectionConfig>;
   /** 连接成功后记住临时输入的密码;不断开会话。 */
   rememberPassword(id: string, password: string): Promise<void>;
+  /** 同上,记住 SSH 密码或私钥口令。 */
+  rememberSshSecret(id: string, secret: string): Promise<void>;
+  /** 用户核对过指纹:记下这台 SSH 服务器的主机密钥。 */
+  trustHostKey(hostKey: HostKey): Promise<void>;
   /** 不会弹钥匙串授权框;删不掉的密码留在钥匙串里,由 passwordLeft 报告。 */
   deleteConnection(id: string): Promise<DeletedConnection>;
   duplicateConnection(id: string): Promise<ConnectionConfig>;
   testConnection(draft: ConnectionDraft): Promise<ServerInfo>;
-  openConnection(id: string, password?: string): Promise<ServerInfo>;
+  /** password、sshSecret 只在没保存时传(用户在密码框里输的)。 */
+  openConnection(id: string, password?: string, sshSecret?: string): Promise<ServerInfo>;
   closeConnection(id: string): Promise<void>;
   listDatabases(id: string): Promise<string[]>;
   listSchemas(id: string, database: string): Promise<string[]>;
@@ -105,6 +111,8 @@ export interface Backend {
   /** `expected` 是用户确认过的预览,后端重新生成的不一样就拒绝执行。 */
   applyTableDesign(id: string, original: TableRef | null, design: TableDesign, expected: string[]): Promise<DdlOutcome>;
   pickSqliteFile(): Promise<string | null>;
+  /** 选 SSH 私钥(从 ~/.ssh 开始)或证书文件。 */
+  pickCredentialFile(kind: CredentialFile): Promise<string | null>;
   /** 扫描导入来源,给出预览;不写任何东西。 */
   scanImportSource(source: ImportSource): Promise<ImportCandidate[]>;
   /** 导入勾选的连接:密码由后端直接写进钥匙串。 */
@@ -159,6 +167,8 @@ export interface Backend {
   revealInFinder(path: string): Promise<void>;
 }
 
+export type CredentialFile = "sshKey" | "certificate" | "key";
+
 /** 文件对话框里的类型筛选。 */
 export interface FileFilter {
   name: string;
@@ -173,6 +183,15 @@ const QUIT_REQUESTED_EVENT = "quit-requested";
 /** 导入导出的进度事件,和 src-tauri/src/commands.rs 一致。 */
 const TRANSFER_PROGRESS_EVENT = "transfer-progress";
 
+async function sshDirectory(): Promise<string | undefined> {
+  try {
+    const { homeDir, join } = await import("@tauri-apps/api/path");
+    return await join(await homeDir(), ".ssh");
+  } catch {
+    return undefined;
+  }
+}
+
 function createTauriBackend(): Backend {
   // 动态导入,浏览器里跑 mock 时不会加载 Tauri 运行时。
   const call = async <T>(command: string, args?: Record<string, unknown>): Promise<T> => {
@@ -183,10 +202,13 @@ function createTauriBackend(): Backend {
     listConnections: () => call("list_connections"),
     saveConnection: (draft) => call("save_connection", { draft }),
     rememberPassword: (id, password) => call("remember_password", { id, password }),
+    rememberSshSecret: (id, secret) => call("remember_ssh_secret", { id, secret }),
+    trustHostKey: (hostKey) => call("trust_host_key", { hostKey }),
     deleteConnection: (id) => call("delete_connection", { id }),
     duplicateConnection: (id) => call("duplicate_connection", { id }),
     testConnection: (draft) => call("test_connection", { draft }),
-    openConnection: (id, password) => call("open_connection", { id, password: password ?? null }),
+    openConnection: (id, password, sshSecret) =>
+      call("open_connection", { id, password: password ?? null, sshSecret: sshSecret ?? null }),
     closeConnection: (id) => call("close_connection", { id }),
     listDatabases: (id) => call("list_databases", { id }),
     listSchemas: (id, database) => call("list_schemas", { id, database }),
@@ -224,6 +246,13 @@ function createTauriBackend(): Backend {
         directory: false,
         filters: [{ name: "SQLite", extensions: ["db", "sqlite", "sqlite3", "db3"] }],
       });
+      return typeof picked === "string" ? picked : null;
+    },
+    pickCredentialFile: async (kind) => {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      // 私钥通常没有扩展名,不加筛选;从 ~/.ssh 开始找。
+      const defaultPath = kind === "sshKey" ? await sshDirectory() : undefined;
+      const picked = await open({ multiple: false, directory: false, defaultPath });
       return typeof picked === "string" ? picked : null;
     },
     scanImportSource: (source) => call("scan_import_source", { source }),

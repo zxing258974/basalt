@@ -1,7 +1,15 @@
 import { useEffect, useRef } from "react";
 import type { ImportCandidate } from "../../lib/importTypes";
 import { DriverBadge } from "../connection/DriverBadge";
-import { candidateAddress, passwordLabel, selectAll, selectableIds, statusLabel, toggleSelection } from "./importModel";
+import {
+  candidateAddress,
+  passwordLabel,
+  selectAll,
+  selectableIds,
+  statusLabel,
+  toggleSelection,
+  transportNotes,
+} from "./importModel";
 
 interface ImportPreviewProps {
   candidates: readonly ImportCandidate[];
@@ -112,6 +120,11 @@ function CandidateRow({
             <span className="import-note">给「{status.existingName}」补上密码，不新建连接</span>
           )}
           {status.kind === "unsupported" && <span className="import-note">{status.reason}</span>}
+          {transportNotes(candidate).map((note) => (
+            <span key={note} className="import-note">
+              {note}
+            </span>
+          ))}
           {candidate.warnings.map((warning) => (
             <span key={warning} className="import-note is-warning">
               {warning}

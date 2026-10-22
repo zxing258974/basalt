@@ -1,14 +1,23 @@
 # 集成测试专用的数据库容器,只监听本机。
 # 启动:docker compose -f docker-compose.test.yml up -d
 # 测试:BASALT_IT=1 cargo test -p basalt-core --test drivers
-# 这些账号密码只用于本机一次性测试容器。
+# 这些账号密码、证书、密钥只用于本机一次性测试容器。
+# MySQL 5.7 和 PostgreSQL 开着 SSL(测试 CA 签的证书,见 crates/basalt-core/tests/fixtures/tls),
+# sshd 是 SSH 跳板机,和数据库在同一个网络里,经它转发时数据库地址写容器名(mysql57、postgres)。
 services:
   mysql57:
     image: biarms/mysql:5.7
     environment:
       MYSQL_ROOT_PASSWORD: basalt-test
     ports: ["127.0.0.1:23306:3306"]
-    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - ./crates/basalt-core/tests/fixtures/tls:/tls:ro
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --ssl-ca=/tls/ca.crt
+      - --ssl-cert=/tls/server.crt
+      - --ssl-key=/tls/server.key
 
   mysql84:
     image: mysql:8.4
@@ -29,3 +38,21 @@ services:
     environment:
       POSTGRES_PASSWORD: basalt-test
     ports: ["127.0.0.1:25432:5432"]
+    volumes:
+      - ./crates/basalt-core/tests/fixtures/tls:/tls:ro
+    # PostgreSQL 要求私钥只有自己能读:挂进来的文件权限改不了,先复制一份。
+    command:
+      - sh
+      - -c
+      - >-
+        install -m 600 -o postgres -g postgres /tls/server.key /var/lib/postgresql/server.key
+        && exec docker-entrypoint.sh postgres -c ssl=on
+        -c ssl_cert_file=/tls/server.crt -c ssl_key_file=/var/lib/postgresql/server.key
+        -c ssl_ca_file=/tls/ca.crt -c hba_file=/tls/pg_hba.conf
+
+  sshd:
+    build:
+      context: ./crates/basalt-core/tests/fixtures
+      dockerfile: sshd/Dockerfile
+    image: basalt-test-sshd
+    ports: ["127.0.0.1:20022:22"]

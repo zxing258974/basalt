@@ -15,6 +15,7 @@ pub mod table;
 pub mod table_info;
 pub mod table_ops;
 pub mod transfer;
+pub mod tunnel;
 pub mod value;
 pub mod workspace;
 

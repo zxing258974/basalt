@@ -8,7 +8,7 @@ use std::io::Cursor;
 
 use plist::{Dictionary, Value};
 
-use super::{RawConnection, into_sources};
+use super::{HTTP_TUNNEL_WARNING, RawConnection, into_sources};
 use crate::error::{CoreError, CoreResult};
 use crate::import::{SourceConnection, SourcePassword};
 
@@ -52,6 +52,16 @@ fn raw_connection(conn_type: &str, name: &str, fields: &Dictionary) -> RawConnec
         _ => String::new(),
     };
     let flag = |key: &str| fields.get(key).and_then(Value::as_boolean).unwrap_or(false);
+    // conn.plist 里隧道和 SSL 的具体字段没见过实例,不猜字段名,只提醒。
+    let notes = [
+        (flag("usetunnel"), PLIST_SSH_WARNING),
+        (flag("usessl"), PLIST_SSL_WARNING),
+        (flag("usehttptunnel"), HTTP_TUNNEL_WARNING),
+    ]
+    .into_iter()
+    .filter(|(used, _)| *used)
+    .map(|(_, note)| note.to_owned())
+    .collect();
     RawConnection {
         name: name.to_owned(),
         conn_type: conn_type.to_owned(),
@@ -66,10 +76,13 @@ fn raw_connection(conn_type: &str, name: &str, fields: &Dictionary) -> RawConnec
             .find(|path| !path.trim().is_empty())
             .unwrap_or_default(),
         password: SourcePassword::Absent,
-        uses_tunnel: flag("usetunnel") || flag("usehttptunnel"),
-        uses_ssl: flag("usessl"),
+        notes,
+        ..RawConnection::default()
     }
 }
+
+pub const PLIST_SSH_WARNING: &str = "SSH 隧道没有迁移（本机 Navicat 配置里隧道的写法没有核实过）：请在 Navicat 里导出 .ncx 再导入，或者导入后在「SSH」页补上";
+pub const PLIST_SSL_WARNING: &str = "SSL 设置没有迁移（本机 Navicat 配置里 SSL 的写法没有核实过）：请在 Navicat 里导出 .ncx 再导入，或者导入后在「SSL」页补上";
 
 /// 分组文件的格式没见过实例(用户这份是空的 `{}`),按常见的「组名 + 子项数组」结构尽力识别:
 /// 组节点是带 name 和子项数组的对象,子项可以是连接名字符串、带名字的对象或者嵌套的组。

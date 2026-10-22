@@ -1,6 +1,6 @@
 // 导入连接,与 crates/basalt-core/src/import 和 src-tauri/src/service/import.rs 的序列化结构对应。
 // 这里没有任何明文密码:预览只说「含不含密码」,密码由后端直接写进钥匙串。
-import type { DriverKind, Endpoint } from "./types";
+import type { DriverKind, Endpoint, SshTunnel, SslMode } from "./types";
 
 export type ImportSource = { kind: "localNavicat" } | { kind: "ncxFile"; path: string };
 
@@ -24,6 +24,11 @@ export interface ImportCandidate {
   endpoint: Endpoint | null;
   status: CandidateStatus;
   password: PasswordStatus;
+  /** 经哪台 SSH 服务器转发;没有隧道时为 null。 */
+  ssh: SshTunnel | null;
+  /** SSH 密码或私钥口令带没带上;没有隧道时为 null。 */
+  sshSecret: PasswordStatus | null;
+  sslMode: SslMode;
   /** 照常导入、但没有迁移过来的设置。 */
   warnings: string[];
 }
@@ -33,6 +38,10 @@ export interface ImportedConnection {
   name: string;
   driver: DriverKind;
   passwordSaved: boolean;
+  /** 经 SSH 隧道。 */
+  tunneled: boolean;
+  /** SSH 密码(或私钥口令)已存入钥匙串。 */
+  sshSecretSaved: boolean;
 }
 
 export interface SkippedConnection {

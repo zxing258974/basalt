@@ -1,6 +1,7 @@
 //! service 层测试:内存密码存储 + 临时配置目录 + 真实 SQLite 文件,
 //! 设置 BASALT_IT 时额外连 docker-compose.test.yml 里的 PostgreSQL。
 
+use basalt_core::config::SslSettings;
 use std::sync::Arc;
 
 use basalt_core::config::{ConnectionDraft, DriverKind, Endpoint};
@@ -51,6 +52,9 @@ fn sqlite_draft(path: &str) -> ConnectionDraft {
         endpoint: Endpoint::File { path: path.into() },
         save_password: false,
         password: None,
+        ssh: None,
+        ssl: SslSettings::default(),
+        ssh_secret: None,
     }
 }
 
@@ -68,6 +72,9 @@ fn pg_draft(password: Option<&str>, save_password: bool) -> ConnectionDraft {
         },
         save_password,
         password: password.map(str::to_owned),
+        ssh: None,
+        ssl: SslSettings::default(),
+        ssh_secret: None,
     }
 }
 
@@ -88,7 +95,7 @@ async fn saves_lists_and_opens_a_sqlite_connection() {
     assert_eq!(listed.len(), 1);
     assert!(!listed[0].is_open);
 
-    let server = service::open_connection(&h.state, &saved.id, None)
+    let server = service::open_connection(&h.state, &saved.id, None, None)
         .await
         .unwrap();
     assert_eq!(server.product, "SQLite");
@@ -201,7 +208,7 @@ async fn renaming_keeps_session_but_changing_endpoint_closes_it() {
     let saved = service::save_connection(&h.state, sqlite_draft(&h.sqlite_path))
         .await
         .unwrap();
-    service::open_connection(&h.state, &saved.id, None)
+    service::open_connection(&h.state, &saved.id, None, None)
         .await
         .unwrap();
 
@@ -261,7 +268,7 @@ async fn remember_password_saves_secret_without_dropping_the_session() {
     let saved = service::save_connection(&h.state, sqlite_draft(&h.sqlite_path))
         .await
         .unwrap();
-    service::open_connection(&h.state, &saved.id, None)
+    service::open_connection(&h.state, &saved.id, None, None)
         .await
         .unwrap();
 
@@ -367,7 +374,7 @@ async fn connections_without_a_saved_password_never_read_the_keychain() {
         ..sqlite_draft(&h.sqlite_path)
     };
     service::save_connection(&state, renamed).await.unwrap();
-    service::open_connection(&state, &saved.id, None)
+    service::open_connection(&state, &saved.id, None, None)
         .await
         .unwrap();
     let draft = ConnectionDraft {
@@ -460,7 +467,7 @@ async fn postgres_uses_saved_password_for_open_and_test() {
     let server = service::test_connection(&h.state, draft).await.unwrap();
     assert_eq!(server.product, "PostgreSQL");
 
-    service::open_connection(&h.state, &saved.id, None)
+    service::open_connection(&h.state, &saved.id, None, None)
         .await
         .unwrap();
     let schemas = service::list_schemas(&h.state, &saved.id, "postgres")
@@ -480,12 +487,12 @@ async fn postgres_prompted_password_opens_without_saving() {
         .await
         .unwrap();
 
-    let error = service::open_connection(&h.state, &saved.id, Some("wrong".into()))
+    let error = service::open_connection(&h.state, &saved.id, Some("wrong".into()), None)
         .await
         .unwrap_err();
     assert_eq!(error.code, "authentication");
 
-    service::open_connection(&h.state, &saved.id, Some(TEST_PASSWORD.into()))
+    service::open_connection(&h.state, &saved.id, Some(TEST_PASSWORD.into()), None)
         .await
         .unwrap();
     assert_eq!(

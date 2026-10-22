@@ -35,7 +35,7 @@ fn maps_navicat_type_names_case_insensitively() {
 
 #[test]
 fn invalid_port_falls_back_to_the_default_with_a_warning() {
-    let (target, warnings) = resolve_target(&RawConnection {
+    let (target, _, warnings) = resolve_target(&RawConnection {
         port: "abc".into(),
         ..raw("PostgreSQL")
     });
@@ -48,7 +48,7 @@ fn invalid_port_falls_back_to_the_default_with_a_warning() {
     ));
     assert_eq!(warnings, ["端口「abc」无效，已改用默认端口 5432"]);
 
-    let (_, warnings) = resolve_target(&RawConnection {
+    let (_, _, warnings) = resolve_target(&RawConnection {
         port: "".into(),
         ..raw("MySQL")
     });
@@ -57,7 +57,7 @@ fn invalid_port_falls_back_to_the_default_with_a_warning() {
 
 #[test]
 fn incomplete_connections_reuse_the_form_validation_messages() {
-    let (target, _) = resolve_target(&RawConnection {
+    let (target, _, _) = resolve_target(&RawConnection {
         host: " ".into(),
         username: "".into(),
         ..raw("MySQL")
@@ -67,7 +67,7 @@ fn incomplete_connections_reuse_the_form_validation_messages() {
         "连接信息不完整：请填写主机地址；请填写用户名"
     );
 
-    let (target, _) = resolve_target(&RawConnection {
+    let (target, _, _) = resolve_target(&RawConnection {
         file_path: "notes.db".into(),
         ..raw("SQLite")
     });
@@ -76,8 +76,13 @@ fn incomplete_connections_reuse_the_form_validation_messages() {
 
 #[test]
 fn unsupported_connections_carry_no_migration_warnings() {
-    let (target, warnings) = resolve_target(&RawConnection {
-        uses_tunnel: true,
+    let (target, _, warnings) = resolve_target(&RawConnection {
+        notes: vec![HTTP_TUNNEL_WARNING.into()],
+        ssh: Some(transport::RawSsh {
+            host: "jump".into(),
+            username: "u".into(),
+            ..transport::RawSsh::default()
+        }),
         ..raw("Oracle")
     });
     assert!(reason(&target).starts_with("Basalt 暂不支持 Oracle"));
@@ -194,7 +199,7 @@ fn load_ncx_reads_the_file_and_rejects_non_text_or_oversized_files() {
         )),
     )
     .unwrap();
-    assert_eq!(load_ncx(&path).unwrap().len(), 9);
+    assert_eq!(load_ncx(&path).unwrap().len(), 10);
 
     assert_eq!(
         load_ncx(&dir.path().join("missing.ncx"))

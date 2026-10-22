@@ -10,6 +10,7 @@ import {
   selectionSummary,
   statusLabel,
   toggleSelection,
+  transportNotes,
 } from "./importModel";
 
 function candidate(id: string, partial: Partial<ImportCandidate> = {}): ImportCandidate {
@@ -22,6 +23,9 @@ function candidate(id: string, partial: Partial<ImportCandidate> = {}): ImportCa
     endpoint: { kind: "network", host: "db.example.test", port: 3306, username: "app" },
     status: { kind: "new" },
     password: "included",
+    ssh: null,
+    sshSecret: null,
+    sslMode: "preferred",
     warnings: [],
     ...partial,
   };
@@ -87,8 +91,8 @@ describe("labels", () => {
   it("headlines the report", () => {
     const report: ImportReport = {
       imported: [
-        { id: "a", name: "A", driver: "mysql", passwordSaved: true },
-        { id: "b", name: "B", driver: "postgres", passwordSaved: false },
+        { id: "a", name: "A", driver: "mysql", passwordSaved: true, tunneled: false, sshSecretSaved: false },
+        { id: "b", name: "B", driver: "postgres", passwordSaved: false, tunneled: false, sshSecretSaved: false },
       ],
       passwordFilled: [],
       skipped: [{ name: "C", reason: "暂不支持" }],
@@ -106,7 +110,9 @@ describe("labels", () => {
     expect(reportHeadline({ imported: [], passwordFilled: filled, skipped: [] })).toBe("为 2 个已有连接补上了密码");
     expect(
       reportHeadline({
-        imported: [{ id: "a", name: "A", driver: "mysql", passwordSaved: true }],
+        imported: [
+          { id: "a", name: "A", driver: "mysql", passwordSaved: true, tunneled: false, sshSecretSaved: false },
+        ],
         passwordFilled: filled,
         skipped: [{ name: "C", reason: "暂不支持" }],
       }),
@@ -120,5 +126,32 @@ describe("filling passwords into existing connections", () => {
   it("is checked by default and labelled as such", () => {
     expect(defaultSelection([...candidates, fill]).has("fill")).toBe(true);
     expect(statusLabel(fill.status)).toBe("补密码");
+  });
+});
+
+describe("tunnel and SSL notes", () => {
+  const ssh = {
+    host: "jump",
+    port: 22,
+    username: "deploy",
+    auth: "privateKey" as const,
+    privateKeyPath: "/k",
+    saveSecret: false,
+  };
+
+  it("describes the tunnel and a non-default SSL mode", () => {
+    expect(transportNotes(candidate("a"))).toEqual([]);
+    expect(transportNotes(candidate("b", { ssh, sshSecret: "included", sslMode: "required" }))).toEqual([
+      "经 deploy@jump:22 的 SSH 隧道，含私钥口令",
+      "SSL：必须",
+    ]);
+    expect(transportNotes(candidate("c", { ssh: { ...ssh, auth: "password" }, sshSecret: "absent" }))).toEqual([
+      "经 deploy@jump:22 的 SSH 隧道",
+    ]);
+  });
+
+  it("says nothing for connections that cannot be imported", () => {
+    const unsupported = candidate("d", { ssh, sslMode: "required", status: { kind: "unsupported", reason: "x" } });
+    expect(transportNotes(unsupported)).toEqual([]);
   });
 });

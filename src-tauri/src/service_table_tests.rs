@@ -1,6 +1,7 @@
 //! 表数据命令的 service 层测试:与前端走同一条路径(保存连接 → 打开 → 读一页 →
 //! 预览 → 提交 → 再读)。SQLite 总会运行;BASALT_IT 选中时再连 MySQL 8.4 与 PostgreSQL 17。
 
+use basalt_core::config::SslSettings;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -48,6 +49,9 @@ fn network_draft(driver: DriverKind, port: u16, username: &str) -> ConnectionDra
         },
         save_password: true,
         password: Some(TEST_PASSWORD.into()),
+        ssh: None,
+        ssl: SslSettings::default(),
+        ssh_secret: None,
     }
 }
 
@@ -127,9 +131,12 @@ async fn sqlite_row_edit_round_trip() {
         },
         save_password: false,
         password: None,
+        ssh: None,
+        ssl: SslSettings::default(),
+        ssh_secret: None,
     };
     let saved = service::save_connection(&state, draft).await.unwrap();
-    service::open_connection(&state, &saved.id, None)
+    service::open_connection(&state, &saved.id, None, None)
         .await
         .unwrap();
     let table = TableRef {
@@ -189,7 +196,7 @@ async fn mysql84_row_edit_round_trip() {
     let saved = service::save_connection(&state, network_draft(DriverKind::Mysql, 23307, "root"))
         .await
         .unwrap();
-    let server = service::open_connection(&state, &saved.id, None)
+    let server = service::open_connection(&state, &saved.id, None, None)
         .await
         .unwrap();
     assert!(server.version.starts_with("8.4"), "{server:?}");
@@ -250,7 +257,7 @@ async fn postgres17_row_edit_round_trip() {
     )
     .await
     .unwrap();
-    let server = service::open_connection(&state, &saved.id, None)
+    let server = service::open_connection(&state, &saved.id, None, None)
         .await
         .unwrap();
     assert!(server.version.starts_with("17"), "{server:?}");

@@ -1,6 +1,7 @@
 //! 全部用临时目录现造的假数据,不碰本机真实的 Navicat 文件。
 
 use super::*;
+use crate::config::SslSettings;
 use crate::import::SourcePassword;
 use crate::query::saved::SavedQueryStore;
 
@@ -59,6 +60,8 @@ fn connection(
             database: None,
         },
         save_password: false,
+        ssh: None,
+        ssl: SslSettings::default(),
     }
 }
 
@@ -86,6 +89,9 @@ fn navicat_source(name: &str, host: &str, user: &str) -> SourceConnection {
             },
         },
         password: SourcePassword::Absent,
+        ssh: None,
+        ssh_secret: SourcePassword::Absent,
+        ssl: SslSettings::default(),
         warnings: vec![],
     }
 }

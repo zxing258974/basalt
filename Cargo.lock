@@ -192,7 +192,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "basalt"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "basalt-core",
  "log",
@@ -213,7 +213,7 @@ dependencies = [
 
 [[package]]
 name = "basalt-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes 0.8.4",
  "base64 0.22.1",

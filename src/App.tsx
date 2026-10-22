@@ -9,6 +9,7 @@ import { TableOpsDialogs } from "./components/tableOps/TableOpsDialogs";
 import { TransferDialogs } from "./components/transfer/TransferDialogs";
 import { useNewQueryFromSelection } from "./hooks/useNewQueryFromSelection";
 import { useQuitGuard } from "./hooks/useQuitGuard";
+import { useRestoredWorkspace } from "./hooks/useRestoredWorkspace";
 import { closeTabGuarded } from "./stores/discard";
 import { useTabs } from "./stores/tabs";
 import { useUi } from "./stores/ui";
@@ -54,11 +55,18 @@ function GlobalShortcuts() {
   return null;
 }
 
+/** 启动时恢复上次开着的标签页,之后一直记着;重连要用到 QueryClient。 */
+function WorkspaceKeeper() {
+  useRestoredWorkspace();
+  return null;
+}
+
 export function App({ queryClient }: { queryClient: QueryClient }) {
   useQuitGuard();
   return (
     <QueryClientProvider client={queryClient}>
       <GlobalShortcuts />
+      <WorkspaceKeeper />
       <AppShell />
       <ConnectionDialog />
       <PasswordPrompt />

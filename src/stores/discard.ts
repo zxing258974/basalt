@@ -24,11 +24,18 @@ export function hasUnsavedWork(state: TabsSnapshot): boolean {
   return !nothingLost(lostWork(state, () => true));
 }
 
+/** 退出会丢掉的:查询不算(下次启动原样恢复),只算未提交的表格修改和没保存的表结构。 */
+export function blocksQuit(state: TabsSnapshot): boolean {
+  return !nothingLost({ ...lostWork(state, () => true), queries: 0 });
+}
+
 function ask(
   affects: (tab: Tab) => boolean,
   request: Pick<DiscardPrompt, "onConfirm" | "onCancel" | "quit" | "action">,
+  includeQueries = true,
 ): void {
-  const lost = lostWork(useTabs.getState(), affects);
+  const all = lostWork(useTabs.getState(), affects);
+  const lost = includeQueries ? all : { ...all, queries: 0 };
   if (nothingLost(lost)) {
     request.onConfirm();
     return;
@@ -52,9 +59,12 @@ export function guardDiscard(
   ask(affects, { onConfirm: action, onCancel, action: verb });
 }
 
-/** 退出应用之前:所有标签页一起算,确认框说「退出」而不是「关闭」。 */
-export function guardQuit(quit: () => void): void {
-  ask(() => true, { onConfirm: quit, quit: true });
+/**
+ * 退出应用之前:所有标签页一起算,确认框说「退出」而不是「关闭」。
+ * 查询下次启动会恢复,默认不算;标签页没能记下来(`includeQueries`)时才把没保存的查询也算上。
+ */
+export function guardQuit(quit: () => void, { includeQueries = false }: { includeQueries?: boolean } = {}): void {
+  ask(() => true, { onConfirm: quit, quit: true }, includeQueries);
 }
 
 /** 关掉一个标签页;有未提交的修改先确认。 */

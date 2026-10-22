@@ -184,6 +184,8 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
   const rowKey = (id: string, ref: TableRef) => [id, ref.database, ref.schema ?? "", ref.table].join("\u0000");
   const transfer = createMockTransfer(wait, (id, ref) => rowCounts.get(rowKey(id, ref)));
   const llm = createMockLlm(wait);
+  /** 上次开着的标签页,和后端的 workspace.json 一样只认 JSON 对象。 */
+  let workspace: string | null = null;
 
   const find = (id: string) =>
     connections.find((c) => c.id === id) ?? fail("connection_not_found", `找不到连接：${id}`);
@@ -446,6 +448,18 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
     deleteSavedQuery: (query) => queries.deleteSavedQuery(query),
     scanNavicatQueries: () => queries.scanNavicatQueries(),
     importNavicatQueries: (ids) => queries.importNavicatQueries(ids),
+    async loadWorkspace() {
+      await wait();
+      return workspace;
+    },
+    async saveWorkspace(content) {
+      await wait();
+      const value: unknown = JSON.parse(content);
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        fail("storage", "要记下的标签页不是 JSON 对象");
+      }
+      workspace = content;
+    },
     // 浏览器里没有原生菜单和窗口关闭按钮,不会有退出请求。
     setUnsavedWork: () => Promise.resolve(),
     onQuitRequested: () => Promise.resolve(() => undefined),

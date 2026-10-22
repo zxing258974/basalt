@@ -7,6 +7,7 @@ import { getBackend } from "../../lib/api";
 import type { QueryScope, SavedQueryRef } from "../../lib/queryTypes";
 import { errorMessage } from "../../lib/types";
 import { useAssistant } from "../../stores/assistant";
+import { useWorkspace } from "../../stores/workspace";
 import { useTabs, type QueryTab } from "../../stores/tabs";
 import { useTransfer } from "../../stores/transfer";
 import { guessTableName } from "../transfer/exportModel";
@@ -55,7 +56,8 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
   const { openWithFeedback } = useConnectionActions();
   const { updateQuery, setUnsaved } = useTabs.getState();
   const editor = useRef<SqlEditorHandle>(null);
-  const baseline = useRef(tab.initialSql);
+  // 上次保存(或打开)时的内容;从上次的记录恢复时另有记录,改过没保存的照样标出来。
+  const baseline = useRef(tab.baselineSql ?? tab.initialSql);
   const [dirty, setDirty] = useState(false);
   const [activeResult, setActiveResult] = useState<string | null>(null);
   /** 执行过程中用户自己点了结果标签:执行完就不再替他切换。 */
@@ -80,14 +82,26 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
     [setUnsaved, tab.id],
   );
   const onChange = useCallback(
-    (text: string) => markDirty(isDirty(text, baseline.current, tab.saved !== null)),
-    [markDirty, tab.saved],
+    (text: string) => {
+      useWorkspace.getState().setDraft(tab.id, { sql: text });
+      markDirty(isDirty(text, baseline.current, tab.saved !== null));
+    },
+    [markDirty, tab.id, tab.saved],
   );
+
+  // 编辑器里的内容交给标签页记录(退出再打开还在);恢复回来的、改过没保存的,一打开就标出来。
+  useEffect(() => {
+    useWorkspace.getState().setDraft(tab.id, { sql: tab.initialSql, baseline: baseline.current });
+    if (isDirty(tab.initialSql, baseline.current, tab.saved !== null)) markDirty(true);
+    // 只在打开时做一次:之后的内容由 onChange 跟着记。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab.id]);
 
   // 标签页关了:放掉它的专用连接,也不再算「没保存」,助手的对话也丢掉。
   useEffect(
     () => () => {
       useTabs.getState().setUnsaved(tab.id, false);
+      useWorkspace.getState().forgetDraft(tab.id);
       // 正在生成的回答也停掉:标签页没了,回答没地方放,再生成下去只是白白消耗额度。
       void cancelStreaming(tab.id).finally(() => useAssistant.getState().forget(tab.id));
       void getBackend()
@@ -124,6 +138,7 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
       const text = editor.current?.getText() ?? "";
       await (await getBackend()).saveQuery(ref, text, overwrite);
       baseline.current = text;
+      useWorkspace.getState().setDraft(tab.id, { sql: text, baseline: text });
       updateQuery(tab.id, { saved: ref, title: ref.name });
       markDirty(false);
       setSaveAs(false);

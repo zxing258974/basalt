@@ -7,6 +7,7 @@ use basalt_core::query::history::HistoryStore;
 use basalt_core::query::saved::SavedQueryStore;
 use basalt_core::secret::{SecretStore, password_key};
 use basalt_core::session::SessionManager;
+use basalt_core::workspace::WorkspaceStore;
 use basalt_core::{CoreError, CoreResult};
 use tokio::sync::{Mutex, MutexGuard};
 
@@ -30,6 +31,8 @@ pub struct AppState {
     pub llm_lock: Mutex<()>,
     /// 正在进行的助手对话,取消时按请求 id 找。
     pub chats: LlmChats,
+    /// 上次开着的标签页(workspace.json),下次启动时恢复。
+    pub workspace: WorkspaceStore,
 }
 
 /// 持有写锁期间对配置文件的读写。锁随它一起释放。
@@ -65,6 +68,7 @@ impl AppState {
             llm: LlmRepository::new(dir.join("llm-models.json")),
             llm_lock: Mutex::new(()),
             chats: LlmChats::default(),
+            workspace: WorkspaceStore::new(dir.join("workspace.json")),
         }
     }
 

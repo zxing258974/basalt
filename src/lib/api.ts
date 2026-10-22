@@ -128,7 +128,11 @@ export interface Backend {
   /** 扫描本机 Navicat 保存的查询,给出预览;不写任何东西。 */
   scanNavicatQueries(): Promise<QueryImportCandidate[]>;
   importNavicatQueries(ids: string[]): Promise<QueryImportReport>;
-  /** 告诉后端现在有没有未提交的表格修改、没保存的查询:有的话 ⌘Q、关窗口会先拦下来问前端。 */
+  /** 上次开着的标签页(src/lib/workspace.ts 的格式);第一次启动、或记录读不懂时为 null。 */
+  loadWorkspace(): Promise<string | null>;
+  /** 记下现在开着的标签页,下次启动时恢复。 */
+  saveWorkspace(content: string): Promise<void>;
+  /** 告诉后端退出前要不要先问前端:有未提交的表格修改、没保存的表结构,或者标签页还没记下来。 */
   setUnsavedWork(unsaved: boolean): Promise<void>;
   /** 用户按了 ⌘Q 或关主窗口、后端拦下来了;返回取消监听的函数。 */
   onQuitRequested(handler: () => void): Promise<() => void>;
@@ -246,6 +250,8 @@ function createTauriBackend(): Backend {
     deleteSavedQuery: (query) => call("delete_saved_query", { query }),
     scanNavicatQueries: () => call("scan_navicat_queries"),
     importNavicatQueries: (ids) => call("import_navicat_queries", { ids }),
+    loadWorkspace: () => call("load_workspace"),
+    saveWorkspace: (content) => call("save_workspace", { content }),
     setUnsavedWork: (unsaved) => call("set_unsaved_work", { unsaved }),
     onQuitRequested: async (handler) => {
       const { listen } = await import("@tauri-apps/api/event");

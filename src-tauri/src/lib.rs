@@ -107,6 +107,8 @@ pub fn run() {
             commands::list_saved_queries,
             commands::read_saved_query,
             commands::save_query,
+            commands::load_workspace,
+            commands::save_workspace,
             commands::delete_saved_query,
             commands::scan_navicat_queries,
             commands::import_navicat_queries,

@@ -425,6 +425,18 @@ pub async fn read_saved_query(
     service::query::read_saved_query(&state, &query)
 }
 
+/// 上次开着的标签页;第一次启动、或记录读不懂时为空。
+#[tauri::command]
+pub async fn load_workspace(state: State<'_, AppState>) -> CommandResult<Option<String>> {
+    Ok(state.workspace.load()?)
+}
+
+/// 记下现在开着的标签页,前端在内容变了之后稍等一会儿调用。
+#[tauri::command]
+pub async fn save_workspace(state: State<'_, AppState>, content: String) -> CommandResult<()> {
+    Ok(state.workspace.save(&content)?)
+}
+
 #[tauri::command]
 pub async fn save_query(
     state: State<'_, AppState>,

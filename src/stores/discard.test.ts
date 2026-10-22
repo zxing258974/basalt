@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { guardDiscard, guardQuit, hasUnsavedWork } from "./discard";
+import { blocksQuit, guardDiscard, guardQuit, hasUnsavedWork } from "./discard";
 import { discardText } from "../components/data/DiscardChangesDialog";
 import { objectsTab, queryTab, tableDataTab, tableDesignTab, useTabs } from "./tabs";
 import { useUi } from "./ui";
@@ -144,10 +144,25 @@ describe("guardQuit", () => {
     guardQuit(quit);
 
     const prompt = useUi.getState().discardPrompt;
-    expect(prompt).toMatchObject({ count: 3, queries: 1, designs: 1, quit: true });
+    // 没保存的查询下次启动会恢复,退出时不算。
+    expect(prompt).toMatchObject({ count: 3, queries: 0, designs: 1, quit: true });
     expect(quit).not.toHaveBeenCalled();
     prompt!.onConfirm();
     expect(quit).toHaveBeenCalledOnce();
+  });
+
+  it("does not stop quitting for unsaved queries alone, unless the tabs could not be written down", () => {
+    useTabs.getState().setUnsaved(report.id, true);
+    expect(blocksQuit(useTabs.getState())).toBe(false);
+    const quit = vi.fn();
+    guardQuit(quit);
+    expect(quit).toHaveBeenCalledOnce();
+
+    guardQuit(quit, { includeQueries: true });
+    expect(useUi.getState().discardPrompt).toMatchObject({ queries: 1, quit: true });
+    expect(quit).toHaveBeenCalledOnce();
+    useTabs.getState().setPending(orders.id, 1);
+    expect(blocksQuit(useTabs.getState())).toBe(true);
   });
 
   it("says quitting instead of closing in the prompt", () => {

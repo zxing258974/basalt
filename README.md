@@ -89,6 +89,7 @@ Rust:
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace                      # Rust 单测 + SQLite 集成测试
+cargo test -p sqlx-core --lib net::tls::util    # vendor/ 里 sqlx-core 补丁的单测(不是工作区成员,上一条不跑它)
 docker compose -f docker-compose.test.yml up -d                   # MySQL 5.7 + PostgreSQL 17
 docker compose -f docker-compose.test.yml --profile full up -d    # 再加 MySQL 8.4 + MariaDB 11.4
 BASALT_IT=1 cargo test --workspace          # 连 MySQL 5.7 与 PostgreSQL
@@ -126,4 +127,5 @@ src-tauri/            Tauri 外壳:commands.rs 只做转发,逻辑在 service.rs
 src/                  前端:components 按界面区域组织,lib/api.ts 是后端接口
 e2e/                  Playwright 截图测试与基准图
 tools/                开发工具:给 typescript-eslint 配 TypeScript 6 的本地包、Windows 编译检查脚本
+vendor/               打了补丁的第三方 crate(sqlx-core 0.8.6:TLS 大包写入偶发卡死),见 vendor/README.md
 ```

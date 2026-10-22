@@ -32,7 +32,7 @@
 | 层 | 选择 | 理由 |
 |---|---|---|
 | 桌面壳 | Tauri 2 | 安装包小、内存占用低,Rust 后端直接持有数据库连接 |
-| 数据库驱动 | sqlx 0.8(mysql / postgres / sqlite,tokio + rustls) | 一套 API 覆盖三种库;MariaDB 走 mysql 协议;不用编译期宏,不依赖 DATABASE_URL。0.9 要求 Rust 1.94(本机 1.93),暂不升 |
+| 数据库驱动 | sqlx 0.8(mysql / postgres / sqlite,tokio + rustls) | 一套 API 覆盖三种库;MariaDB 走 mysql 协议;不用编译期宏,不依赖 DATABASE_URL。0.9 要求 Rust 1.94(本机 1.93),暂不升;sqlx-core 用 vendor/ 里移植了 0.9 TLS 读写就绪修复的副本(开 TLS 时大包写入偶发卡死,见 vendor/README.md) |
 | SSH 隧道 | russh | 纯 Rust、异步;本地起 127.0.0.1 随机端口做 direct-tcpip 转发,驱动层无感 |
 | 密码存储 | keyring(apple-native) | 连接配置文件里不落明文密码 |
 | 导入导出 | rust_xlsxwriter(常量内存模式)、calamine、encoding_rs | 都是成熟库;CSV 读写自己写(要分清没加引号的空字段和 `""`,csv crate 不告诉调用方有没有引号) |

@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/basalt-core", "src-tauri"]
+# vendor/ 下是打了补丁的第三方 crate,不当作本项目的成员(不跑它们的 fmt / clippy)。
+exclude = ["vendor"]
 
 [workspace.package]
 version = "0.1.0"
@@ -14,7 +16,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
-sqlx = { version = "0.8", default-features = false, features = [
+# 钉死 0.8.6:下面 [patch.crates-io] 的 sqlx-core 副本只对 0.8.6 生效,升别的版本会悄悄绕过补丁。
+sqlx = { version = "=0.8.6", default-features = false, features = [
   "runtime-tokio",
   "tls-rustls",
   "mysql",
@@ -51,3 +54,9 @@ rust_xlsxwriter = { version = "0.100", features = ["constant_memory"] }
 calamine = { version = "0.37", features = ["dates"] }
 encoding_rs = "0.8"
 base64 = "0.22"
+
+# sqlx-core 0.8.6 的 TLS 套接字在「读写都被阻塞」时先等写就绪、再等读就绪,大包写到一半偶发和服务器互等卡死
+# (MySQL / MariaDB / PostgreSQL 开了 TLS 时导入整批 INSERT 可能碰上)。sqlx 0.9.0 修了,0.8 没有补丁版本,
+# 这里用打了同样修复的副本,详见 vendor/README.md。升级到 sqlx 0.9 后删掉这一节和 vendor/sqlx-core。
+[patch.crates-io]
+sqlx-core = { path = "vendor/sqlx-core" }

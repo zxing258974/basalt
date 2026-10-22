@@ -30,9 +30,10 @@ pub(crate) fn connect_options(params: &ConnectParams) -> MySqlConnectOptions {
         .pipes_as_concat(false)
         .no_engine_substitution(false)
         .timezone(None);
+    // 空密码要当「不带密码」:sqlx 拿空串也会算一遍摘要发过去,空密码账号的服务器只认空的认证数据。
     let options = match &params.password {
-        Some(password) => options.password(password),
-        None => options,
+        Some(password) if !password.is_empty() => options.password(password),
+        _ => options,
     };
     let options = with_ssl(options, &params.ssl);
     match &params.database {

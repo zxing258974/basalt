@@ -152,6 +152,31 @@ async fn mysql_family_wrong_password_is_authentication_error() {
     }
 }
 
+#[tokio::test]
+async fn mysql_family_accounts_without_a_password_can_connect() {
+    for target in MYSQL_FAMILY.into_iter().filter(|t| selected(*t)) {
+        // 本机开发库常见的空密码账号:空密码要当「不带密码」发,用空串算出来的摘要会被拒。
+        let admin = sqlx::MySqlPool::connect(&mysql_url(target)).await.unwrap();
+        sqlx::raw_sql(
+            "DROP USER IF EXISTS 'basalt_nopw'@'%'; CREATE USER 'basalt_nopw'@'%' IDENTIFIED BY ''",
+        )
+        .execute(&admin)
+        .await
+        .unwrap();
+        let mut empty = params(target, "", None);
+        empty.username = "basalt_nopw".into();
+        let result = test_connection(&empty).await;
+        sqlx::raw_sql("DROP USER 'basalt_nopw'@'%'")
+            .execute(&admin)
+            .await
+            .unwrap();
+        admin.close().await;
+        if let Err(error) = result {
+            panic!("{}: {error}", target.name);
+        }
+    }
+}
+
 // ---------- PostgreSQL ----------
 
 #[tokio::test]

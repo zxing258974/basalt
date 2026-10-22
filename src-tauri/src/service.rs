@@ -15,6 +15,7 @@ pub use design::{apply_table_design, preview_table_design, read_table_design};
 mod import;
 pub use import::{ImportReport, ImportSource, import_connections, scan_import_source};
 pub mod llm;
+pub mod monitor;
 pub mod query;
 mod query_import;
 mod table_ops;

@@ -10,6 +10,7 @@ use basalt_core::llm::ChatRequest;
 use basalt_core::llm::client::TestReply;
 use basalt_core::llm::config::{LlmModel, LlmModelDraft, LlmSettings};
 use basalt_core::llm::outline::OutlineTable;
+use basalt_core::monitor::{KillTarget, ServerSnapshot};
 use basalt_core::query::history::HistoryEntry;
 use basalt_core::query::results::ResultSort;
 use basalt_core::query::saved::{SavedQueryInfo, SavedQueryRef};
@@ -259,6 +260,23 @@ pub async fn maintain_table(
     operation: Maintenance,
 ) -> CommandResult<MaintenanceOutcome> {
     service::maintain_table(&state, &id, &table, operation).await
+}
+
+#[tauri::command]
+pub async fn server_snapshot(
+    state: State<'_, AppState>,
+    id: String,
+) -> CommandResult<ServerSnapshot> {
+    service::monitor::server_snapshot(&state, &id).await
+}
+
+#[tauri::command]
+pub async fn kill_process(
+    state: State<'_, AppState>,
+    id: String,
+    target: KillTarget,
+) -> CommandResult<()> {
+    service::monitor::kill_process(&state, &id, &target).await
 }
 
 #[tauri::command]

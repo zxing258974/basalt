@@ -8,6 +8,7 @@ import { mockMaintenance, mockReferences, refuseByForeignKeys } from "./mock/mai
 import { mockTableDetails } from "./mock/tableDetails";
 import { createMockTransfer } from "./mock/transferMock";
 import { createMockLlm } from "./mock/llmMock";
+import { createMockMonitor } from "./mock/monitorMock";
 import { createMockTunnels, mockCredentialFile, validateTransport } from "./mock/tunnelMock";
 import { classifyMockImport, mockImportSources, planMockImport } from "./mockImport";
 import type {
@@ -222,6 +223,7 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
   const rowKey = (id: string, ref: TableRef) => [id, ref.database, ref.schema ?? "", ref.table].join("\u0000");
   const transfer = createMockTransfer(wait, (id, ref) => rowCounts.get(rowKey(id, ref)), queries.resultSize);
   const llm = createMockLlm(wait);
+  const monitor = createMockMonitor();
   /** 上次开着的标签页,和后端的 workspace.json 一样只认 JSON 对象。 */
   let workspace: string | null = null;
 
@@ -385,6 +387,14 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       const info = tablesOf(id, ref.database, ref.schema).find((t) => t.name === ref.table);
       if (!info) fail("database", `找不到表「${ref.table}」，可能已被删除或没有权限。`);
       return mockTableDetails(config.driver, info, designs.ddl(id, config.driver, ref));
+    },
+    async serverSnapshot(id) {
+      await wait();
+      return monitor.snapshot(id, requireOpen(id).driver);
+    },
+    async killProcess(id, target) {
+      await wait();
+      monitor.kill(id, requireOpen(id).driver, target);
     },
     async copyTable(id, ref, name, withData) {
       await wait(160);

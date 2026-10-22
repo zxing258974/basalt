@@ -1,5 +1,6 @@
 import type { DdlOutcome, DdlPreview, TableDesign } from "./designTypes";
 import type { ImportCandidate, ImportReport, ImportSource } from "./importTypes";
+import type { KillTarget, ServerSnapshot } from "./monitorTypes";
 import type {
   ChatDelta,
   ChatOutcome,
@@ -93,6 +94,10 @@ export interface Backend {
   maintainTable(id: string, table: TableRef, operation: Maintenance): Promise<MaintenanceOutcome>;
   /** 信息面板:表或视图的属性和建表语句。 */
   tableDetails(id: string, table: TableRef): Promise<TableDetails>;
+  /** 服务器监控:会话列表和累计计数器;SQLite 以 unsupported reject。 */
+  serverSnapshot(id: string): Promise<ServerSnapshot>;
+  /** 终止一个会话:只停语句,或断开连接。会话已经不是确认时的样子就 reject。 */
+  killProcess(id: string, target: KillTarget): Promise<void>;
   /** SQL 助手:模型配置。API Key 在密码存储里,不随列表返回。 */
   listLlmModels(): Promise<LlmSettings>;
   saveLlmModel(draft: LlmModelDraft): Promise<LlmModel>;
@@ -236,6 +241,8 @@ function createTauriBackend(): Backend {
     maintainTable: (id, table, operation) => call("maintain_table", { id, table, operation }),
     tableReferences: (id, table) => call("table_references", { id, table }),
     tableDetails: (id, table) => call("table_details", { id, table }),
+    serverSnapshot: (id) => call("server_snapshot", { id }),
+    killProcess: (id, target) => call("kill_process", { id, target }),
     listLlmModels: () => call("list_llm_models"),
     saveLlmModel: (draft) => call("save_llm_model", { draft }),
     deleteLlmModel: (id) => call("delete_llm_model", { id }),

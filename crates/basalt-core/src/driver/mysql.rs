@@ -1,6 +1,8 @@
 //! MySQL 与 MariaDB(同一协议)。
 
-use sqlx::mysql::{MySqlConnectOptions, MySqlPool, MySqlPoolOptions, MySqlSslMode};
+use sqlx::mysql::{
+    MySqlConnectOptions, MySqlConnection, MySqlPool, MySqlPoolOptions, MySqlSslMode,
+};
 use sqlx::{ConnectOptions, Connection, Row};
 
 use super::{
@@ -9,6 +11,7 @@ use super::{
 };
 use crate::config::{SslMode, SslSettings};
 use crate::error::{CoreError, CoreResult};
+use crate::monitor::{DedicatedSlot, close_dedicated};
 use crate::tunnel::Tunnel;
 
 pub struct MysqlSession {
@@ -16,6 +19,8 @@ pub struct MysqlSession {
     server: ServerInfo,
     /// 经 SSH 隧道时,池里的连接都连它的本机端口;池关掉之后再关它。
     tunnel: Option<Tunnel>,
+    /// 服务器监控专用的连接,第一次打开监控时从池里拿出来。
+    pub(super) monitor: DedicatedSlot<MySqlConnection>,
 }
 
 /// sqlx 默认在建连后改会话:sql_mode 追加 PIPES_AS_CONCAT(`||` 变成字符串拼接)与
@@ -96,6 +101,7 @@ impl MysqlSession {
                 version,
             },
             tunnel,
+            monitor: DedicatedSlot::default(),
         })
     }
 
@@ -153,6 +159,7 @@ impl MysqlSession {
     }
 
     pub async fn close(&self) {
+        close_dedicated(&self.monitor).await;
         self.pool.close().await;
         if let Some(tunnel) = &self.tunnel {
             tunnel.close().await;

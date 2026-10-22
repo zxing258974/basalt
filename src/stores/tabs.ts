@@ -47,7 +47,15 @@ export interface TableDesignTab {
   table: string | null;
 }
 
-export type Tab = ObjectsTab | TableDataTab | QueryTab | TableDesignTab;
+/** 一个连接的服务器监控:会话列表和指标。每个连接只开一个。 */
+export interface MonitorTab {
+  kind: "monitor";
+  id: string;
+  title: string;
+  connectionId: string;
+}
+
+export type Tab = ObjectsTab | TableDataTab | QueryTab | TableDesignTab | MonitorTab;
 
 export interface TabsState {
   tabs: Tab[];
@@ -80,6 +88,10 @@ export function tableDataTab(
     connectionId,
     table: { database, schema, table },
   };
+}
+
+export function monitorTab(connectionId: string): MonitorTab {
+  return { kind: "monitor", id: `monitor:${connectionId}`, title: "服务器监控", connectionId };
 }
 
 const UNTITLED = /^查询 (\d+)$/;

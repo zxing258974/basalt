@@ -1,6 +1,14 @@
 // 标签页记录的格式:记什么、读回来时丢掉什么、等连接的标签页怎么按原位置插回去。
 import { describe, expect, it } from "vitest";
-import { newTableTab, objectsTab, queryTab, tableDataTab, tableDesignTab, type QueryTab } from "../stores/tabs";
+import {
+  monitorTab,
+  newTableTab,
+  objectsTab,
+  queryTab,
+  tableDataTab,
+  tableDesignTab,
+  type QueryTab,
+} from "../stores/tabs";
 import {
   insertByOrder,
   parseWorkspace,
@@ -20,6 +28,7 @@ const report: QueryTab = {
 const orders = tableDataTab("c1", "shop", null, "orders");
 const shop = objectsTab("c2", "app", "public");
 const design = tableDesignTab("c1", "shop", null, "orders");
+const monitor = monitorTab("c2");
 
 describe("snapshot", () => {
   it("records the SQL being edited and what it was when last saved", () => {
@@ -71,7 +80,7 @@ describe("insertByOrder", () => {
 });
 
 describe("parseWorkspace", () => {
-  const good = snapshot({ tabs: [draft, orders, shop, design], activeId: shop.id }, {});
+  const good = snapshot({ tabs: [draft, orders, shop, design, monitor], activeId: shop.id }, {});
 
   it("reads back what was written", () => {
     expect(parseWorkspace(JSON.stringify(good))).toEqual(good);
@@ -89,6 +98,7 @@ describe("parseWorkspace", () => {
       { kind: "query", id: "q:x", title: "坏的", connectionId: "c1", scope, saved: null },
       { kind: "tableData", id: "t:x", title: "坏的", connectionId: "c1", table: { database: "shop" } },
       { kind: "unknown", id: "u", title: "?", connectionId: "c1" },
+      { kind: "monitor", id: "monitor:c9", title: "服务器监控", connectionId: "c1" },
       "not a tab",
       good.tabs[0],
     ];
@@ -99,13 +109,14 @@ describe("parseWorkspace", () => {
 });
 
 describe("planRestore", () => {
-  const saved = snapshot({ tabs: [draft, orders, shop, report], activeId: orders.id }, {});
+  const saved = snapshot({ tabs: [draft, orders, shop, report, monitor], activeId: orders.id }, {});
 
   it("brings queries back right away and waits for the connection for the rest", () => {
     const plan = planRestore(saved, new Set(["c1", "c2"]));
     expect(plan.now.map((t) => t.id)).toEqual(["query:1", "query:2"]);
     expect([...plan.waiting.keys()]).toEqual(["c1", "c2"]);
     expect(plan.waiting.get("c1")?.map((t) => t.id)).toEqual([orders.id]);
+    expect(plan.waiting.get("c2")?.map((t) => t.id)).toEqual([shop.id, "monitor:c2"]);
     expect(plan.order).toEqual(saved.tabs.map((t) => t.id));
     expect(plan.activeId).toBe(orders.id);
   });

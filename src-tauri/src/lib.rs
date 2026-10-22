@@ -109,6 +109,8 @@ pub fn run() {
             commands::maintain_table,
             commands::table_references,
             commands::table_details,
+            commands::server_snapshot,
+            commands::kill_process,
             commands::list_llm_models,
             commands::save_llm_model,
             commands::delete_llm_model,

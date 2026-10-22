@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgSslMode};
+use sqlx::postgres::{PgConnectOptions, PgConnection, PgPool, PgPoolOptions, PgSslMode};
 use sqlx::{ConnectOptions, Connection, Row};
 use tokio::sync::{Mutex, OnceCell};
 
@@ -13,6 +13,7 @@ use super::{
 };
 use crate::config::{SslMode, SslSettings};
 use crate::error::{CoreError, CoreResult};
+use crate::monitor::{DedicatedSlot, close_dedicated};
 use crate::tunnel::Tunnel;
 
 const DEFAULT_DATABASE: &str = "postgres";
@@ -27,6 +28,8 @@ pub struct PgSession {
     server: ServerInfo,
     /// 经 SSH 隧道时,各个库的池都连它的本机端口;池都关掉之后再关它。
     tunnel: Option<Tunnel>,
+    /// 服务器监控专用的连接(连默认库),第一次打开监控时从池里拿出来。
+    pub(super) monitor: DedicatedSlot<PgConnection>,
 }
 
 pub(crate) fn connect_options(params: &ConnectParams) -> PgConnectOptions {
@@ -160,6 +163,7 @@ impl PgSession {
                 version,
             },
             tunnel,
+            monitor: DedicatedSlot::default(),
         })
     }
 
@@ -267,6 +271,7 @@ impl PgSession {
     }
 
     pub async fn close(&self) {
+        close_dedicated(&self.monitor).await;
         let cells: Vec<PoolCell> = self.pools.lock().await.drain().map(|(_, c)| c).collect();
         for pool in cells.iter().filter_map(|cell| cell.get()) {
             pool.close().await;

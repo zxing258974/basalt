@@ -1,8 +1,9 @@
-import { Copy, Folder, Pencil, Plug, PlugZap, RefreshCw, Trash2 } from "lucide-react";
+import { Activity, Copy, Folder, Pencil, Plug, PlugZap, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { useConnections } from "../../hooks/useCatalog";
 import { useConnectionActions } from "../../hooks/useConnectionActions";
 import { errorMessage, type ConnectionView } from "../../lib/types";
+import { monitorTab, useTabs } from "../../stores/tabs";
 import { useUi } from "../../stores/ui";
 import { DriverBadge } from "../connection/DriverBadge";
 import { endpointSummary } from "../connection/driverMeta";
@@ -118,6 +119,17 @@ function ConnectionNode({ connection, depth }: { connection: ConnectionView; dep
       disabled: !connection.isOpen,
       onSelect: () => actions.withNotice("刷新", () => actions.refresh(connection.id)),
     },
+    // SQLite 是本进程打开的文件,没有服务器可看。
+    ...(connection.driver === "sqlite"
+      ? []
+      : [
+          {
+            label: "服务器监控",
+            icon: <Activity />,
+            disabled: !connection.isOpen,
+            onSelect: () => useTabs.getState().open(monitorTab(connection.id)),
+          },
+        ]),
     "separator",
     { label: "删除连接…", icon: <Trash2 />, danger: true, onSelect: () => confirmDelete(connection) },
   ];

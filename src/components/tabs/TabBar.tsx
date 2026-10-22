@@ -1,4 +1,4 @@
-import { FileCode2, PencilRuler, Table2, TableProperties, X } from "lucide-react";
+import { Activity, FileCode2, PencilRuler, Table2, TableProperties, X } from "lucide-react";
 import { useConnections } from "../../hooks/useCatalog";
 import { closeTabGuarded } from "../../stores/discard";
 import { useTabs, type Tab } from "../../stores/tabs";
@@ -65,6 +65,8 @@ function TabIcon({ tab }: { tab: Tab }) {
       return <PencilRuler className="tab-icon" aria-hidden />;
     case "objects":
       return <TableProperties className="tab-icon" aria-hidden />;
+    case "monitor":
+      return <Activity className="tab-icon" aria-hidden />;
   }
 }
 
@@ -79,6 +81,7 @@ function tabPath(tab: Tab): string {
     case "tableDesign":
       return `${[tab.database, tab.schema, tab.table ?? "新表"].filter(Boolean).join(".")}（表结构）`;
     case "objects":
+    case "monitor":
       return tab.title;
   }
 }

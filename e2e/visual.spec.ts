@@ -35,6 +35,24 @@ test("object list", async ({ page }) => {
   await snapshot(page, "object-list");
 });
 
+/**
+ * 时钟停住、一次走 2 秒:快照间隔分毫不差,速率和走势每次都画得一样。
+ * 每次查询状态一变 TanStack Query 就重新计时,所以实际是 2 秒加 mock 的 120 毫秒刷新一次。
+ */
+test("server monitor", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-10-22T09:30:00+08:00") });
+  await openWelcome(page);
+  await row(page, "开发").dblclick();
+  await row(page, "本地 MySQL").dblclick();
+  await expect(page.getByRole("treeitem", { name: "shop" })).toBeVisible();
+  await page.clock.pauseAt(new Date("2026-10-22T09:31:00+08:00"));
+  await row(page, "本地 MySQL").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "服务器监控" }).click();
+  for (let tick = 0; tick < 24; tick += 1) await page.clock.runFor(2_000);
+  await expect(page.getByText("更新于 09:31:46")).toBeVisible();
+  await snapshot(page, "server-monitor");
+});
+
 test("new connection: pick a type", async ({ page }) => {
   await openWelcome(page);
   await page.getByRole("banner").getByRole("button", { name: "新建连接" }).click();

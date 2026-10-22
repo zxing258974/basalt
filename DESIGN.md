@@ -160,6 +160,16 @@ PostgreSQL 一个连接只能连一个库,所以会话里按「库名」懒建�
 
 **已知限制(表操作)**:转储一次只转一张表;PostgreSQL 的建表语句按表结构生成,不含 CHECK 约束、分区、权限、行级安全策略,GENERATED ALWAYS 的标识列转储成 BY DEFAULT,serial 序列的起始值、步长等选项不保留,只重建归这张表所有的序列,触发器调用的函数不在文件里;PostgreSQL 的表被别的表的外键或视图引用时,文件开头的 DROP 会失败(不带 CASCADE,免得连带删掉别的表的约束),截断同理;维护、清空、改名、删除没有真正的取消,只能在后台继续(改名、删表等锁 5 秒就放弃;维护、清空照数据库原来的等法,大表的 OPTIMIZE、VACUUM、DELETE 要等它做完);MySQL 改名后视图、存储过程里写的旧表名不会跟着改。
 
+**服务器监控**:连接右键「服务器监控」开一个标签页(每个连接一个,id `monitor:<连接 id>`,和对象列表一样等连接打开后恢复)。
+- **专用连接**:取数和终止都在会话自己的一条监控连接上做,第一次打开监控时从池里拿出来(detach)、一直留到关闭连接。这样列表里标「Basalt」的总是同一条,终止也不会恰好在要终止的那条连接上执行。这条连接出网络错误(多半是闲太久被服务器断开)就丢掉,用的是旧连接时换一条新的再做一次;SQL 报错、会话已经结束这类错误连接照样留着。
+- **取数**:一份快照是会话列表、一组只增不减的计数器、几个当前值,带计数器读出来的时刻。MySQL / MariaDB 读 `information_schema.PROCESSLIST`(语句用 `LEFT(INFO, 4096)` 在服务器上截短,导入时几 MB 的 INSERT 不用每次刷新都传过来;MySQL 8 说这张表以后会去掉,读不了时退回 `SHOW FULL PROCESSLIST` 再截)、`SHOW GLOBAL STATUS`(Questions、Com_commit / Com_rollback、Bytes_received / Bytes_sent、Innodb_buffer_pool_read_requests / reads、Slow_queries、Threads_connected / running、Uptime)和 `@@max_connections`;PostgreSQL 读 `pg_stat_activity`(客户端会话;没权限看的会话 backend_type 也是空的,靠「连着库、有用户」认出来,后台进程不连库或者没有用户)和 `pg_stat_database` 的合计(xact_commit / rollback、blks_hit + blks_read)。SQLite 没有服务器,菜单里不出这一项,后端也拒绝。
+- **会话在做什么**:分成在执行、开着事务闲着(PostgreSQL 的 idle in transaction,可能占着锁)、空闲、服务器自己的线程(MySQL 的 Daemon、Binlog Dump、Slave_IO / SQL 这些命令,以及 `system user`、`event_scheduler` 用户)、看不到(没权限)。排序照这个顺序,同一类里待得久的在前;「隐藏空闲」藏掉空闲和后台线程;只有在执行的能终止语句,后台线程不能断开。
+- **速率**:前端拿前后两份快照相减、除以两次计数器读出时刻之差,得每秒多少;某个计数器往回走了那一项记为空,运行时长变短了(重启过)这一次整个不添点,「打开监控以来」也从这一份重新算;本机时间往回拨了也只是这一次不添点。走势最多留 60 个点,按次数等距画(暂停、改间隔不体现在横轴上)。缓存命中率按这段时间的读页数算,还没有两份快照时先用启动以来的。轮询用 TanStack Query 的 refetchInterval(2 / 5 / 10 秒,能暂停),走势就存在这条查询的缓存里(每次取到的快照接在上一份后面);标签页切走了、窗口最小化(页面不可见)时不取;关掉标签页就丢掉走势,下次从头攒。
+- **权限**:MySQL 看得到所有人的会话要全局的 PROCESS(或 ALL);SUPER 不算。`SHOW GRANTS` 按「GRANT 权限列表 ON 对象」拆开比对,不在整行里找字(用户名里带 process 不算);有授予角色的行时(MySQL 8、MariaDB 的角色权限 `SHOW GRANTS` 不展开)说不准,就不提示。PostgreSQL 要超级用户或者能用 pg_read_all_stats 的权限(`pg_has_role(…, 'USAGE')`,继承来的才算);不够时看得到别人的会话(计入连接数),看不到他们的状态和语句,列表里写「看不到」。
+- **终止**:「终止查询」是 MySQL 的 `KILL QUERY`、PostgreSQL 的 `pg_cancel_backend`,「断开连接」是 `KILL`、`pg_terminate_backend`,都先确认(确认按钮不默认聚焦)。前端把确认时看到的样子一起发过去:执行前再查一次,会话没了、PostgreSQL 的进程号对应的连上时刻(backend_start)变了(进程号给了新会话)报「已经结束」,终止语句时它已经不在执行确认时那条语句报「不在执行刚才那条语句」,都不动手。MySQL 的连接号只增不减,不用核对连上时刻。PostgreSQL 的函数返回 false(没权限)当作失败。专用连接自己不让终止。
+
+**已知限制(服务器监控)**:PostgreSQL 没有全局的语句计数、收发流量和慢查询计数,只显示事务;MySQL 的 Com_commit 只数显式的 COMMIT,自动提交的语句不算;「在执行」在列表头上是列出来的会话里数的,在连接块上是服务器报的数(Threads_running、state = 'active'),都含 Basalt 取数的这条,账号权限不够时两个数对不上;核对和终止是两条语句,中间那一瞬间换了语句的话拦不住;打开过监控的连接多占一条连接,直到关闭这个连接;走势只是标签页开着的这段时间,不存;刷新间隔从上一次取完算起,实际比选的长一点(取数本身的耗时);MySQL 不显示 performance_schema 里更细的等待信息;不做锁等待关系图、慢查询日志、主机层面的 CPU / 内存 / 磁盘指标。
+
 **错误**:core 用 thiserror 定义错误;命令层统一转成 `{ code, message }` 给前端,message 写人话(连不上、认证失败、超时、SQL 错误原文)。
 
 **安全**:前端永远拿不到密码;SQL 编辑器执行的是用户自己的 SQL,但表格编辑生成的 SQL 一律参数化;标识符按方言转义(反引号 / 双引号)。

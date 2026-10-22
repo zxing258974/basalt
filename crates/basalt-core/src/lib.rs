@@ -7,6 +7,7 @@ pub mod driver;
 pub mod error;
 pub mod import;
 pub mod llm;
+pub mod monitor;
 pub mod query;
 pub mod secret;
 pub mod session;

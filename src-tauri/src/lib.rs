@@ -43,7 +43,7 @@ fn migrate_legacy_secrets(state: &state::AppState, secrets: Arc<FileSecretStore>
     tauri::async_runtime::spawn_blocking(move || match secrets.migrate_legacy(&keys) {
         Ok(0) => {}
         Ok(moved) => log::info!("从钥匙串搬过来 {moved} 条密码"),
-        Err(error) => log::warn!("从钥匙串搬旧密码没搬完，下次启动接着搬：{error}"),
+        Err(error) => log::warn!("从钥匙串搬旧密码被拒绝，剩下的不搬了、以后也不再问：{error}"),
     });
 }
 

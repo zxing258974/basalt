@@ -4,8 +4,8 @@
 //! 代价是文件里是明文,本账号下运行的程序、备份、同步都能读到;用户知情后选的这个。
 //!
 //! 以前存在钥匙串里的密码,启动时按配置里用得到的键一次全部搬进来([`FileSecretStore::migrate_legacy`]),
-//! 钥匙串的授权框集中在这一次;搬完记下 `legacyDone`,之后再也不碰钥匙串。还没搬完时(用户拒绝了),
-//! 用到哪条再从钥匙串读哪条。删过、钥匙串里也没有的键记在 `removed` 里,不会再去问钥匙串,
+//! 钥匙串的授权框集中在这一次;搬完(或者用户拒绝、取消了授权框)就记下 `legacyDone`,之后再也不碰钥匙串,
+//! 没搬过来的由用户重新填。搬家之前用到的,先从钥匙串读那一条。删过、钥匙串里也没有的键记在 `removed` 里,不会再去问钥匙串,
 //! 也不会把用户删掉的密码从钥匙串里「复活」。钥匙串里的旧条目不去动:删它们反而要授权。
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -58,9 +58,10 @@ impl FileSecretStore {
         &self.path
     }
 
-    /// 把 `keys` 里文件中还没有的密码一次从钥匙串读过来,全部读完才记下「搬完了」。
-    /// 钥匙串的授权框都在这一次弹完。有一条读不出来(用户拒绝)就停下,已经读到的照样存下,
-    /// 下次启动只问剩下的;返回搬过来几条。
+    /// 把 `keys` 里文件中还没有的密码一次从钥匙串读过来,记下「搬完了」,以后不再碰钥匙串。
+    /// 钥匙串的授权框都在这一次弹完。有一条读不出来(用户拒绝、取消了授权框)就停下:已经读到的存下,
+    /// 剩下的不搬了,也记成搬完——每次启动都弹框正是用户不要的,没搬过来的让用户重新填。
+    /// 返回搬过来几条;读不出来时返回那个错误(只用来记日志)。
     pub fn migrate_legacy(&self, keys: &[String]) -> CoreResult<usize> {
         let Some(legacy) = &self.legacy else {
             return Ok(0);
@@ -84,6 +85,8 @@ impl FileSecretStore {
                     next.removed.insert(key.clone());
                 }
                 Err(error) => {
+                    next.legacy_done = true;
+                    next.removed.clear();
                     self.save(&mut slot, next)?;
                     return Err(error);
                 }

@@ -240,29 +240,31 @@ fn keys_already_in_the_file_are_not_read_again() {
 }
 
 #[test]
-fn a_refused_move_keeps_what_it_got_and_tries_the_rest_next_start() {
+fn a_refused_move_keeps_what_it_got_and_never_asks_again() {
     let legacy = Legacy::with("connection:a:password", "pa");
     legacy.0.items.set("connection:b:password", "pb").unwrap();
+    legacy.0.items.set("connection:c:password", "pc").unwrap();
     legacy.refuse("connection:b:password", true);
     let setup = Setup::new(legacy);
-    let wanted = keys(&["connection:a:password", "connection:b:password"]);
+    let wanted = keys(&[
+        "connection:a:password",
+        "connection:b:password",
+        "connection:c:password",
+    ]);
     assert!(setup.run().migrate_legacy(&wanted).is_err());
+
+    // 拒绝过一次就不再问:每次启动都弹框正是用户不要的。没搬过来的要用户重新填。
+    setup.legacy.refuse("connection:b:password", false);
+    let next = setup.run();
+    assert_eq!(next.migrate_legacy(&wanted).unwrap(), 0);
     assert_eq!(
-        setup.run().get("connection:a:password").unwrap().as_deref(),
+        next.get("connection:a:password").unwrap().as_deref(),
         Some("pa")
     );
-
-    setup.legacy.refuse("connection:b:password", false);
-    assert_eq!(setup.run().migrate_legacy(&wanted).unwrap(), 1);
-    assert_eq!(
-        setup.legacy.reads("connection:a:password"),
-        1,
-        "放行过的不再问"
-    );
-    assert_eq!(
-        setup.run().get("connection:b:password").unwrap().as_deref(),
-        Some("pb")
-    );
+    assert_eq!(next.get("connection:b:password").unwrap(), None);
+    assert_eq!(next.get("connection:c:password").unwrap(), None);
+    assert_eq!(setup.legacy.reads("connection:b:password"), 1);
+    assert_eq!(setup.legacy.reads("connection:c:password"), 0);
 }
 
 #[test]

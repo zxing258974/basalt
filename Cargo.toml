@@ -62,3 +62,12 @@ russh = { version = "0.64", default-features = false, features = ["ring", "rsa"]
 # 这里用打了同样修复的副本,详见 vendor/README.md。升级到 sqlx 0.9 后删掉这一节和 vendor/sqlx-core。
 [patch.crates-io]
 sqlx-core = { path = "vendor/sqlx-core" }
+
+# 调试信息只给自己的代码留行号(报错、panic 的回溯照样有文件和行号),依赖不带。
+# 每个集成测试都是一个静态链着 sqlx、tauri、russh 的独立程序,带全量调试信息时一个几百 MB,
+# 编译目录几天就能涨到几十 GB。要单步调试某个依赖时,临时把下面那节注释掉。
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

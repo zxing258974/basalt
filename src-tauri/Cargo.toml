@@ -31,6 +31,10 @@ tauri = { version = "2.12.4", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 
+# macOS:给应用代理补上 applicationShouldTerminate:(从程序坞退出、关机时问一声,见 src/quit.rs);和 tao 用的同一版
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+
 # Windows:启动时关掉 WebView2 的浏览器快捷键(见 src/webview_windows.rs);版本跟 tauri / wry 用的一致
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"

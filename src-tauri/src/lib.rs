@@ -78,6 +78,9 @@ pub fn run() {
                 secrets.clone() as Arc<dyn SecretStore>,
             );
             migrate_legacy_secrets(&state, secrets);
+            // 程序坞的「退出」、关机、注销也先问一声(⌘Q 走自己的菜单项,见 quit.rs)。
+            #[cfg(target_os = "macos")]
+            quit::install_terminate_guard(app.handle());
             app.manage(state);
             Ok(())
         })

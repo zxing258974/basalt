@@ -1,8 +1,13 @@
-//! 退出前确认:⌘Q(macOS)或点主窗口的关闭按钮、Alt+F4(Windows)时,前端有未提交的表格修改、没保存的查询就先问一句。
+//! 退出前确认:⌘Q、从程序坞右键「退出」、关机或注销(macOS),点主窗口的关闭按钮、Alt+F4(Windows)时,
+//! 前端有未提交的表格修改、没保存的查询就先问一句。
 //!
 //! 前端一有变化就用 [`set_unsaved_work`] 报告有没有这样的东西。没有就照常退出,不等前端
 //! (前端卡住、没加载出来也退得掉);有就拦下来,发 [`QUIT_REQUESTED`] 给前端,
 //! 前端弹确认框,用户确认放弃后调 [`quit_app`] 真正退出。
+//!
+//! 程序坞的「退出」和关机走的是系统的 `terminate:`,不经过菜单,tao 也没接 `applicationShouldTerminate:`:
+//! 启动时给 tao 的应用代理补上这个方法(见 [`install_terminate_guard`]),拦下来时回答「先不退」。
+//! 关机、注销会因此停下(系统提示 Basalt 中断了),用户在确认框里放弃修改后应用退出,再关一次机即可。
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -18,10 +23,11 @@ const QUIT_MENU_ID: &str = "basalt-quit";
 /// tauri.conf.json 里主窗口的 label。
 const MAIN_WINDOW: &str = "main";
 
-/// 前端最近一次报告的「有没有未保存的东西」。
+/// 前端最近一次报告的「有没有未保存的东西」,以及用户是不是已经确认要退出了。
 #[derive(Debug, Default)]
 pub struct QuitGuard {
     unsaved: AtomicBool,
+    confirmed: AtomicBool,
 }
 
 impl QuitGuard {
@@ -31,6 +37,15 @@ impl QuitGuard {
 
     pub fn has_unsaved(&self) -> bool {
         self.unsaved.load(Ordering::SeqCst)
+    }
+
+    /// 确认过了:之后的退出(包括 `app.exit` 自己走到的 `terminate:`)不再拦。
+    fn confirm(&self) {
+        self.confirmed.store(true, Ordering::SeqCst);
+    }
+
+    fn confirmed(&self) -> bool {
+        self.confirmed.load(Ordering::SeqCst)
     }
 }
 
@@ -75,7 +90,84 @@ pub fn set_unsaved_work(guard: State<'_, QuitGuard>, unsaved: bool) {
 /// 前端确认过(或本来就没有未保存的东西),直接退出。
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
+    app.state::<QuitGuard>().confirm();
     app.exit(0);
+}
+
+/// 系统要退出(`terminate:`:程序坞的「退出」、关机、注销)时:返回 true 表示现在就退,
+/// false 表示先不退、已经交给前端确认。
+pub fn allow_terminate<R: Runtime>(app: &AppHandle<R>) -> bool {
+    app.state::<QuitGuard>().confirmed() || !hand_to_frontend(app)
+}
+
+/// 给 tao 的应用代理补上 `applicationShouldTerminate:`。setup 里调一次。
+#[cfg(target_os = "macos")]
+pub fn install_terminate_guard(app: &AppHandle) {
+    terminate::install(app);
+}
+
+#[cfg(target_os = "macos")]
+mod terminate {
+    use std::sync::OnceLock;
+
+    use objc2::runtime::{AnyClass, AnyObject, Imp, Sel};
+    use objc2::{class, msg_send, sel};
+    use tauri::AppHandle;
+
+    /// NSApplicationTerminateReply。
+    const TERMINATE_CANCEL: usize = 0;
+    const TERMINATE_NOW: usize = 1;
+
+    static APP: OnceLock<AppHandle> = OnceLock::new();
+
+    extern "C-unwind" fn should_terminate(
+        _this: &AnyObject,
+        _cmd: Sel,
+        _sender: *mut AnyObject,
+    ) -> usize {
+        match APP.get() {
+            Some(app) if !super::allow_terminate(app) => TERMINATE_CANCEL,
+            _ => TERMINATE_NOW,
+        }
+    }
+
+    pub(super) fn install(app: &AppHandle) {
+        if APP.set(app.clone()).is_err() {
+            return;
+        }
+        let selector = sel!(applicationShouldTerminate:);
+        // SAFETY:都在主线程(setup)里调;取到的是 tao 建的应用代理,类是它运行时注册的,
+        // 补的方法签名和 AppKit 声明的一致:- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)。
+        unsafe {
+            let ns_app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+            let delegate: *mut AnyObject = msg_send![ns_app, delegate];
+            let Some(delegate) = delegate.as_ref() else {
+                log::warn!("没有应用代理,从程序坞退出、关机时不会提醒未保存的修改");
+                return;
+            };
+            let class = delegate.class();
+            if class.instance_method(selector).is_some() {
+                log::warn!("应用代理已经有 applicationShouldTerminate:,不覆盖");
+                return;
+            }
+            let imp: Imp = std::mem::transmute::<
+                extern "C-unwind" fn(&AnyObject, Sel, *mut AnyObject) -> usize,
+                Imp,
+            >(should_terminate);
+            let added = objc2::ffi::class_addMethod(
+                std::ptr::from_ref::<AnyClass>(class).cast_mut(),
+                selector,
+                imp,
+                c"Q@:@".as_ptr(),
+            );
+            if !added.as_bool() {
+                log::warn!("没能给应用代理补上 applicationShouldTerminate:");
+                return;
+            }
+            // AppKit 可能在设置代理时就记下了它有哪些方法:重新设一次,让它看到新补的。
+            let _: () = msg_send![ns_app, setDelegate: delegate];
+        }
+    }
 }
 
 /// Tauri 的默认菜单,只把 macOS 应用菜单里的「Quit」换成自己的:
@@ -183,6 +275,28 @@ mod tests {
         MenuEvent {
             id: MenuId::new(id),
         }
+    }
+
+    #[test]
+    fn the_system_quit_goes_ahead_when_nothing_is_unsaved() {
+        let (app, requests) = app(false);
+        assert!(allow_terminate(app.handle()));
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn the_system_quit_waits_for_the_frontend_when_work_is_unsaved() {
+        let (app, requests) = app(true);
+        assert!(!allow_terminate(app.handle()));
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn once_confirmed_the_system_quit_is_not_stopped_again() {
+        let (app, requests) = app(true);
+        app.state::<QuitGuard>().confirm();
+        assert!(allow_terminate(app.handle()));
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
     }
 
     #[test]

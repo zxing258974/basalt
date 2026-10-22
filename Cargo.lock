@@ -196,6 +196,7 @@ version = "0.2.0"
 dependencies = [
  "basalt-core",
  "log",
+ "objc2",
  "serde",
  "serde_json",
  "sqlx",

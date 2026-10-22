@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { CircleStop, MessageSquarePlus, Settings2, Sparkles, Wand2, X } from "lucide-react";
+import { AssistantMark } from "./AssistantMark";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useSchemaOutline, useServerInfo } from "../../hooks/useCatalog";
 import { getBackend } from "../../lib/api";
@@ -136,7 +137,7 @@ export function AssistantPanel({ tabId, connection, scope, readSql, onInsert, on
     <aside className="assistant" aria-label="SQL 助手">
       <header className="assistant-header">
         <h2 className="assistant-title">
-          <Sparkles aria-hidden />
+          <AssistantMark />
           SQL 助手
         </h2>
         {models.length > 0 && (

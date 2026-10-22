@@ -32,6 +32,10 @@
   --accent-soft: oklch(94% 0.04 60);
   --focus-ring: oklch(70% 0.15 50 / 0.55);
 
+  /* SQL 助手的标志:紫到品红的渐变,和余烬色的主操作区分开 */
+  --assistant-from: oklch(56% 0.21 292);
+  --assistant-to: oklch(62% 0.23 340);
+
   /* 语义色 */
   --danger: oklch(55% 0.19 27);
   --danger-soft: oklch(95% 0.03 27);
@@ -138,6 +142,8 @@
     --accent: oklch(68% 0.155 52);
     --accent-hover: oklch(73% 0.15 55);
     --accent-soft: oklch(31% 0.06 50);
+    --assistant-from: oklch(64% 0.18 292);
+    --assistant-to: oklch(68% 0.2 340);
     --danger: oklch(66% 0.17 27);
     --danger-soft: oklch(28% 0.06 27);
     --success: oklch(70% 0.13 150);

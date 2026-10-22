@@ -17,7 +17,7 @@
 .assistant-title {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   margin: 0;
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
@@ -25,10 +25,33 @@
   color: var(--text-muted);
   white-space: nowrap;
 }
-.assistant-title svg {
-  width: 13px;
-  height: 13px;
-  color: var(--accent);
+/* 助手的标志:渐变小方块里一个白色机器人。查询顶栏的按钮和面板标题共用。 */
+.assistant-mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-xs);
+  background: linear-gradient(135deg, var(--assistant-from), var(--assistant-to));
+  box-shadow: 0 1px 2px oklch(40% 0.15 310 / 0.35);
+  color: oklch(100% 0 0);
+}
+.assistant-mark svg,
+.btn .assistant-mark svg {
+  width: 12px;
+  height: 12px;
+  color: inherit;
+}
+.btn:hover .assistant-mark {
+  box-shadow:
+    0 1px 2px oklch(40% 0.15 310 / 0.35),
+    0 0 0 3px color-mix(in oklch, var(--assistant-to) 22%, transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .assistant-mark {
+    transition: box-shadow var(--duration-fast) ease;
+  }
 }
 .assistant-model {
   min-width: 0;

@@ -74,6 +74,23 @@ describe("open", () => {
     expect(useUi.getState().passwordPrompt).toEqual({ connection: remote, error: "密码错误" });
   });
 
+  it("never asks anything when reconnecting at startup, and says why instead", async () => {
+    for (const code of ["authentication", "ssh_secret_required", "host_key_unknown"]) {
+      resetStores();
+      const backend = createMockBackend([saved]);
+      vi.spyOn(backend, "openConnection").mockRejectedValue(failure(code, "要用户来"));
+      const confirm = vi.spyOn(useUi.getState(), "confirmHostKey");
+      const { actions } = setup(backend);
+      await expect(actions().open(saved, undefined, { prompt: false })).rejects.toMatchObject({ code });
+      expect(useUi.getState().passwordPrompt).toBeNull();
+      expect(confirm).not.toHaveBeenCalled();
+    }
+    resetStores();
+    const { actions } = setup();
+    expect(await actions().open(remote, undefined, { prompt: false })).toBe(false);
+    expect(useUi.getState().passwordPrompt).toBeNull();
+  });
+
   it("lets other failures reach the caller", async () => {
     const backend = createMockBackend([saved]);
     vi.spyOn(backend, "openConnection").mockRejectedValue(failure("timeout", "连接超时"));

@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { needsPasswordPrompt } from "../components/connection/driverMeta";
 import { getBackend } from "../lib/api";
-import { errorMessage, type ConnectionView } from "../lib/types";
+import { errorMessage, isCommandError, type ConnectionView } from "../lib/types";
 import {
   insertByOrder,
   parseWorkspace,
@@ -39,6 +39,23 @@ function stopWaiting(connectionId: string): void {
   setWaiting(waiting.filter((t) => t.connectionId !== connectionId));
 }
 
+/** 启动时没能自动连上的原因,说给用户听。 */
+function restoreFailure(error: unknown): string {
+  if (isCommandError(error)) {
+    switch (error.code) {
+      case "authentication":
+        return "数据库密码不对";
+      case "ssh_authentication":
+        return "SSH 密码或私钥口令不对";
+      case "ssh_secret_required":
+        return "要输入 SSH 密码或私钥口令";
+      case "host_key_unknown":
+        return "第一次连这台 SSH 服务器，要先核对主机密钥";
+    }
+  }
+  return errorMessage(error);
+}
+
 async function reconnect(
   connection: ConnectionView,
   tabs: readonly SavedTab[],
@@ -52,9 +69,9 @@ async function reconnect(
     reason = "要输入密码";
   } else {
     try {
-      if (!(await open(connection, undefined, { prompt: false }))) reason = "密码不对";
+      if (!(await open(connection, undefined, { prompt: false }))) reason = "要输入密码";
     } catch (error) {
-      reason = errorMessage(error);
+      reason = restoreFailure(error);
     }
   }
   if (isCancelled()) return;

@@ -64,8 +64,8 @@ export function useConnectionActions() {
   /**
    * 已打开则什么都不做;需要密码时弹出密码框,由密码框完成打开。
    * 经 SSH 隧道第一次连某台服务器时先请用户核对指纹,用户不信任就当没打开。
-   * `prompt: false`(启动时自动重连):要密码、密码不对、要核对主机密钥时都不弹框,
-   * 要密码、密码不对时返回 false,没见过的主机密钥照常报错(由调用方说明原因)。
+   * `prompt: false`(启动时自动重连):不弹任何框。要输密码时返回 false;密码不对、要 SSH 口令、
+   * 没见过的主机密钥都照原样报错,由调用方说明原因。
    */
   const open = useCallback(
     async (
@@ -88,12 +88,13 @@ export function useConnectionActions() {
         reveal(connection);
         return true;
       } catch (error) {
+        if (!prompt) throw error;
         if (isCommandError(error) && error.code === "authentication") {
-          if (prompt) askPassword({ connection, error: error.message });
+          askPassword({ connection, error: error.message });
           return false;
         }
         if (isCommandError(error) && SSH_SECRET_ERRORS.has(error.code)) {
-          if (prompt) askPassword({ connection, sshError: error.message });
+          askPassword({ connection, sshError: error.message });
           return false;
         }
         throw error;

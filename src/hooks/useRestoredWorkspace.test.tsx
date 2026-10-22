@@ -121,6 +121,21 @@ describe("restoring the tabs from last time", { timeout: 15_000 }, () => {
     await waitFor(() => expect(ids()).toEqual([scratch.id, customers.id]));
   });
 
+  it("does not ask for an SSH passphrase or host key at startup, and says why the tabs stayed closed", async () => {
+    for (const [code, reason] of [
+      ["ssh_secret_required", "要输入 SSH 密码或私钥口令"],
+      ["host_key_unknown", "第一次连这台 SSH 服务器，要先核对主机密钥"],
+    ] as const) {
+      const backend = await lastTime([scratch, customers], customers.id);
+      vi.spyOn(backend, "openConnection").mockRejectedValue({ code, message: "后端原话", fields: [] });
+      const view = renderApp(backend);
+      await waitFor(() => expect(useUi.getState().notice?.message).toContain(`（${reason}）`));
+      expect(ids()).toEqual([scratch.id]);
+      expect(useUi.getState().passwordPrompt).toBeNull();
+      view.unmount();
+    }
+  });
+
   it("starts empty when last time's record cannot be read", async () => {
     const backend = createMockBackend();
     vi.spyOn(backend, "loadWorkspace").mockResolvedValue("{写到一半");

@@ -21,6 +21,12 @@ use crate::error::{CoreError, CoreResult};
 
 /// 同一个进程里写 known_hosts 的只能有一个:检查和追加之间不能被别的写插进来。
 static WRITE_LOCK: Mutex<()> = Mutex::new(());
+
+fn write_lock() -> CoreResult<std::sync::MutexGuard<'static, ()>> {
+    WRITE_LOCK
+        .lock()
+        .map_err(|_| CoreError::Storage("known_hosts 的写锁已损坏".into()))
+}
 /// 等用户确认的主机密钥最多留几把,多了丢最早的。
 const MAX_PENDING: usize = 16;
 
@@ -207,19 +213,27 @@ impl KnownHosts {
                 "主机密钥和确认过的指纹对不上，没有记下，请重新连接一次再确认".into(),
             ));
         }
+        // 检查、取走等确认的那一把、写进文件都在同一把锁里:两个连接一起来确认同一把时,
+        // 后到的等先到的写完再看,已经记下了就直接算成功,不会因为等确认的那一把已被取走而报错。
+        let _guard = write_lock()?;
         if self.check(&host, host_key.port, &key)? == HostKeyCheck::Trusted {
             return Ok(());
         }
         self.take_pending(host_key)?;
-        self.learn(&host, host_key.port, &key)
+        self.learn_locked(&host, host_key.port, &key)
     }
 
     /// 记进文件。检查和写入在同一把锁里;写同目录的临时文件再改名,崩在半路也不会留下半行。
+    /// 只有测试直接调:界面上的确认走 [`trust`](Self::trust),它自己拿着锁调 `learn_locked`。
+    #[cfg(test)]
     pub(crate) fn learn(&self, host: &str, port: u16, key: &PublicKey) -> CoreResult<()> {
+        let _guard = write_lock()?;
+        self.learn_locked(host, port, key)
+    }
+
+    /// 记进文件的主体,调用方已经拿着 [`WRITE_LOCK`]。
+    fn learn_locked(&self, host: &str, port: u16, key: &PublicKey) -> CoreResult<()> {
         let host = checked_host(host)?;
-        let _guard = WRITE_LOCK
-            .lock()
-            .map_err(|_| CoreError::Storage("known_hosts 的写锁已损坏".into()))?;
         match self.check(&host, port, key)? {
             HostKeyCheck::Trusted => return Ok(()),
             HostKeyCheck::Unknown => {}

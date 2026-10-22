@@ -125,6 +125,7 @@ describe("restoring the tabs from last time", { timeout: 15_000 }, () => {
     for (const [code, reason] of [
       ["ssh_secret_required", "要输入 SSH 密码或私钥口令"],
       ["host_key_unknown", "第一次连这台 SSH 服务器，要先核对主机密钥"],
+      ["host_key_changed", "SSH 服务器的主机密钥和记下的不一样，打开连接可以看到详情"],
     ] as const) {
       const backend = await lastTime([scratch, customers], customers.id);
       vi.spyOn(backend, "openConnection").mockRejectedValue({ code, message: "后端原话", fields: [] });

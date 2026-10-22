@@ -51,6 +51,8 @@ function restoreFailure(error: unknown): string {
         return "要输入 SSH 密码或私钥口令";
       case "host_key_unknown":
         return "第一次连这台 SSH 服务器，要先核对主机密钥";
+      case "host_key_changed":
+        return "SSH 服务器的主机密钥和记下的不一样，打开连接可以看到详情";
     }
   }
   return errorMessage(error);

@@ -258,6 +258,30 @@ fn writes_replace_the_file_whole_and_keep_earlier_lines() {
     }
 }
 
+/// 经同一台新跳板机同时开两个连接:界面只问一次,两边拿着同一把密钥一起来确认,都要算成功。
+#[test]
+fn two_connections_confirming_the_same_key_both_succeed() {
+    for _ in 0..50 {
+        let (_dir, hosts) = store();
+        let seen = presented(&hosts, "jump", 22, KEY_A);
+        let threads: Vec<_> = (0..2)
+            .map(|_| {
+                let (hosts, seen) = (hosts.clone(), seen.clone());
+                std::thread::spawn(move || hosts.trust(&seen))
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap().unwrap();
+        }
+        assert_eq!(
+            hosts.check("jump", 22, &key(KEY_A)).unwrap(),
+            HostKeyCheck::Trusted
+        );
+        let lines = std::fs::read_to_string(hosts.path()).unwrap();
+        assert_eq!(lines.lines().count(), 1, "{lines}");
+    }
+}
+
 #[test]
 fn concurrent_writes_do_not_lose_lines() {
     let (_dir, hosts) = store();

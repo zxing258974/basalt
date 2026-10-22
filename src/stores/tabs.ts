@@ -32,6 +32,8 @@ export interface QueryTab {
   saved: SavedQueryRef | null;
   /** 打开时编辑器里的内容;之后的改动只在编辑器里,不回写到这里。 */
   initialSql: string;
+  /** 上次保存(或打开)时的内容,判断有没有没保存的改动;不填就是 `initialSql`。从上次的记录恢复时才有。 */
+  baselineSql?: string;
 }
 
 /** 表结构设计器。`table` 为 null 是还没建的新表;建好、改名之后换成新表名的标签页。 */

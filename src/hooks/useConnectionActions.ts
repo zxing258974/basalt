@@ -51,12 +51,19 @@ export function useConnectionActions() {
     [closeConnectionTabs, collapseUnder, queryClient, setConnectionError],
   );
 
-  /** 已打开则什么都不做;需要密码时弹出密码框,由密码框完成打开。 */
+  /**
+   * 已打开则什么都不做;需要密码时弹出密码框,由密码框完成打开。
+   * `prompt: false`(启动时自动重连):要密码或密码不对时不弹框,直接返回 false。
+   */
   const open = useCallback(
-    async (connection: ConnectionConfig & { isOpen?: boolean }, password?: string) => {
+    async (
+      connection: ConnectionConfig & { isOpen?: boolean },
+      password?: string,
+      { prompt = true }: { prompt?: boolean } = {},
+    ) => {
       if (connection.isOpen) return true;
       if (password === undefined && needsPasswordPrompt(connection)) {
-        askPassword({ connection });
+        if (prompt) askPassword({ connection });
         return false;
       }
       try {
@@ -67,7 +74,7 @@ export function useConnectionActions() {
         return true;
       } catch (error) {
         if (isCommandError(error) && error.code === "authentication") {
-          askPassword({ connection, error: error.message });
+          if (prompt) askPassword({ connection, error: error.message });
           return false;
         }
         throw error;

@@ -9,6 +9,7 @@ import { setBackendForTesting, type Backend } from "../lib/api";
 import { createMockBackend } from "../lib/mockBackend";
 import { useTabs } from "../stores/tabs";
 import { useUi } from "../stores/ui";
+import { resetWorkspace } from "../stores/workspace";
 
 /** store 是模块级单例,不重置的话前一个用例展开的节点、开着的标签会带到下一个。 */
 export function resetStores(): void {
@@ -17,6 +18,7 @@ export function resetStores(): void {
   useAssistant.setState(useAssistant.getInitialState(), true);
   useInspector.setState(useInspector.getInitialState(), true);
   useTableOps.setState(useTableOps.getInitialState(), true);
+  resetWorkspace();
 }
 
 export function renderApp(backend: Backend = createMockBackend()) {

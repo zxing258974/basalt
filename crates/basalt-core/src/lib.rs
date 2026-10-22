@@ -16,5 +16,6 @@ pub mod table_info;
 pub mod table_ops;
 pub mod transfer;
 pub mod value;
+pub mod workspace;
 
 pub use error::{CoreError, CoreResult, FieldError};

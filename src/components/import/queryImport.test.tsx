@@ -49,9 +49,9 @@ describe("importing Navicat queries", () => {
     expect(within(readers).getByText("按 Navicat 里同名连接的地址匹配")).toBeInTheDocument();
     expect(within(readers).getByText("FOLIO 测试库 / folio / diku_mod_users")).toBeInTheDocument();
 
-    const core = within(dialog).getByRole("row", { name: /核心期刊/ });
+    const core = within(dialog).getByRole("row", { name: /月度销售/ });
     expect(within(core).getByRole("checkbox")).toBeDisabled();
-    expect(within(core).getByText(/没有叫「aliyun」的 MySQL 连接/)).toBeInTheDocument();
+    expect(within(core).getByText(/没有叫「cloud-mysql」的 MySQL 连接/)).toBeInTheDocument();
     expect(within(dialog).getByText("已选 2 条，1 条不能导入")).toBeInTheDocument();
 
     await user.click(within(readers).getByRole("checkbox"));

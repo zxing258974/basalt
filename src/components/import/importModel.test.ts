@@ -104,8 +104,8 @@ describe("labels", () => {
 
   it("mentions passwords filled into existing connections", () => {
     const filled = [
-      { id: "x", name: "aliyun" },
-      { id: "y", name: "doris" },
+      { id: "x", name: "cloud-mysql" },
+      { id: "y", name: "analytics" },
     ];
     expect(reportHeadline({ imported: [], passwordFilled: filled, skipped: [] })).toBe("为 2 个已有连接补上了密码");
     expect(
@@ -121,7 +121,7 @@ describe("labels", () => {
 });
 
 describe("filling passwords into existing connections", () => {
-  const fill = candidate("fill", { status: { kind: "fillPassword", existingId: "c9", existingName: "aliyun" } });
+  const fill = candidate("fill", { status: { kind: "fillPassword", existingId: "c9", existingName: "cloud-mysql" } });
 
   it("is checked by default and labelled as such", () => {
     expect(defaultSelection([...candidates, fill]).has("fill")).toBe(true);

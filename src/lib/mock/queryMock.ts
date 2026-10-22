@@ -143,15 +143,18 @@ const NAVICAT_QUERIES: QueryImportCandidate[] = [
     status: { kind: "new" },
   },
   {
-    id: "0/0/MySQL/aliyun/erm/核心期刊.sql",
-    name: "核心期刊",
+    id: "0/0/MySQL/cloud-mysql/crm/月度销售.sql",
+    name: "月度销售",
     sourceType: "MySQL",
-    sourceConnection: "aliyun",
-    sourceDatabase: "erm",
+    sourceConnection: "cloud-mysql",
+    sourceDatabase: "crm",
     sourceSchema: null,
     target: null,
     matchedBy: null,
-    status: { kind: "unmatched", reason: "Basalt 里没有叫「aliyun」的 MySQL 连接，也没有地址是 10.0.0.5:3306 的连接" },
+    status: {
+      kind: "unmatched",
+      reason: "Basalt 里没有叫「cloud-mysql」的 MySQL 连接，也没有地址是 10.0.0.5:3306 的连接",
+    },
   },
 ];
 

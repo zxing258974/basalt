@@ -198,7 +198,7 @@ test("import: Navicat saved queries", async ({ page }) => {
   await openWelcome(page);
   await page.getByRole("banner").getByRole("button", { name: "导入" }).click();
   await page.getByRole("radio", { name: /Navicat 保存的查询.*检测到 3 条查询/ }).click();
-  await expect(page.getByRole("row", { name: /核心期刊/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /月度销售/ })).toBeVisible();
   await snapshot(page, "import-queries");
 });
 

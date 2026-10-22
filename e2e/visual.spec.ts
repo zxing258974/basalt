@@ -163,15 +163,19 @@ test("maintenance result", async ({ page }) => {
   await snapshot(page, "maintenance-result");
 });
 
-/** 在 shop 上右键「新建查询」,写三条语句后全部执行。 */
-async function runShopQuery(page: Page) {
+/** 在 shop 上右键「新建查询」,光标停在编辑器里。 */
+async function newShopQuery(page: Page) {
   await openWelcome(page);
   await row(page, "开发").dblclick();
   await row(page, "本地 MySQL").dblclick();
   await row(page, "shop").click({ button: "right" });
   await page.getByRole("menuitem", { name: /新建查询/ }).click();
-  const editor = page.getByRole("textbox", { name: "查询 1 的 SQL" });
-  await editor.click();
+  await page.getByRole("textbox", { name: "查询 1 的 SQL" }).click();
+}
+
+/** 新建查询,写三条语句后全部执行。 */
+async function runShopQuery(page: Page) {
+  await newShopQuery(page);
   await page.keyboard.type("SELECT * FROM customers LIMIT 30;\nUPDATE orders SET status = 'paid' WHERE id = 7;\n");
   await page.keyboard.type("SELECT * FROM missing;");
   // 点按钮执行,编辑器同时失去焦点,截图里不会有闪烁的光标。
@@ -191,6 +195,18 @@ test("query: result grid", async ({ page }) => {
   await expect(page.getByRole("grid", { name: "查询 1 的结果 1" })).toBeVisible();
   await expect(page.getByRole("button", { name: "导出" })).toBeInViewport({ ratio: 1 });
   await snapshot(page, "query-results");
+});
+
+/** 连接两张表的结果:底栏选改哪张,只能改格子。 */
+test("query: joined result", async ({ page }) => {
+  await newShopQuery(page);
+  await page.keyboard.type(
+    "SELECT o.id, o.status, o.amount, c.id, c.name, c.city FROM orders o JOIN customers c ON c.id = o.customer_id LIMIT 30",
+  );
+  await page.getByRole("button", { name: "全部执行" }).click();
+  await expect(page.getByRole("combobox", { name: "改哪张表" })).toHaveValue("0");
+  await expect(page.getByRole("button", { name: "提交" })).toBeVisible();
+  await snapshot(page, "query-joined-result");
 });
 
 /** 在 shop 上新建查询,打开 SQL 助手,问一句等它答完。 */

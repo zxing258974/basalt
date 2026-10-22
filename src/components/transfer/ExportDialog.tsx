@@ -139,7 +139,7 @@ export function ExportDialog({ target, onClose }: { target: ExportTarget; onClos
                 />
               </div>
             ) : (
-              <p className="transfer-note">{querySummary(scope.set)}</p>
+              <p className="transfer-note">{querySummary(scope.set, scope.sort)}</p>
             )}
           </section>
           <section className="transfer-section" aria-label="格式">

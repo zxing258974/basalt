@@ -93,8 +93,63 @@ type Executed = { outcome: StatementOutcome; sets: FullSet[] };
 
 const done = (outcome: StatementOutcome, sets: FullSet[] = []): Executed => ({ outcome, sets });
 
+/** 连接两张示例表:`FROM a [别名] [LEFT] JOIN b [别名] ON x.列 = y.列`。 */
+const JOIN =
+  /\bfrom\s+(\w+)(?:\s+(?:as\s+)?(?!left\b|inner\b|join\b)(\w+))?\s+(left\s+|inner\s+)?join\s+(\w+)(?:\s+(?:as\s+)?(?!on\b)(\w+))?\s+on\s+(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)/i;
+
+/**
+ * 两张示例表连接起来:左表每一行配右表第一行对得上的(LEFT JOIN 配不上的右边全是 NULL)。
+ * 列表是 `*`(两张表的列依次排)或 `别名.列 [AS 名字]`,列都带来源。
+ */
+function selectJoin(sql: string, scope: QueryScope, match: RegExpExecArray): Executed {
+  const [, leftName = "", leftAlias, kind, rightName = "", rightAlias, xAlias, xColumn, , yColumn] = match;
+  const side = (name: string, alias: string | undefined) => ({
+    name,
+    alias: alias ?? name,
+    table: seedTable(name),
+    ref: { database: scope.database ?? "", schema: scope.schema, table: name },
+  });
+  const left = side(leftName, leftAlias);
+  const right = side(rightName, rightAlias);
+  const [leftColumn, rightColumn] = xAlias === left.alias ? [xColumn, yColumn] : [yColumn, xColumn];
+  const at = (t: typeof left, column: string | undefined) => t.table.columns.findIndex((c) => c.name === column);
+  const text = (cell: CellValue | undefined) =>
+    cell && "value" in cell && typeof cell.value !== "object" ? String(cell.value) : null;
+  const limit = Number(/\blimit\s+(\d+)/i.exec(sql)?.[1] ?? Number.POSITIVE_INFINITY);
+  type Pair = [CellValue[], CellValue[] | null];
+  const pairs = left.table.rows.flatMap((row): Pair[] => {
+    const value = text(row[at(left, leftColumn)]);
+    const partner = right.table.rows.find((r) => value !== null && text(r[at(right, rightColumn)]) === value);
+    if (partner) return [[row, partner]];
+    return /left/i.test(kind ?? "") ? [[row, null]] : [];
+  });
+  const list = /^\s*select\s+([\s\S]*?)\s+from\b/i.exec(sql)?.[1]?.trim() ?? "*";
+  const picked =
+    list === "*"
+      ? [left, right].flatMap((t) => t.table.columns.map((c) => ({ side: t, index: at(t, c.name), name: c.name })))
+      : list.split(",").map((part) => {
+          const [, alias = "", column = "", name] = /^(\w+)\.(\w+)(?:\s+as\s+(\w+))?$/i.exec(part.trim()) ?? [];
+          const t = alias === right.alias ? right : left;
+          return { side: t, index: at(t, column), name: name ?? column };
+        });
+  const columns = picked.map((p): ResultColumn => ({
+    name: p.name,
+    dataType: p.side.table.columns[p.index]?.dataType ?? "",
+    source: p.index >= 0 ? { table: p.side.ref, column: p.side.table.columns[p.index]!.name } : null,
+  }));
+  const rows = pairs.slice(0, limit).map(([l, r]) =>
+    picked.map((p): CellValue => {
+      const row = p.side === left ? l : r;
+      return (row && row[p.index]) ?? { kind: "null" };
+    }),
+  );
+  return done(outcome(scope, { elapsedMs: 18 }), [{ columns, rows }]);
+}
+
 /** SELECT … FROM 示例表:列都带来源,`*` 以外的列表只认 `列`、`列 AS 别名`,别的当表达式。 */
 function select(sql: string, scope: QueryScope): Executed {
+  const join = JOIN.exec(sql);
+  if (join) return selectJoin(sql, scope, join);
   const from = /\bfrom\s+(?:[`"]?\w+[`"]?\.)?[`"]?(\w+)[`"]?/i.exec(sql);
   if (!from) {
     const list = /^\s*select\s+([\s\S]*?)\s*;?\s*$/i.exec(sql)?.[1] ?? "1";

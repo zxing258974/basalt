@@ -1,6 +1,6 @@
 // 导出对话框的纯逻辑:格式选项、导出范围、文件名、数字与进度的写法。不碰后端和 DOM。
 import type { FileFilter } from "../../lib/api";
-import type { QueryScope, ResultSet } from "../../lib/queryTypes";
+import type { QueryScope, ResultSet, ResultSort } from "../../lib/queryTypes";
 import type {
   BinaryEncoding,
   CsvOptions,
@@ -10,11 +10,13 @@ import type {
   TransferPhase,
 } from "../../lib/transferTypes";
 import type { DriverKind, SortSpec, TableRef } from "../../lib/types";
+import { gridNames } from "../query/resultEditing";
 
 /** 从哪里导出:表(可以带着表数据页当前的筛选),或查询的一个结果集。 */
 export type ExportScope =
   | { kind: "table"; table: TableRef; filter: string | null; sort: SortSpec | null }
-  | { kind: "query"; editorId: string; scope: QueryScope; sql: string; set: ResultSet };
+  /** `sort`:结果表格上点的排序,导出照它的顺序;没点过为 null。 */
+  | { kind: "query"; editorId: string; scope: QueryScope; sql: string; set: ResultSet; sort: ResultSort | null };
 
 export interface ExportTarget {
   connectionId: string;
@@ -114,14 +116,25 @@ export function buildSource(target: ExportTarget, range: RangeChoice): ExportSou
     };
   }
   if (scope.set.truncated) return { kind: "query", editorId: scope.editorId, scope: scope.scope, sql: scope.sql };
-  return { kind: "result", editorId: scope.editorId, resultId: scope.set.id, columns: scope.set.columns };
+  return {
+    kind: "result",
+    editorId: scope.editorId,
+    resultId: scope.set.id,
+    columns: scope.set.columns,
+    sort: scope.sort,
+  };
 }
 
-/** 查询结果的导出范围说明。 */
-export function querySummary(set: ResultSet): string {
-  return set.truncated
-    ? "结果太大，只保留了一部分：导出时会在这个查询标签页的连接上重新执行这条语句，读出全部结果。"
-    : `导出执行时读到的全部 ${formatCount(set.totalRows)} 行。`;
+/** 查询结果的导出范围说明;表格上点了排序时写明按什么排。 */
+export function querySummary(set: ResultSet, sort: ResultSort | null): string {
+  // 和表头一样:同名的列带上表名。
+  const column = sort ? gridNames(set.columns)[sort.column] : undefined;
+  if (set.truncated) {
+    const order = column ? "顺序是语句本来的顺序，表格上点的排序不算。" : "";
+    return `结果太大，只保留了一部分：导出时会在这个查询标签页的连接上重新执行这条语句，读出全部结果。${order}`;
+  }
+  const order = column ? `，按「${column}」${sort!.descending ? "降序" : "升序"}` : "";
+  return `导出执行时读到的全部 ${formatCount(set.totalRows)} 行${order}。`;
 }
 
 /** SQL INSERT 默认的表名:语句里只有一张表时用它,否则 query_result。 */

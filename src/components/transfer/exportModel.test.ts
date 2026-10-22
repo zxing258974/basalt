@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ResultSet } from "../../lib/queryTypes";
+import type { ResultSet, ResultSort } from "../../lib/queryTypes";
 import {
   DEFAULT_CSV,
   buildFormat,
@@ -29,13 +29,20 @@ function tableTarget(filter: string | null): ExportTarget {
   };
 }
 
-function queryTarget(set: ResultSet): ExportTarget {
+function queryTarget(set: ResultSet, sort: ResultSort | null = null): ExportTarget {
   return {
     connectionId: "c",
     driver: "postgres",
     title: "查询 1 的结果 1",
     baseName: "查询 1",
-    scope: { kind: "query", editorId: "tab", scope: { database: "folio", schema: "public" }, sql: "SELECT 1", set },
+    scope: {
+      kind: "query",
+      editorId: "tab",
+      scope: { database: "folio", schema: "public" },
+      sql: "SELECT 1",
+      set,
+      sort,
+    },
   };
 }
 
@@ -85,8 +92,13 @@ describe("exportModel", () => {
       editorId: "tab",
       resultId: 7,
       columns: set.columns,
+      sort: null,
     });
-    expect(querySummary(set)).toContain("2,500 行");
+    expect(querySummary(set, null)).toBe("导出执行时读到的全部 2,500 行。");
+    // 表格上点了排序:照它的顺序导出,说明里写明。
+    const sort = { column: 0, descending: true };
+    expect(buildSource(queryTarget(set, sort), "all")).toHaveProperty("sort", sort);
+    expect(querySummary(set, sort)).toBe(`导出执行时读到的全部 2,500 行，按「${set.columns[0]!.name}」降序。`);
     const cut = { ...set, truncated: true };
     expect(buildSource(queryTarget(cut), "all")).toEqual({
       kind: "query",
@@ -94,7 +106,8 @@ describe("exportModel", () => {
       scope: { database: "folio", schema: "public" },
       sql: "SELECT 1",
     });
-    expect(querySummary(cut)).toContain("重新执行");
+    expect(querySummary(cut, null)).toContain("重新执行");
+    expect(querySummary(cut, sort)).toContain("表格上点的排序不算");
     expect(defaultRange(queryTarget(set))).toBe("all");
   });
 

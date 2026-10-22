@@ -1,6 +1,7 @@
 // 查询结果交给 M2 的 DataGrid 显示:把已经取到前端的行包成 TablePage。排序在后端做(见 useResultRows)。
 import type { ResultColumn, ResultSet, ResultSort } from "../../lib/queryTypes";
 import type { CellValue, ColumnInfo, SortSpec, TablePage } from "../../lib/types";
+import { gridNames } from "./resultEditing";
 
 /** 只读结果的列:按文本显示。 */
 export function readOnlyColumn(column: ResultColumn): ColumnInfo {
@@ -15,15 +16,16 @@ export function readOnlyColumn(column: ResultColumn): ColumnInfo {
   };
 }
 
-/** `columns`:能改时用对上表结构的列,只读时为 null。 */
+/** `columns`:能改时用对上表结构的列,只读时为 null。同名的列表头上加表名区分(见 gridNames)。 */
 export function resultPage(
   set: ResultSet,
   rows: CellValue[][],
   columns: ColumnInfo[] | null,
   readOnlyReason: string | null,
 ): TablePage {
+  const names = gridNames(set.columns);
   return {
-    columns: columns ?? set.columns.map(readOnlyColumn),
+    columns: columns ?? set.columns.map((column, index) => ({ ...readOnlyColumn(column), name: names[index]! })),
     rows,
     hasMore: false,
     readOnlyReason,

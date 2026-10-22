@@ -295,3 +295,18 @@
 .result-footer .data-actions {
   margin-left: 0;
 }
+/* 连接了几张表时选改哪张:和底栏的字一样小,不撑高底栏。 */
+.result-footer-table {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+}
+.result-footer-table .field-select {
+  width: auto;
+  max-width: 180px;
+  height: 22px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: var(--text-xs);
+}

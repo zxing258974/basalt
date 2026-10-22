@@ -289,13 +289,13 @@ export function QueryView({ tab, active }: { tab: QueryTab; active: boolean }) {
               pickedDuringRun.current = true;
               setActiveResult(key);
             }}
-            onExport={(result) =>
+            onExport={(result, sort) =>
               useTransfer.getState().openExport({
                 connectionId: tab.connectionId,
                 driver: driver ?? "mysql",
                 title: `${tab.title} 的${result.label}`,
                 baseName: guessTableName(result.sql),
-                scope: { kind: "query", editorId: tab.id, scope: result.scope, sql: result.sql, set: result.set },
+                scope: { kind: "query", editorId: tab.id, scope: result.scope, sql: result.sql, set: result.set, sort },
               })
             }
             editorId={tab.id}

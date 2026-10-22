@@ -50,7 +50,7 @@ describe("running statements", { timeout: FLOW_TIMEOUT }, () => {
 
   it("sorts a result through the backend and only offers copying when it can't be edited", async () => {
     const { user, view } = await openShopQuery();
-    setSql(view, "SELECT * FROM customers c JOIN orders o ON o.customer_id = c.id LIMIT 5");
+    setSql(view, "SELECT * FROM (SELECT * FROM customers) c LIMIT 5");
     await user.click(header().getByRole("button", { name: /^执行/ }));
     const grid = await screen.findByRole("grid", { name: "查询 1 的结果 1" });
     const firstId = () => within(within(grid).getAllByRole("row")[1]!).getAllByRole("gridcell")[0]!.textContent;
@@ -59,7 +59,7 @@ describe("running statements", { timeout: FLOW_TIMEOUT }, () => {
     await user.click(within(grid).getByRole("button", { name: /^id/ }));
     await waitFor(() => expect(firstId()).toBe("5"));
     expect(within(grid).getByRole("columnheader", { name: /^id/ })).toHaveAttribute("aria-sort", "descending");
-    expect(screen.getByText("结果来自多张表、子查询或 UNION，不能在这里改。")).toBeInTheDocument();
+    expect(screen.getByText("结果来自子查询或 UNION，不能在这里改。")).toBeInTheDocument();
 
     await user.pointer({
       keys: "[MouseRight]",

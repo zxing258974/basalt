@@ -43,6 +43,8 @@ interface DataGridProps {
   /** 本页第一行在整张表里的序号(从 0 开始),行号槽据此显示。 */
   rowOffset: number;
   editable: boolean;
+  /** 能不能增删行;不填为能。连接了几张表的查询结果只能改格子。 */
+  rowEdits?: boolean;
   /** 必须落在 gridRows(page, edits) 的范围里:行数变少时由持有选区的一方用 fitSelection 收紧。 */
   selection: GridSelection | null;
   onSelectionChange(selection: GridSelection): void;
@@ -151,9 +153,10 @@ export function DataGrid(props: DataGridProps) {
     navigator.clipboard?.writeText(text).catch((error: unknown) => console.warn("复制失败", error));
   };
 
+  const rowEdits = props.rowEdits ?? true;
   const removeRow = (row: number) => {
     const target = rows[row];
-    if (!editable || !target) return;
+    if (!editable || !rowEdits || !target) return;
     if (target.status === "deleted") actions.restoreRow(target);
     else actions.deleteRow(target);
   };
@@ -240,19 +243,21 @@ export function DataGrid(props: DataGridProps) {
       },
       "separator",
       copyItem,
-      "separator",
-      target.status === "deleted"
-        ? { label: "恢复这一行", icon: <RotateCcw />, onSelect: () => actions.restoreRow(target) }
-        : {
-            label: target.status === "new" ? "移除新行" : "删除这一行",
-            icon: <Trash2 />,
-            shortcut: shortcut("Backspace"),
-            danger: true,
-            disabled: !editable,
-            onSelect: () => actions.deleteRow(target),
-          },
+      ...(rowEdits ? (["separator", rowItem(target)] as const) : []),
     ];
   };
+
+  const rowItem = (target: GridRow): MenuEntry =>
+    target.status === "deleted"
+      ? { label: "恢复这一行", icon: <RotateCcw />, onSelect: () => actions.restoreRow(target) }
+      : {
+          label: target.status === "new" ? "移除新行" : "删除这一行",
+          icon: <Trash2 />,
+          shortcut: shortcut("Backspace"),
+          danger: true,
+          disabled: !editable,
+          onSelect: () => actions.deleteRow(target),
+        };
 
   const onCellContextMenu = (row: number, col: number, event: MouseEvent) => {
     event.preventDefault();

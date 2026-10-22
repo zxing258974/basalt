@@ -4,6 +4,8 @@ import { shortcut } from "../../lib/platform";
 
 export interface EditActionsProps {
   editable: boolean;
+  /** 能不能增删行;不填为能。连接了几张表的查询结果只能改格子,不放这两个按钮。 */
+  rowEdits?: boolean;
   /** 选中的行已标记删除时,删除按钮变成恢复。 */
   selectedDeleted: boolean;
   canDelete: boolean;
@@ -19,20 +21,24 @@ export function EditActions(props: EditActionsProps) {
   const { editable, pending } = props;
   return (
     <>
-      <Button variant="ghost" size="sm" icon={<Plus />} disabled={!editable} onClick={props.onAddRow}>
-        新增行
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        icon={props.selectedDeleted ? <RotateCcw /> : <Minus />}
-        disabled={!editable || !props.canDelete}
-        title={shortcut("Backspace")}
-        onClick={props.onToggleDelete}
-      >
-        {props.selectedDeleted ? "恢复行" : "删除行"}
-      </Button>
-      <span className="data-actions-divider" aria-hidden />
+      {(props.rowEdits ?? true) && (
+        <>
+          <Button variant="ghost" size="sm" icon={<Plus />} disabled={!editable} onClick={props.onAddRow}>
+            新增行
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={props.selectedDeleted ? <RotateCcw /> : <Minus />}
+            disabled={!editable || !props.canDelete}
+            title={shortcut("Backspace")}
+            onClick={props.onToggleDelete}
+          >
+            {props.selectedDeleted ? "恢复行" : "删除行"}
+          </Button>
+          <span className="data-actions-divider" aria-hidden />
+        </>
+      )}
       <Button variant="ghost" size="sm" icon={<Undo2 />} disabled={pending === 0} onClick={props.onRevert}>
         撤销修改
       </Button>

@@ -1,4 +1,6 @@
 import { FileDown, Table2, TriangleAlert } from "lucide-react";
+import { useState } from "react";
+import type { ResultSort } from "../../lib/queryTypes";
 import { Button } from "../ui/Button";
 import { MessagesView } from "./MessagesView";
 import { ResultGrid } from "./ResultGrid";
@@ -14,8 +16,8 @@ interface ResultPanelProps {
   /** 选中的标签;null 或找不到时显示第一个。 */
   active: string | null;
   onActiveChange(key: string): void;
-  /** 导出选中的结果集。 */
-  onExport(tab: ResultTab): void;
+  /** 导出选中的结果集,`sort` 是它的表格上点的排序。 */
+  onExport(tab: ResultTab, sort: ResultSort | null): void;
   editorId: string;
   connectionId: string;
   dialect: SqlDialect;
@@ -35,6 +37,8 @@ const LOCKED = "先提交或撤销这个结果里的修改";
 /** 编辑器下面的结果区:每个结果集一个标签,最后是「消息」。 */
 export function ResultPanel(props: ResultPanelProps) {
   const { title, run, active, onActiveChange, onExport, pending } = props;
+  // 显示中的结果表格上点的排序;换了结果、重新执行时表格重建,会重新报上来。
+  const [sort, setSort] = useState<ResultSort | null>(null);
   const tabs = resultTabs(run.entries);
   if (run.entries.length === 0) {
     return (
@@ -92,7 +96,7 @@ export function ResultPanel(props: ResultPanelProps) {
                   ? "导出的是执行时读到的结果，不含还没提交的修改"
                   : "导出这个结果集"
             }
-            onClick={() => onExport(shown)}
+            onClick={() => onExport(shown, sort)}
           >
             导出
           </Button>
@@ -112,6 +116,7 @@ export function ResultPanel(props: ResultPanelProps) {
             notice={props.notice?.key === shown.key ? props.notice.text : null}
             onPendingChange={props.onPendingChange}
             onCommitted={(message) => props.onCommitted(shown, message)}
+            onSortChange={setSort}
           />
         ) : (
           <MessagesView run={run} />

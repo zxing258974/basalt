@@ -3,8 +3,8 @@ import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { tableDataKeys } from "../../hooks/useTableData";
 import { getBackend } from "../../lib/api";
 import { hasPrimaryModifier } from "../../lib/platform";
-import type { ResultSet } from "../../lib/queryTypes";
-import { errorMessage, type TableRef } from "../../lib/types";
+import type { ResultSet, ResultSort } from "../../lib/queryTypes";
+import { errorMessage, type RowChange, type TableRef } from "../../lib/types";
 import { DataGrid } from "../data/DataGrid";
 import * as editing from "../data/editState";
 import { nextSort } from "../data/GridHeader";
@@ -12,9 +12,18 @@ import { fitSelection, gridRows, type GridSelection } from "../data/gridModel";
 import { PreviewDialog } from "../data/PreviewDialog";
 import { useGridEdits } from "../data/useGridEdits";
 import { EmptyState } from "../ui/EmptyState";
-import { editPlan, sourceTable, tableLabel, toTableChanges, type EditPlan } from "./resultEditing";
+import {
+  editPlan,
+  joinedChangeProblem,
+  sameTable,
+  sourceTables,
+  tableLabel,
+  toTableChanges,
+  trustedSources,
+  type EditPlan,
+} from "./resultEditing";
 import { ResultFooter } from "./ResultFooter";
-import { resultPage, sortKey } from "./resultModel";
+import { resultPage, sortKey, toResultSort } from "./resultModel";
 import type { SqlDialect } from "./splitStatements";
 import { useResultRows } from "./useResultRows";
 
@@ -33,29 +42,65 @@ interface ResultGridProps {
   onPendingChange(count: number): void;
   /** 修改提交了:重新执行这条语句,换上新结果。 */
   onCommitted(message: string): Promise<void>;
+  /** 点了列头排序:导出时照这个顺序。 */
+  onSortChange(sort: ResultSort | null): void;
 }
 
 const resultTableKey = (connectionId: string, table: TableRef | null) => ["resultTable", connectionId, table] as const;
 
-/** 能改的条件:语句和列来源先看一遍,再读表结构核对主键。 */
-function useEditPlan(connectionId: string, dialect: SqlDialect, sql: string, set: ResultSet): EditPlan {
-  const check = useMemo(() => sourceTable(sql, set, dialect), [dialect, set, sql]);
-  const table = "table" in check ? check.table : null;
+interface EditChoice {
+  plan: EditPlan;
+  /** 连接了几张表、不止一张能改时可以选改哪张;否则为空。 */
+  candidates: TableRef[];
+  table: TableRef | null;
+}
+
+/** 能改的条件:语句和列来源先看一遍,再读要改的那张表的结构核对主键。 */
+function useEditPlan(
+  connectionId: string,
+  dialect: SqlDialect,
+  sql: string,
+  set: ResultSet,
+  chosen: TableRef | null,
+): EditChoice {
+  const check = useMemo(() => sourceTables(sql, set, dialect), [dialect, set, sql]);
+  const candidates = "tables" in check ? check.tables : [];
+  const table = candidates.find((t) => chosen !== null && sameTable(t, chosen)) ?? candidates[0] ?? null;
   const columns = useQuery({
     queryKey: resultTableKey(connectionId, table),
     queryFn: async () => (await getBackend()).listColumns(connectionId, table!),
     enabled: table !== null,
     staleTime: 30_000,
   });
-  if ("reason" in check) return { kind: "readOnly", reason: check.reason };
-  if (columns.data) return editPlan(set, check.table, columns.data);
-  if (columns.error) {
-    return {
-      kind: "readOnly",
-      reason: `读不到 ${tableLabel(check.table)} 的表结构，不能在这里改：${errorMessage(columns.error)}`,
-    };
+  const choice = (plan: EditPlan): EditChoice => ({ plan, candidates: candidates.length > 1 ? candidates : [], table });
+  if ("reason" in check || table === null) {
+    return choice({ kind: "readOnly", reason: "reason" in check ? check.reason : "没有能改的表。" });
   }
-  return { kind: "readOnly", reason: "正在读取表结构…" };
+  if (columns.data) return choice(editPlan(set, table, columns.data, check.joined));
+  if (columns.error) {
+    return choice({
+      kind: "readOnly",
+      reason: `读不到 ${tableLabel(table)} 的表结构，不能在这里改：${errorMessage(columns.error)}`,
+    });
+  }
+  return choice({ kind: "readOnly", reason: "正在读取表结构…" });
+}
+
+/**
+ * 交给后端前换成表里的列名。改到不是这张表的列(换表之前留下的修改)就拒绝,
+ * 连接了几张表时再核对一遍(见 joinedChangeProblem)。
+ */
+function tableChanges(plan: EditPlan & { kind: "editable" }, rows: RowChange[]): RowChange[] {
+  const names = rows.flatMap((row) => [
+    ...Object.keys(row.kind === "insert" ? {} : row.key),
+    ...Object.keys(row.kind === "delete" ? {} : row.values),
+  ]);
+  const stray = names.find((name) => !(name in plan.tableColumn));
+  if (stray !== undefined) throw new Error(`「${stray}」不是 ${tableLabel(plan.table)} 的列，不能提交。`);
+  const changes = toTableChanges(rows, plan.tableColumn);
+  const problem = plan.rowEdits ? null : joinedChangeProblem(changes, plan.table);
+  if (problem) throw new Error(problem);
+  return changes;
 }
 
 /** 一个结果集:往下滚时分批取行,点列头由后端排序;来自一张带主键的表时能直接改。 */
@@ -63,30 +108,29 @@ export function ResultGrid(props: ResultGridProps) {
   const { editorId, connectionId, set } = props;
   const queryClient = useQueryClient();
   const result = useResultRows(editorId, set);
-  const plan = useEditPlan(connectionId, props.dialect, props.sql, set);
+  // 子查询算出来的列不算表里的列(见 trustedSources):表头、能不能改都按它。
+  const trusted = useMemo(() => trustedSources(props.sql, set, props.dialect), [props.dialect, props.sql, set]);
+  const [chosen, setChosen] = useState<TableRef | null>(null);
+  const { plan, candidates, table: editTable } = useEditPlan(connectionId, props.dialect, props.sql, trusted, chosen);
   const page = useMemo(
     () =>
       resultPage(
-        set,
+        trusted,
         result.rows,
         plan.kind === "editable" ? plan.columns : null,
         plan.kind === "editable" ? null : plan.reason,
       ),
-    [plan, result.rows, set],
+    [plan, result.rows, trusted],
   );
   const target = plan.kind === "editable" ? plan : null;
 
-  // 修改按行号记:整批行换了(换排序)就作废,绝不套到别的行上。
-  const changes = useGridEdits(page, `${set.id}:${result.version}`, {
+  // 修改按行号记:整批行换了(换排序)、换了要改的表就作废,绝不套到别的行、别的表上。
+  const tableKey = editTable ? [editTable.database, editTable.schema ?? "", editTable.table].join(".") : "";
+  const changes = useGridEdits(page, `${set.id}:${result.version}:${tableKey}`, {
     preview: async (rows) =>
-      (await getBackend()).previewTableChanges(connectionId, target!.table, toTableChanges(rows, target!.tableColumn)),
+      (await getBackend()).previewTableChanges(connectionId, target!.table, tableChanges(target!, rows)),
     apply: async (rows, statements) =>
-      (await getBackend()).applyTableChanges(
-        connectionId,
-        target!.table,
-        toTableChanges(rows, target!.tableColumn),
-        statements,
-      ),
+      (await getBackend()).applyTableChanges(connectionId, target!.table, tableChanges(target!, rows), statements),
     refresh: async (outcome) => {
       void queryClient.invalidateQueries({ queryKey: tableDataKeys.table(connectionId, target!.table) });
       await props.onCommitted(`已提交 ${outcome.statements} 条语句，影响 ${outcome.affectedRows} 行。`);
@@ -102,8 +146,12 @@ export function ResultGrid(props: ResultGridProps) {
   if (fitted !== selection) setSelection(fitted);
   const selectedRow = fitted ? rows[fitted.row] : undefined;
 
-  const { onPendingChange } = props;
+  const { onPendingChange, onSortChange } = props;
   useEffect(() => onPendingChange(pending), [onPendingChange, pending]);
+  // 新顺序的行到了才算数:排序请求失败时导出不该按表头上那个没生效的排序。
+  useEffect(() => {
+    if (!result.stale) onSortChange(toResultSort(result.sort));
+  }, [onSortChange, result.sort, result.stale]);
   useEffect(() => () => onPendingChange(0), [onPendingChange]);
 
   // ⌘S 在结果表格里按下、有没提交的修改(或正在改一格,这一格马上会提交)时是提交;
@@ -132,6 +180,7 @@ export function ResultGrid(props: ResultGridProps) {
         edits={edits}
         rowOffset={0}
         editable={editable}
+        rowEdits={target?.rowEdits ?? true}
         selection={fitted}
         onSelectionChange={setSelection}
         sort={result.sort}
@@ -154,7 +203,13 @@ export function ResultGrid(props: ResultGridProps) {
         onRetry={result.retry}
         readOnlyReason={plan.kind === "editable" ? null : plan.reason}
         message={changes.message ?? props.notice}
+        editTables={candidates}
+        editTable={editTable}
+        onEditTableChange={(table) => {
+          if (pending === 0) setChosen(table);
+        }}
         editable={editable}
+        rowEdits={target?.rowEdits ?? true}
         selectedDeleted={selectedRow?.status === "deleted"}
         canDelete={selectedRow !== undefined}
         onAddRow={addRow}

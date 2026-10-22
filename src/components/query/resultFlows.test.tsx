@@ -59,6 +59,55 @@ describe("query results", { timeout: FLOW_TIMEOUT }, () => {
     await waitFor(() => expect(cell(grid, 1499, 0)).toBeInTheDocument());
   });
 
+  it("exports in the order the result is sorted by", async () => {
+    const { user, grid } = await runInShop("SELECT id, name FROM customers LIMIT 5");
+    await user.click(within(grid).getByRole("button", { name: /^name/ }));
+    await user.click(within(grid).getByRole("button", { name: /^name/ }));
+    await waitFor(() =>
+      expect(within(grid).getByRole("columnheader", { name: /^name/ })).toHaveAttribute("aria-sort", "descending"),
+    );
+    await user.click(screen.getByRole("button", { name: "导出" }));
+    const dialog = await screen.findByRole("dialog", { name: /导出/ });
+    expect(dialog).toHaveTextContent("导出执行时读到的全部 5 行，按「name」降序。");
+  });
+
+  it("edits one table of a join at a time, cells only", async () => {
+    const { user, grid } = await runInShop(
+      "SELECT o.id, o.status, c.id, c.name FROM orders o JOIN customers c ON c.id = o.customer_id LIMIT 5",
+    );
+    const headers = within(grid)
+      .getAllByRole("columnheader")
+      .map((h) => h.textContent);
+    // 表头是列名加类型;同名的 id 按表区分。
+    const names = ["id（orders）", "status", "id（customers）", "name"];
+    expect(headers.slice(1).map((h, i) => h?.startsWith(names[i]!))).toEqual([true, true, true, true]);
+    const picker = await screen.findByRole("combobox", { name: "改哪张表" });
+    expect(picker).toHaveDisplayValue("orders");
+    expect(screen.queryByRole("button", { name: /新增行/ })).not.toBeInTheDocument();
+
+    // 改 customers:orders 的列这时只读。
+    await user.selectOptions(picker, "customers");
+    const customerId = cell(grid, 0, 2).textContent;
+    await user.dblClick(cell(grid, 0, 1));
+    expect(screen.queryByRole("textbox", { name: "编辑「status」" })).not.toBeInTheDocument();
+    await user.dblClick(cell(grid, 0, 3));
+    const editor = screen.getByRole("textbox", { name: "编辑「name」" });
+    await user.clear(editor);
+    await user.type(editor, "连接里改的{Enter}");
+    expect(picker).toBeDisabled();
+
+    await user.pointer({ keys: "[MouseRight]", target: cell(grid, 0, 3) });
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).queryByRole("menuitem", { name: /删除这一行/ })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
+    await user.keyboard("{Meta>}s{/Meta}");
+    const statements = await screen.findByRole("list", { name: "将要执行的语句" });
+    expect(statements).toHaveTextContent(
+      `UPDATE \`shop\`.\`customers\` SET \`name\` = '连接里改的' WHERE \`id\` = ${customerId}`,
+    );
+  });
+
   it("edits a single-table result, commits it to the table and runs the statement again", async () => {
     const { user, grid, backend } = await runInShop("SELECT id, name AS who FROM customers LIMIT 5");
     const apply = vi.spyOn(backend, "applyTableChanges");

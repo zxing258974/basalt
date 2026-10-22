@@ -10,7 +10,7 @@ use super::writer::{OutputFile, RowWriter, open_writer};
 use super::{ExportColumn, ExportFormat, ExportOptions};
 use crate::error::{CoreError, CoreResult};
 use crate::query::lease::{ExecError, RowSink, StreamEnd, StreamQuery};
-use crate::query::results::MAX_BATCH;
+use crate::query::results::{MAX_BATCH, ResultSort};
 use crate::query::{QueryScope, ResultColumn, leading_keyword};
 use crate::session::SessionManager;
 use crate::sql::Dialect;
@@ -37,12 +37,14 @@ pub enum ExportSource {
         scope: QueryScope,
         sql: String,
     },
-    /// 后端存着的完整查询结果:直接写出来,不再执行一遍。
+    /// 后端存着的完整查询结果:直接写出来,不再执行一遍。`sort` 是表格上点的排序,照它的顺序写。
     #[serde(rename_all = "camelCase")]
     Result {
         editor_id: String,
         result_id: u64,
         columns: Vec<ResultColumn>,
+        #[serde(default)]
+        sort: Option<ResultSort>,
     },
 }
 
@@ -226,12 +228,13 @@ pub async fn run_export(
             editor_id,
             result_id,
             columns,
+            sort,
         } => {
             sink.columns(columns)?;
             let mut offset = 0;
             loop {
                 let rows = sessions
-                    .result_rows(editor_id, *result_id, offset, MAX_BATCH, None)
+                    .result_rows(editor_id, *result_id, offset, MAX_BATCH, *sort)
                     .await?;
                 if rows.is_empty() {
                     break;

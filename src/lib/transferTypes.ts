@@ -1,5 +1,5 @@
 // 导入导出:与 crates/basalt-core/src/transfer 和 src-tauri/src/service/transfer.rs 的序列化结构对应。
-import type { QueryScope, ResultColumn } from "./queryTypes";
+import type { QueryScope, ResultColumn, ResultSort } from "./queryTypes";
 import type { ColumnInfo, SortSpec, TableRef } from "./types";
 
 export type BinaryEncoding = "hex" | "base64";
@@ -32,8 +32,8 @@ export type ExportSource =
   | { kind: "table"; table: TableRef; filter: string | null; sort: SortSpec | null }
   /** 结果太大、后端没存全:在查询标签页自己的连接上重新执行,读出全部结果。 */
   | { kind: "query"; editorId: string; scope: QueryScope; sql: string }
-  /** 后端存着的完整结果:直接写出来。 */
-  | { kind: "result"; editorId: string; resultId: number; columns: ResultColumn[] };
+  /** 后端存着的完整结果:直接写出来,`sort` 是表格上点的排序。 */
+  | { kind: "result"; editorId: string; resultId: number; columns: ResultColumn[]; sort: ResultSort | null };
 
 export interface ExportRequest {
   connectionId: string;

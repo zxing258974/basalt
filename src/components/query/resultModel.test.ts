@@ -24,8 +24,9 @@ describe("resultPage", () => {
     expect(page.rows).toBe(rows);
     expect(page.readOnlyReason).toBe("只读");
     expect(page.columns.map((c) => [c.name, c.dataType, c.isPrimaryKey, c.isGenerated])).toEqual([
+      // 同名的列在表头上要分得开。
       ["id", "int", false, false],
-      ["id", "varchar", false, false],
+      ["id #2", "varchar", false, false],
     ]);
   });
 

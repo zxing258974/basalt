@@ -153,6 +153,7 @@ async fn query_results_rerun_on_the_tab_connection_or_use_shown_rows() {
             editor_id: "tab-1".into(),
             result_id: set.id,
             columns: set.columns.clone(),
+            sort: None,
         },
         options: csv(),
         ..request.clone()
@@ -164,6 +165,25 @@ async fn query_results_rerun_on_the_tab_connection_or_use_shown_rows() {
         (outcome.rows, read_text(&path)),
         (2, "n\r\n7\r\n\r\n".into())
     );
+
+    // 表格上点了排序:照排好的顺序写(NULL 排最前,倒序时在最后)。
+    let sorted = ExportRequest {
+        source: ExportSource::Result {
+            editor_id: "tab-1".into(),
+            result_id: set.id,
+            columns: set.columns.clone(),
+            sort: Some(ResultSort {
+                column: 0,
+                descending: false,
+            }),
+        },
+        options: csv(),
+        ..request.clone()
+    };
+    run_export(&sessions, "j", &sorted, &CancelFlag::default(), &ignore)
+        .await
+        .unwrap();
+    assert_eq!(read_text(&path), "n\r\n\r\n7\r\n");
 
     let writes = ExportRequest {
         source: ExportSource::Query {

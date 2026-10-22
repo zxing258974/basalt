@@ -6,6 +6,9 @@ import type { ConnectionConfig } from "../../lib/types";
 import { useUi } from "../../stores/ui";
 import { renderApp } from "../../test/renderApp";
 
+/** 页签的名字后面可能跟着读屏用的「（已设置）」「（有错误）」。 */
+const tab = (name: string) => ({ name: new RegExp(`^${name}`) });
+
 const tunneled: ConnectionConfig = {
   id: "tunneled",
   name: "跳板机后的库",
@@ -31,7 +34,7 @@ async function openForm(driver: "mysql" | "sqlite" = "mysql") {
 }
 
 async function fillTunnel({ user, dialog }: Awaited<ReturnType<typeof openForm>>) {
-  await user.click(dialog.getByRole("tab", { name: "SSH" }));
+  await user.click(dialog.getByRole("tab", tab("SSH")));
   await user.click(dialog.getByLabelText("经 SSH 隧道连接"));
   await user.type(dialog.getByLabelText("SSH 主机"), "jump.example.test");
   await user.type(dialog.getByLabelText("SSH 用户名"), "deploy");
@@ -40,9 +43,9 @@ async function fillTunnel({ user, dialog }: Awaited<ReturnType<typeof openForm>>
 describe("pages", () => {
   it("offers SSH and SSL pages for network databases only", async () => {
     const mysql = await openForm("mysql");
-    const tabs = mysql.dialog.getAllByRole("tab").map((tab) => tab.textContent);
+    const tabs = mysql.dialog.getAllByRole("tab").map((element) => element.textContent);
     expect(tabs).toEqual(["常规", "SSH", "SSL"]);
-    expect(mysql.dialog.getByRole("tab", { name: "常规" })).toHaveAttribute("aria-selected", "true");
+    expect(mysql.dialog.getByRole("tab", tab("常规"))).toHaveAttribute("aria-selected", "true");
     mysql.unmount();
 
     const sqlite = await openForm("sqlite");
@@ -52,29 +55,28 @@ describe("pages", () => {
   it("switches pages with the arrow keys and keeps what was typed", async () => {
     const { user, dialog } = await openForm();
     await user.type(dialog.getByLabelText("连接名"), "订单库");
-    dialog.getByRole("tab", { name: "常规" }).focus();
+    dialog.getByRole("tab", tab("常规")).focus();
     await user.keyboard("{ArrowRight}");
-    expect(dialog.getByRole("tab", { name: "SSH" })).toHaveFocus();
-    expect(dialog.getByRole("tabpanel")).toHaveAttribute(
-      "aria-labelledby",
-      dialog.getByRole("tab", { name: "SSH" }).id,
-    );
+    expect(dialog.getByRole("tab", tab("SSH"))).toHaveFocus();
+    expect(dialog.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", dialog.getByRole("tab", tab("SSH")).id);
     await user.keyboard("{ArrowLeft}{ArrowLeft}");
-    expect(dialog.getByRole("tab", { name: "SSL" })).toHaveAttribute("aria-selected", "true");
-    await user.click(dialog.getByRole("tab", { name: "常规" }));
+    expect(dialog.getByRole("tab", tab("SSL"))).toHaveAttribute("aria-selected", "true");
+    await user.click(dialog.getByRole("tab", tab("常规")));
     expect(dialog.getByLabelText("连接名")).toHaveValue("订单库");
   });
 
   it("keeps tunnel fields disabled until the tunnel is switched on", async () => {
     const { user, dialog } = await openForm();
-    await user.click(dialog.getByRole("tab", { name: "SSH" }));
+    await user.click(dialog.getByRole("tab", tab("SSH")));
     expect(dialog.getByLabelText("SSH 主机")).toBeDisabled();
     expect(dialog.getByLabelText("SSH 端口")).toHaveValue("22");
     expect(dialog.getByLabelText("把 SSH 密码保存到钥匙串")).toBeDisabled();
     await user.click(dialog.getByLabelText("经 SSH 隧道连接"));
     expect(dialog.getByLabelText("SSH 主机")).toBeEnabled();
     // 页签上的小圆点说明这一页开着。
-    expect(dialog.getByRole("tab", { name: "SSH" }).querySelector(".seg-tab-mark.is-on")).not.toBeNull();
+    expect(dialog.getByRole("tab", tab("SSH")).querySelector(".seg-tab-mark.is-on")).not.toBeNull();
+    // 读屏读得到:「SSH（已设置）」。
+    expect(dialog.getByRole("tab", { name: "SSH（已设置）" })).toBeInTheDocument();
   });
 });
 
@@ -88,7 +90,11 @@ describe("SSH", () => {
 
     const prompt = within(await screen.findByRole("dialog", { name: "核对 SSH 服务器" }));
     expect(prompt.getByText("jump.example.test:22")).toBeInTheDocument();
-    expect(prompt.getByLabelText("指纹")).toHaveTextContent(/^SHA256:/);
+    // 读屏按「指纹」→ 指纹值来读:dt 紧跟着 dd。
+    const term = prompt.getByText("指纹");
+    expect(term.tagName).toBe("DT");
+    expect(term.nextElementSibling).toHaveTextContent(/^SHA256:/);
+    expect(prompt.getByText(/^SHA256:/)).toHaveTextContent(/^SHA256:[A-Za-z0-9+/]{43}$/);
     expect(prompt.getByText("ED25519")).toBeInTheDocument();
     expect(prompt.getByText("ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub")).toBeInTheDocument();
     await user.click(prompt.getByRole("button", { name: "信任并连接" }));
@@ -135,14 +141,15 @@ describe("SSH", () => {
 
   it("turns to the page with the first error when saving fails", async () => {
     const { user, dialog } = await openForm();
-    await user.click(dialog.getByRole("tab", { name: "SSH" }));
+    await user.click(dialog.getByRole("tab", tab("SSH")));
     await user.click(dialog.getByLabelText("经 SSH 隧道连接"));
-    await user.click(dialog.getByRole("tab", { name: "常规" }));
+    await user.click(dialog.getByRole("tab", tab("常规")));
     await user.click(dialog.getByRole("button", { name: "保存" }));
 
     expect(await dialog.findByText("请填写 SSH 主机地址")).toBeInTheDocument();
-    expect(dialog.getByRole("tab", { name: "SSH" })).toHaveAttribute("aria-selected", "true");
-    expect(dialog.getByRole("tab", { name: "SSH" }).querySelector(".seg-tab-mark.is-error")).not.toBeNull();
+    expect(dialog.getByRole("tab", tab("SSH"))).toHaveAttribute("aria-selected", "true");
+    expect(dialog.getByRole("tab", tab("SSH")).querySelector(".seg-tab-mark.is-error")).not.toBeNull();
+    expect(dialog.getByRole("tab", { name: "SSH（有错误）" })).toBeInTheDocument();
     expect(dialog.getByText("请填写 SSH 用户名")).toBeInTheDocument();
   });
 
@@ -174,7 +181,7 @@ describe("SSH", () => {
     act(() => useUi.getState().openConnectionDialog({ mode: "edit", connection: tunneled }));
     const dialog = within(await screen.findByRole("dialog", { name: "编辑连接" }));
     expect(dialog.getByLabelText("主机")).toHaveAccessibleDescription("从 SSH 服务器那边看的地址");
-    await user.click(dialog.getByRole("tab", { name: "SSH" }));
+    await user.click(dialog.getByRole("tab", tab("SSH")));
     expect(dialog.getByLabelText("经 SSH 隧道连接")).toBeChecked();
     expect(dialog.getByLabelText("SSH 端口")).toHaveValue("2222");
     expect(dialog.getByLabelText("私钥口令")).toHaveAttribute("placeholder", "已保存在钥匙串");
@@ -196,7 +203,7 @@ describe("SSH", () => {
     const { user } = renderApp(backend);
     act(() => useUi.getState().openConnectionDialog({ mode: "edit", connection: tunneled }));
     const dialog = within(await screen.findByRole("dialog", { name: "编辑连接" }));
-    await user.click(dialog.getByRole("tab", { name: "SSH" }));
+    await user.click(dialog.getByRole("tab", tab("SSH")));
     await user.selectOptions(dialog.getByLabelText("登录方式"), "密码");
     await user.click(dialog.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -207,9 +214,15 @@ describe("SSH", () => {
 describe("SSL", () => {
   it("describes each mode and picks certificate files", async () => {
     const { user, dialog, backend } = await openForm();
-    await user.click(dialog.getByRole("tab", { name: "SSL" }));
+    await user.click(dialog.getByRole("tab", tab("SSL")));
     expect(dialog.getByLabelText("SSL 模式")).toHaveValue("preferred");
     expect(dialog.getByText(/没设置过 SSL 的连接都是这样/)).toBeInTheDocument();
+    // 「优先」不校验证书:CA 证书框用不上,灰掉并说明。
+    expect(dialog.getByLabelText("CA 证书")).toBeDisabled();
+    expect(dialog.getByLabelText("CA 证书")).toHaveAccessibleDescription(/用不到 CA 证书/);
+    await user.selectOptions(dialog.getByLabelText("SSL 模式"), "必须");
+    expect(dialog.getByLabelText("CA 证书")).toBeEnabled();
+    expect(dialog.getByLabelText("CA 证书")).toHaveAccessibleDescription(/选了就按它校验服务器证书/);
 
     await user.selectOptions(dialog.getByLabelText("SSL 模式"), "禁用");
     expect(dialog.getByLabelText("CA 证书")).toBeDisabled();
@@ -236,7 +249,7 @@ describe("SSL", () => {
     const context = await openForm();
     const { user, dialog } = context;
     await fillTunnel(context);
-    await user.click(dialog.getByRole("tab", { name: "SSL" }));
+    await user.click(dialog.getByRole("tab", tab("SSL")));
     const option = within(dialog.getByLabelText("SSL 模式")).getByRole("option", {
       name: "校验主机名（经 SSH 隧道时不能用）",
     });
@@ -245,11 +258,11 @@ describe("SSL", () => {
 
   it("asks for the client certificate and key together", async () => {
     const { user, dialog } = await openForm();
-    await user.click(dialog.getByRole("tab", { name: "SSL" }));
+    await user.click(dialog.getByRole("tab", tab("SSL")));
     await user.type(dialog.getByLabelText("客户端证书"), "/Users/me/certs/client.crt");
-    await user.click(dialog.getByRole("tab", { name: "常规" }));
+    await user.click(dialog.getByRole("tab", tab("常规")));
     await user.click(dialog.getByRole("button", { name: "保存" }));
     expect(await dialog.findByText("客户端证书和私钥要一起填")).toBeInTheDocument();
-    expect(dialog.getByRole("tab", { name: "SSL" })).toHaveAttribute("aria-selected", "true");
+    expect(dialog.getByRole("tab", tab("SSL"))).toHaveAttribute("aria-selected", "true");
   });
 });

@@ -87,7 +87,7 @@ test("new connection: check the SSH host key", async ({ page }) => {
   const dialog = await fillTunnel(page);
   await dialog.getByLabel("SSH 密码", { exact: true }).fill("ssh-pass");
   await dialog.getByRole("button", { name: "测试连接" }).click();
-  await expect(page.getByRole("dialog", { name: "核对 SSH 服务器" }).getByLabel("指纹")).toContainText("SHA256:");
+  await expect(page.getByRole("dialog", { name: "核对 SSH 服务器" }).getByText(/^SHA256:/)).toBeVisible();
   await snapshot(page, "ssh-host-key");
 });
 

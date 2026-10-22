@@ -42,10 +42,17 @@ export function HostKeyPrompt() {
         </p>
         <div className="host-key-card">
           <FingerprintPattern aria-hidden />
-          <span className="host-key-algorithm">{algorithmLabel(hostKey.algorithm)}</span>
-          <span className="host-key-fingerprint mono selectable" aria-label="指纹">
-            {hostKey.fingerprint}
-          </span>
+          {/* 读屏按「密钥类型 ED25519」「指纹 SHA256:…」读;名称看得见的地方不用重复。 */}
+          <dl className="host-key-facts">
+            <div>
+              <dt className="visually-hidden">密钥类型</dt>
+              <dd className="host-key-algorithm">{algorithmLabel(hostKey.algorithm)}</dd>
+            </div>
+            <div>
+              <dt className="visually-hidden">指纹</dt>
+              <dd className="host-key-fingerprint mono selectable">{hostKey.fingerprint}</dd>
+            </div>
+          </dl>
         </div>
         <p className="dialog-text host-key-note">
           一致才信任。信任后 Basalt 会记住它，以后指纹变了会拒绝连接；不一致说明连到的可能不是这台服务器。

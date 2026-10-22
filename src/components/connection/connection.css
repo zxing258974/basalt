@@ -178,7 +178,7 @@
 }
 .host-key-card {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-4);
   padding: var(--space-5) var(--space-6);
@@ -190,6 +190,20 @@
   width: 18px;
   height: 18px;
   color: var(--accent);
+}
+.host-key-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-4);
+  margin: 0;
+}
+/* 每组 dt / dd 包一层 div(dl 里只许这样),排版时当它不存在。 */
+.host-key-facts > div {
+  display: contents;
+}
+.host-key-facts dd {
+  margin: 0;
 }
 .host-key-algorithm {
   font-size: var(--text-xs);

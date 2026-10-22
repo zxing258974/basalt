@@ -37,7 +37,13 @@ export interface PasswordPromptState {
 /** 第一次连接某台 SSH 服务器:等用户核对指纹。 */
 export interface HostKeyPromptState {
   hostKey: HostKey;
-  resolve(trusted: boolean): void;
+  /** 等这个答案的调用方:同一台服务器同时开的几个连接共用一个框。 */
+  resolvers: readonly ((trusted: boolean) => void)[];
+}
+
+/** 同一台服务器出示的同一把钥匙。 */
+function sameServerKey(a: HostKey, b: HostKey): boolean {
+  return a.host.toLowerCase() === b.host.toLowerCase() && a.port === b.port && a.fingerprint === b.fingerprint;
 }
 
 interface UiStore {
@@ -45,8 +51,11 @@ interface UiStore {
   selectedKey: string | null;
   connectionDialog: ConnectionDialogState;
   passwordPrompt: PasswordPromptState | null;
+  /** 正在显示的指纹确认框。 */
   hostKeyPrompt: HostKeyPromptState | null;
-  /** 弹出指纹确认框,用户点了「信任」返回 true。同时只有一个,后来的会让前一个按取消处理。 */
+  /** 排着队的别的服务器,一个答完再弹下一个。 */
+  hostKeyQueue: readonly HostKeyPromptState[];
+  /** 弹出指纹确认框(或者排队),用户点了「信任」返回 true。 */
   confirmHostKey(hostKey: HostKey): Promise<boolean>;
   /** 指纹确认框的按钮。 */
   answerHostKey(trusted: boolean): void;
@@ -75,17 +84,27 @@ export const useUi = create<UiStore>((set) => ({
   connectionDialog: { mode: "closed" },
   passwordPrompt: null,
   hostKeyPrompt: null,
+  hostKeyQueue: [],
   confirmHostKey: (hostKey) =>
     new Promise<boolean>((resolve) => {
       set((s) => {
-        s.hostKeyPrompt?.resolve(false);
-        return { hostKeyPrompt: { hostKey, resolve } };
+        const same = (prompt: HostKeyPromptState) => sameServerKey(prompt.hostKey, hostKey);
+        const join = (prompt: HostKeyPromptState) => ({ ...prompt, resolvers: [...prompt.resolvers, resolve] });
+        // 同一台服务器同时来的几个连接共用一个框,答一次都算数。
+        if (s.hostKeyPrompt && same(s.hostKeyPrompt)) return { hostKeyPrompt: join(s.hostKeyPrompt) };
+        if (s.hostKeyQueue.some(same)) {
+          return { hostKeyQueue: s.hostKeyQueue.map((prompt) => (same(prompt) ? join(prompt) : prompt)) };
+        }
+        const entry = { hostKey, resolvers: [resolve] };
+        // 别的服务器的排在后面,一个答完再弹下一个,不把前一个当成「不信任」了结。
+        return s.hostKeyPrompt ? { hostKeyQueue: [...s.hostKeyQueue, entry] } : { hostKeyPrompt: entry };
       });
     }),
   answerHostKey: (trusted) =>
     set((s) => {
-      s.hostKeyPrompt?.resolve(trusted);
-      return { hostKeyPrompt: null };
+      s.hostKeyPrompt?.resolvers.forEach((resolve) => resolve(trusted));
+      const [next = null, ...rest] = s.hostKeyQueue;
+      return { hostKeyPrompt: next, hostKeyQueue: rest };
     }),
   pendingDelete: null,
   discardPrompt: null,

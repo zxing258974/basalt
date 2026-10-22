@@ -139,13 +139,61 @@ describe("withHostKeyTrust", () => {
     expect(action).toHaveBeenCalledTimes(4);
   });
 
-  it("passes other errors through and cancels an earlier prompt when a new one comes", async () => {
+  it("passes other errors through", async () => {
     await expect(withHostKeyTrust(() => Promise.reject(new Error("boom")))).rejects.toThrow("boom");
+  });
+
+  it("lets two connections through the same new server share one prompt", async () => {
+    const backend = createMockBackend();
+    renderApp(backend);
+    const trust = vi.spyOn(backend, "trustHostKey").mockResolvedValue();
+    // 两个连接各被拒一次(没见过的主机密钥),信任以后各自重试成功。
+    const action = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce(unknown)
+      .mockRejectedValueOnce(unknown)
+      .mockResolvedValue("opened");
+    const first = withHostKeyTrust(action);
+    const second = withHostKeyTrust(action);
+    await waitFor(() => expect(useUi.getState().hostKeyPrompt?.resolvers).toHaveLength(2));
+    expect(useUi.getState().hostKeyQueue).toHaveLength(0);
+    useUi.getState().answerHostKey(true);
+    await expect(first).resolves.toBe("opened");
+    await expect(second).resolves.toBe("opened");
+    expect(trust).toHaveBeenCalled();
+    expect(useUi.getState().hostKeyPrompt).toBeNull();
+  });
+
+  it("queues prompts for other servers instead of cancelling the one on screen", async () => {
+    const other = { ...unknown.hostKey!, host: "other", fingerprint: "SHA256:y" };
     const first = useUi.getState().confirmHostKey(unknown.hostKey!);
-    const second = useUi.getState().confirmHostKey(unknown.hostKey!);
+    const second = useUi.getState().confirmHostKey(other);
+    expect(useUi.getState().hostKeyPrompt?.hostKey.host).toBe("h");
+    expect(useUi.getState().hostKeyQueue.map((p) => p.hostKey.host)).toEqual(["other"]);
+
+    useUi.getState().answerHostKey(false);
     await expect(first).resolves.toBe(false);
+    expect(useUi.getState().hostKeyPrompt?.hostKey.host).toBe("other");
+    // 排队的那个后来又有连接要它:合进同一个。
+    const third = useUi.getState().confirmHostKey(other);
     useUi.getState().answerHostKey(true);
     await expect(second).resolves.toBe(true);
+    await expect(third).resolves.toBe(true);
+    expect(useUi.getState().hostKeyPrompt).toBeNull();
+  });
+
+  it("joins a queued prompt for the same server", async () => {
+    const other = { ...unknown.hostKey!, host: "other", fingerprint: "SHA256:y" };
+    const shown = useUi.getState().confirmHostKey(unknown.hostKey!);
+    const queued = useUi.getState().confirmHostKey(other);
+    const joined = useUi.getState().confirmHostKey({ ...other, host: "OTHER" });
+    expect(useUi.getState().hostKeyQueue).toHaveLength(1);
+    expect(useUi.getState().hostKeyQueue[0]?.resolvers).toHaveLength(2);
+    useUi.getState().answerHostKey(true);
+    useUi.getState().answerHostKey(false);
+    await expect(shown).resolves.toBe(true);
+    await expect(queued).resolves.toBe(false);
+    await expect(joined).resolves.toBe(false);
   });
 
   it("names key types the way ssh-keygen does", () => {

@@ -16,6 +16,8 @@ interface SegmentedTabsProps<T extends string> {
   prefix: string;
 }
 
+const MARK_TEXT = { on: "（已设置）", error: "（有错误）" } as const;
+
 export const tabElementId = (prefix: string, id: string) => `${prefix}-tab-${id}`;
 
 export function tabPanelProps(prefix: string, selected: string) {
@@ -54,7 +56,13 @@ export function SegmentedTabs<T extends string>({ tabs, selected, onSelect, labe
             onClick={() => onSelect(tab.id)}
           >
             {tab.label}
-            {tab.mark && <span className={`seg-tab-mark is-${tab.mark}`} aria-hidden />}
+            {tab.mark && (
+              <>
+                <span className={`seg-tab-mark is-${tab.mark}`} aria-hidden />
+                {/* 小圆点读屏读不到:用文字说这一页开着,或者有字段出错。 */}
+                <span className="visually-hidden">{MARK_TEXT[tab.mark]}</span>
+              </>
+            )}
           </button>
         );
       })}

@@ -151,13 +151,28 @@ export function SshPage({ form, update, replace, errorFor }: PageProps) {
 const SSL_MODES: readonly { value: SslMode; hint: string }[] = [
   { value: "disabled", hint: "不加密。" },
   { value: "preferred", hint: "服务器支持就加密，不校验证书。没设置过 SSL 的连接都是这样。" },
-  { value: "required", hint: "必须加密，服务器不支持就连不上；不校验证书。" },
+  { value: "required", hint: "必须加密，服务器不支持就连不上；选了 CA 证书就按它校验，不选不校验证书。" },
   { value: "verifyCa", hint: "加密，并校验服务器证书由所选的 CA 签发；不核对主机名。" },
   { value: "verifyIdentity", hint: "加密，校验 CA，再核对证书里的主机名和「常规」页的主机一致。" },
 ];
 
+/** CA 证书框的说明:「优先」用不到它;「必须」选了它就校验(和 libpq、mysql 客户端一样)。 */
+function caHint(mode: SslMode): string {
+  switch (mode) {
+    case "disabled":
+    case "preferred":
+      return "「禁用」「优先」不校验证书，用不到 CA 证书；要校验请选「必须」或「校验 CA」";
+    case "required":
+      return "选了就按它校验服务器证书（和 libpq、mysql 客户端一样），不选只加密不校验";
+    case "verifyCa":
+    case "verifyIdentity":
+      return "不选只认常见的公共 CA，自签的证书要选签发它的 CA";
+  }
+}
+
 export function SslPage({ form, update, errorFor }: Omit<PageProps, "replace">) {
   const off = form.sslMode === "disabled";
+  const caUnused = off || form.sslMode === "preferred";
   const options = SSL_MODES.map(({ value }) => {
     const label = SSL_MODE_LABELS[value];
     // 经隧道时实际连的是本机转发端口,证书里的主机名对不上。
@@ -180,9 +195,9 @@ export function SslPage({ form, update, errorFor }: Omit<PageProps, "replace">) 
         label="CA 证书"
         kind="certificate"
         value={form.sslCa}
-        disabled={off}
+        disabled={caUnused}
         error={errorFor("sslCa")}
-        hint="校验证书时用；不选只认常见的公共 CA，自签的证书要选签发它的 CA"
+        hint={caHint(form.sslMode)}
         onValueChange={(sslCa) => update({ sslCa })}
       />
       <FileField

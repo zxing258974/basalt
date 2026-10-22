@@ -362,3 +362,75 @@
   line-height: 1.6;
   color: var(--text-faint);
 }
+
+/* 查询顶栏的「助手」按钮:深色胶囊,一道亮光沿着边转圈,里面细点阵和一团紫光。
+   转圈的是一块放大的锥形渐变(只动 transform),中间再盖一层底色,露出来的一圈就是边。 */
+.assistant-shiny.btn {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border: none;
+  border-radius: 999px;
+  padding-inline: var(--space-4) var(--space-5);
+  background: var(--assistant-shiny-surface);
+  color: oklch(98% 0.01 300);
+  box-shadow: 0 1px 3px oklch(30% 0.12 300 / 0.35);
+}
+.assistant-shiny.btn::before {
+  content: "";
+  position: absolute;
+  z-index: -2;
+  top: 50%;
+  left: 50%;
+  width: 260%;
+  aspect-ratio: 1;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 62%,
+    var(--assistant-from) 74%,
+    var(--assistant-to) 84%,
+    oklch(100% 0 0) 88%,
+    transparent 92% 100%
+  );
+  transform: translate(-50%, -50%) rotate(0deg);
+}
+.assistant-shiny.btn::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 1px;
+  border-radius: inherit;
+  background:
+    radial-gradient(oklch(100% 0 0 / 0.09) 0.6px, transparent 0.8px) 0 0 / 4px 4px,
+    radial-gradient(120% 90% at 50% 130%, color-mix(in oklch, var(--assistant-from) 55%, transparent), transparent 70%),
+    var(--assistant-shiny-surface);
+}
+.assistant-shiny.btn svg {
+  color: oklch(100% 0 0);
+}
+.assistant-shiny.btn:hover:not(:disabled) {
+  background: var(--assistant-shiny-surface);
+  box-shadow:
+    0 1px 3px oklch(30% 0.12 300 / 0.35),
+    0 0 12px color-mix(in oklch, var(--assistant-to) 45%, transparent);
+}
+.assistant-shiny.btn[aria-pressed="true"] {
+  background: var(--assistant-shiny-surface);
+  color: oklch(98% 0.01 300);
+  box-shadow:
+    0 1px 3px oklch(30% 0.12 300 / 0.35),
+    0 0 0 2px color-mix(in oklch, var(--assistant-from) 35%, transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .assistant-shiny.btn::before {
+    animation: assistant-shine 3.6s linear infinite;
+  }
+  .assistant-shiny.btn:hover::before {
+    animation-duration: 1.8s;
+  }
+}
+@keyframes assistant-shine {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}

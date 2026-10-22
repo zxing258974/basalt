@@ -64,10 +64,6 @@
   background: var(--surface-selected);
   color: var(--text-strong);
 }
-/* 助手开着:按钮底色跟着它的标志走紫色,不用余烬色。 */
-.query-actions .btn.query-assistant[aria-pressed="true"] {
-  background: color-mix(in oklch, var(--assistant-from) 16%, transparent);
-}
 
 /* 库 / schema:看起来像面包屑里的一段,点开是原生下拉框 */
 .query-scope {

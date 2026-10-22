@@ -35,6 +35,8 @@
   /* SQL 助手的标志:紫到品红的渐变,和余烬色的主操作区分开 */
   --assistant-from: oklch(56% 0.21 292);
   --assistant-to: oklch(62% 0.23 340);
+  /* 助手按钮的深色胶囊底,深浅主题都是深的 */
+  --assistant-shiny-surface: oklch(24% 0.06 292);
 
   /* 语义色 */
   --danger: oklch(55% 0.19 27);
@@ -144,6 +146,7 @@
     --accent-soft: oklch(31% 0.06 50);
     --assistant-from: oklch(64% 0.18 292);
     --assistant-to: oklch(68% 0.2 340);
+    --assistant-shiny-surface: oklch(20% 0.05 292);
     --danger: oklch(66% 0.17 27);
     --danger-soft: oklch(28% 0.06 27);
     --success: oklch(70% 0.13 150);

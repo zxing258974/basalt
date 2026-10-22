@@ -1,5 +1,4 @@
-import { CircleStop, FastForward, History, Paintbrush, Play, Save } from "lucide-react";
-import { AssistantMark } from "../assistant/AssistantMark";
+import { Bot, CircleStop, FastForward, History, Paintbrush, Play, Save } from "lucide-react";
 import type { QueryScope } from "../../lib/queryTypes";
 import type { ConnectionView } from "../../lib/types";
 import { DriverBadge } from "../connection/DriverBadge";
@@ -118,10 +117,10 @@ export function QueryHeader(props: QueryHeaderProps) {
           历史
         </Button>
         <Button
-          className="query-tool query-assistant"
+          className="query-tool assistant-shiny"
           variant="ghost"
           size="sm"
-          icon={<AssistantMark />}
+          icon={<Bot />}
           aria-pressed={props.assistantOpen}
           title="SQL 助手：按问题生成 SQL、优化当前 SQL（不会执行）"
           onClick={props.onToggleAssistant}

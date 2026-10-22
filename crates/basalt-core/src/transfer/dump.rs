@@ -23,6 +23,7 @@ use super::sql_write::{SqlFrame, SqlWriter};
 use super::writer::{BUFFER_BYTES, OutputFile};
 use crate::error::CoreResult;
 use crate::session::{Session, SessionManager};
+use crate::sql::bind::quote_string;
 use crate::sql::{Dialect, quote_ident, table_name};
 use crate::table::TableRef;
 use crate::table_info::join_statements;
@@ -49,8 +50,26 @@ pub struct CreateScript {
     pub table: Vec<String>,
     /// PostgreSQL 单独给出的外键;MySQL、SQLite 的外键写在建表语句里。
     pub foreign_keys: Vec<String>,
-    /// 每条一个 CREATE TRIGGER,末尾不带分号。
-    pub triggers: Vec<String>,
+    pub triggers: Vec<Trigger>,
+}
+
+/// 一个触发器。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Trigger {
+    /// CREATE TRIGGER,末尾不带分号。
+    pub sql: String,
+    /// MySQL 建它时的 sql_mode:触发器把建的时候的 sql_mode 存下来,里面的写入按它执行。
+    /// 转储文件整体跑在宽松的 sql_mode 下,不在建之前设回去,严格模式下建的触发器还原后会悄悄截断数据。
+    pub sql_mode: Option<String>,
+}
+
+impl Trigger {
+    pub fn plain(sql: String) -> Self {
+        Self {
+            sql,
+            sql_mode: None,
+        }
+    }
 }
 
 /// MySQL 读数据的那条连接先把时区设成 +00:00:TIMESTAMP 按 UTC 读出来,和文件开头的 TIME_ZONE 对上。
@@ -88,16 +107,22 @@ fn comment_text(text: &str) -> String {
 }
 
 /// 建触发器的语句。MySQL 的触发器体里可能有分号(BEGIN … END),按 mysql 客户端的习惯临时把分隔符换成 `;;`
-/// (Navicat、mysql 命令行、Basalt 的查询页都认);另两家的客户端自己认得 BEGIN … END。
-fn triggers_sql(dialect: Dialect, triggers: &[String]) -> String {
+/// (Navicat、mysql 命令行、Basalt 的查询页都认),建之前像 mysqldump 那样把 sql_mode 设回它原来的;
+/// 文件最后会把 sql_mode 换回执行前的。另两家的客户端自己认得 BEGIN … END。
+fn triggers_sql(dialect: Dialect, triggers: &[Trigger]) -> String {
     if dialect != Dialect::Mysql {
-        return join_statements(triggers.iter().cloned());
+        return join_statements(triggers.iter().map(|t| t.sql.clone()));
     }
-    let body: Vec<String> = triggers
+    let blocks: Vec<String> = triggers
         .iter()
-        .map(|t| format!("{};;", t.trim_end()))
+        .map(|t| {
+            let mode = t.sql_mode.as_deref().map_or(String::new(), |mode| {
+                format!("SET SQL_MODE = {};\n", quote_string(dialect, mode))
+            });
+            format!("{mode}DELIMITER ;;\n{};;\nDELIMITER ;", t.sql.trim_end())
+        })
         .collect();
-    format!("DELIMITER ;;\n{}\nDELIMITER ;", body.join("\n\n"))
+    blocks.join("\n\n")
 }
 
 /// INSERT 写进哪张表(加好引号),以及写在 INSERT 前后的内容。
@@ -253,7 +278,10 @@ mod tests {
         CreateScript {
             table: owned(table),
             foreign_keys: owned(foreign_keys),
-            triggers: owned(triggers),
+            triggers: triggers
+                .iter()
+                .map(|t| Trigger::plain((*t).to_owned()))
+                .collect(),
         }
     }
 
@@ -263,14 +291,19 @@ mod tests {
         let (target, frame) = dump_frame(
             my,
             &table(my, "users"),
-            &script(
-                &["CREATE TABLE `users` (\n  `id` int\n)"],
-                &[],
-                &[
-                    "CREATE TRIGGER `a` BEFORE INSERT ON `users` FOR EACH ROW SET NEW.id = 1",
-                    "CREATE TRIGGER `b` AFTER DELETE ON `users` FOR EACH ROW BEGIN DELETE FROM log; END",
+            &CreateScript {
+                triggers: vec![
+                    Trigger {
+                        sql: "CREATE TRIGGER `a` BEFORE INSERT ON `users` FOR EACH ROW SET NEW.id = 1".into(),
+                        sql_mode: Some("STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION".into()),
+                    },
+                    Trigger::plain(
+                        "CREATE TRIGGER `b` AFTER DELETE ON `users` FOR EACH ROW BEGIN DELETE FROM log; END"
+                            .into(),
+                    ),
                 ],
-            ),
+                ..script(&["CREATE TABLE `users` (\n  `id` int\n)"], &[], &[])
+            },
             &[],
             true,
         );
@@ -285,8 +318,9 @@ mod tests {
         );
         assert_eq!(
             frame.after,
-            "-- 触发器\nDELIMITER ;;\n\
-             CREATE TRIGGER `a` BEFORE INSERT ON `users` FOR EACH ROW SET NEW.id = 1;;\n\n\
+            "-- 触发器\nSET SQL_MODE = 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION';\nDELIMITER ;;\n\
+             CREATE TRIGGER `a` BEFORE INSERT ON `users` FOR EACH ROW SET NEW.id = 1;;\nDELIMITER ;\n\n\
+             DELIMITER ;;\n\
              CREATE TRIGGER `b` AFTER DELETE ON `users` FOR EACH ROW BEGIN DELETE FROM log; END;;\n\
              DELIMITER ;\n\n\
              SET TIME_ZONE = @OLD_TIME_ZONE;\nSET FOREIGN_KEY_CHECKS = @OLD_FOREIGN_KEY_CHECKS;\n"

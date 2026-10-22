@@ -131,7 +131,7 @@ describe("maintain table", { timeout: 15_000 }, () => {
             finish = () =>
               resolve({
                 sql: "OPTIMIZE TABLE `shop`.`customers`",
-                messages: [{ level: "status", text: "OK" }],
+                messages: [{ level: "status", text: "OK", kind: "success" }],
                 size: null,
                 elapsedMs: 9,
               });
@@ -157,13 +157,13 @@ describe("maintain table", { timeout: 15_000 }, () => {
     await waitFor(() => expect(status()).toHaveTextContent("「customers」分析失败：Lock wait timeout exceeded"));
   });
 
-  it("colours messages by what they say and does not call a failed check finished", async () => {
+  it("colours messages by how the backend classified them and does not call a failed check finished", async () => {
     const backend = createMockBackend();
     vi.spyOn(backend, "maintainTable").mockResolvedValue({
       sql: "CHECK TABLE `shop`.`customers`",
       messages: [
-        { level: "error", text: "Table 'shop.customers' is marked as crashed" },
-        { level: "status", text: "Corrupt" },
+        { level: "error", text: "Table 'shop.customers' is marked as crashed", kind: "failure" },
+        { level: "status", text: "Corrupt", kind: "failure" },
       ],
       size: null,
       elapsedMs: 5,
@@ -174,7 +174,25 @@ describe("maintain table", { timeout: 15_000 }, () => {
     await user.click(dialog.getByRole("button", { name: "执行" }));
     const result = await screen.findByRole("dialog", { name: "检查发现问题" });
     const levels = [...result.querySelectorAll(".maintenance-level")].map((l) => l.className);
-    expect(levels).toEqual(["maintenance-level is-bad", "maintenance-level is-bad"]);
+    expect(levels).toEqual(["maintenance-level is-failure", "maintenance-level is-failure"]);
+  });
+
+  it("does not call MariaDB's statistics line a problem", async () => {
+    const backend = createMockBackend();
+    vi.spyOn(backend, "maintainTable").mockResolvedValue({
+      sql: "ANALYZE TABLE `shop`.`customers`",
+      messages: [
+        { level: "status", text: "Engine-independent statistics collected", kind: "info" },
+        { level: "status", text: "OK", kind: "success" },
+      ],
+      size: null,
+      elapsedMs: 5,
+    });
+    const { user } = await openTableMenu("维护…", MYSQL_CUSTOMERS, backend);
+    await user.click(within(screen.getByRole("dialog", { name: "维护表" })).getByRole("button", { name: "执行" }));
+    const result = await screen.findByRole("dialog", { name: "分析完成" });
+    const levels = [...result.querySelectorAll(".maintenance-level")].map((l) => l.className);
+    expect(levels).toEqual(["maintenance-level is-info", "maintenance-level is-success"]);
   });
 
   it("keeps the choices open when the database refuses", async () => {

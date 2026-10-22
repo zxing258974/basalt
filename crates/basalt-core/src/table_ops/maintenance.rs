@@ -54,12 +54,56 @@ impl Maintenance {
     }
 }
 
+/// 一条消息说明了什么。前端按它着色,有 `Failure` 就说「发现问题」。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MessageKind {
+    Success,
+    Failure,
+    Warning,
+    Info,
+}
+
+/// MySQL、MariaDB 做完时 status 行的说法(小写)。
+const SUCCESS_STATUSES: [&str; 2] = ["ok", "table is already up to date"];
+/// 不是结论的 status 行:MariaDB 收集引擎无关统计(use_stat_tables 为 PREFERABLY 等)时,
+/// ANALYZE 先给这一行再给 OK。
+const PROGRESS_STATUSES: [&str; 1] = ["engine-independent statistics collected"];
+
+impl MessageKind {
+    /// 按 Msg_type、Msg_text 归类。没见过的 status(Operation failed、Corrupt……)都算失败:
+    /// 宁可多提醒一次,不能把没做成说成做完了。
+    pub fn classify(level: &str, text: &str) -> Self {
+        let text = text.trim().to_ascii_lowercase();
+        match level {
+            "error" => Self::Failure,
+            "warning" => Self::Warning,
+            "status" if SUCCESS_STATUSES.contains(&text.as_str()) => Self::Success,
+            "status" if PROGRESS_STATUSES.contains(&text.as_str()) => Self::Info,
+            "status" => Self::Failure,
+            _ => Self::Info,
+        }
+    }
+}
+
 /// 数据库返回的一条消息。`level` 是 MySQL 的 Msg_type(小写):status、error、info、note、warning。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MaintenanceMessage {
     pub level: String,
     pub text: String,
+    pub kind: MessageKind,
+}
+
+impl MaintenanceMessage {
+    pub fn new(level: &str, text: &str) -> Self {
+        let level = level.to_lowercase();
+        Self {
+            kind: MessageKind::classify(&level, text),
+            level,
+            text: text.to_owned(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -79,6 +123,13 @@ pub struct MaintenanceOutcome {
     /// 只有 PostgreSQL 的 VACUUM、REINDEX 和 SQLite 的 VACUUM 才有。
     pub size: Option<SizeChange>,
     pub elapsed_ms: u64,
+}
+
+impl MaintenanceOutcome {
+    /// 有失败的消息:表坏了、表不存在、没做成。
+    pub fn has_problem(&self) -> bool {
+        self.messages.iter().any(|m| m.kind == MessageKind::Failure)
+    }
 }
 
 /// 要执行的语句;这种数据库没有这项维护时报 Unsupported。
@@ -241,13 +292,57 @@ mod tests {
     }
 
     #[test]
+    fn messages_are_classified_like_mysql_and_mariadb_report_them() {
+        use MessageKind::*;
+        let kinds = |rows: &[(&str, &str)]| -> Vec<MessageKind> {
+            rows.iter()
+                .map(|(l, t)| MaintenanceMessage::new(l, t).kind)
+                .collect()
+        };
+        // MariaDB 收集引擎无关统计时的 ANALYZE。
+        assert_eq!(
+            kinds(&[
+                ("status", "Engine-independent statistics collected"),
+                ("status", "OK")
+            ]),
+            [Info, Success]
+        );
+        // InnoDB 的 OPTIMIZE、REPAIR,MyISAM 没变过的 ANALYZE。
+        assert_eq!(
+            kinds(&[
+                (
+                    "note",
+                    "Table does not support optimize, doing recreate + analyze instead"
+                ),
+                ("status", "OK"),
+                (
+                    "note",
+                    "The storage engine for the table doesn't support repair"
+                ),
+                ("status", "Table is already up to date"),
+            ]),
+            [Info, Success, Info, Success]
+        );
+        // 表不存在、表坏了(MariaDB 的 Msg_type 是 Error,大写)。
+        assert_eq!(
+            kinds(&[
+                ("Error", "Table 'shop.nope' doesn't exist"),
+                ("status", "Operation failed"),
+                ("status", "Corrupt"),
+                (
+                    "warning",
+                    "1 client is using or hasn't closed the table properly"
+                ),
+            ]),
+            [Failure, Failure, Failure, Warning]
+        );
+    }
+
+    #[test]
     fn outcome_serializes_in_camel_case() {
         let outcome = MaintenanceOutcome {
             sql: "VACUUM \"main\"".into(),
-            messages: vec![MaintenanceMessage {
-                level: "status".into(),
-                text: "OK".into(),
-            }],
+            messages: vec![MaintenanceMessage::new("status", "OK")],
             size: Some(SizeChange {
                 before: 8192,
                 after: 4096,
@@ -258,7 +353,7 @@ mod tests {
             serde_json::to_value(outcome).unwrap(),
             serde_json::json!({
                 "sql": "VACUUM \"main\"",
-                "messages": [{ "level": "status", "text": "OK" }],
+                "messages": [{ "level": "status", "text": "OK", "kind": "success" }],
                 "size": { "before": 8192, "after": 4096 },
                 "elapsedMs": 12,
             })

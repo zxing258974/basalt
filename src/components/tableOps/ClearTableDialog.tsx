@@ -14,6 +14,7 @@ import { useDetachable } from "./useDetachable";
 import {
   clearChoices,
   clearRefusal,
+  clearTouches,
   clearedNotice,
   qualifiedName,
   referenceNotes,
@@ -43,10 +44,8 @@ export function ClearTableDialog({ connection, table, mode: initialMode, rows, o
   const { detach, isDetached } = useDetachable(onClose);
   const choices = clearChoices(connection.driver);
   const choice = choices.find((c) => c.mode === mode) ?? choices[0]!;
-  // 表结构不变,设计器里没保存的修改不受影响;数据页重读后未提交的修改就没了。
-  const isDataTab = (tab: Tab) => tab.kind === "tableData" && tabsOfTable(tab, connection.id, table);
-  const hasData = useTabs((s) => s.tabs.some(isDataTab));
-  // 别的表上引用它的外键:清空会按规则连带改动那些表,截断会被拒绝。
+  // 别的表上引用它的外键:清空会按规则连带改动那些表,截断会被拒绝。查完之前不让确认:
+  // 看不到连带警告,也不知道哪些表的数据页要重读、里面没提交的修改要先问。
   const references = useQuery({
     queryKey: catalogKeys.references(connection.id, table.database, table.schema, table.table),
     queryFn: async () => (await getBackend()).tableReferences(connection.id, table),
@@ -54,6 +53,10 @@ export function ClearTableDialog({ connection, table, mode: initialMode, rows, o
   });
   const keys = references.data ?? [];
   const notes = referenceNotes(table, keys, mode, connection.driver);
+  const touched = clearTouches(table, keys, mode, connection.driver);
+  // 表结构不变,设计器里没保存的修改不受影响;这些表的数据页重读后,未提交的修改就没了。
+  const isDataTab = (tab: Tab) => tab.kind === "tableData" && touched.some((t) => tabsOfTable(tab, connection.id, t));
+  const hasData = useTabs((s) => s.tabs.some(isDataTab));
 
   const run = async () => {
     setBusy(true);
@@ -61,10 +64,6 @@ export function ClearTableDialog({ connection, table, mode: initialMode, rows, o
     try {
       const outcome = await (await getBackend()).clearTable(connection.id, table, mode);
       // 按外键连带改动的表,开着的数据页也要重读。
-      const touched = [
-        table,
-        ...keys.filter((k) => k.onDelete !== "restrict" && k.onDelete !== "noAction").map((k) => k.table),
-      ];
       await Promise.all([
         ...touched.map((t) => queryClient.invalidateQueries({ queryKey: tableDataKeys.table(connection.id, t) })),
         queryClient.invalidateQueries({
@@ -102,6 +101,7 @@ export function ClearTableDialog({ connection, table, mode: initialMode, rows, o
           <Button
             variant="danger"
             busy={busy}
+            disabled={references.isPending}
             onClick={() => guardDiscard(isDataTab, () => void run(), undefined, choice.label)}
           >
             {choice.label}
@@ -130,6 +130,7 @@ export function ClearTableDialog({ connection, table, mode: initialMode, rows, o
           </p>
         )}
         {notes.note && <p className="dialog-text is-muted">{notes.note}</p>}
+        {references.isPending && <p className="dialog-text is-muted">正在查别的表上引用它的外键…</p>}
         {references.error && (
           <p className="dialog-text is-muted">没能查到别的表上引用它的外键：{errorMessage(references.error)}</p>
         )}

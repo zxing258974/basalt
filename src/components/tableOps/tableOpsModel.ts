@@ -127,6 +127,20 @@ function changedOwners(table: TableRef, keys: readonly ReferencingKey[]): string
 }
 
 /**
+ * 清空会动到的表:这张表,加上按外键连带删除、置空、改默认值的那些。MySQL、PostgreSQL 的截断只要被引用就被拒绝,
+ * 只动这张表;SQLite 的截断也是 DELETE,照样连带。开着的这些表的数据页要重读,里面没提交的修改要先问。
+ */
+export function clearTouches(
+  table: TableRef,
+  keys: readonly ReferencingKey[],
+  mode: ClearMode,
+  driver: DriverKind,
+): TableRef[] {
+  if (mode === "truncate" && driver !== "sqlite") return [table];
+  return [table, ...keys.filter((k) => k.onDelete in CHANGES).map((k) => k.table)];
+}
+
+/**
  * 引用这张表的外键在确认框里的说法。`warning` 是会改动、会被拒绝的,用醒目的样式;`note` 是可能失败的。
  * MySQL、PostgreSQL 的截断只要有引用就被拒绝;清空(SQLite 的截断也是 DELETE)按 ON DELETE 规则连带。
  */
@@ -282,22 +296,9 @@ export function levelLabel(level: string): string {
   return LEVELS[level] ?? level;
 }
 
-/** MySQL 正常结束时 status 行的说法;别的(Corrupt、Operation failed……)都是出了问题。 */
-const OK_STATUSES = ["ok", "table is already up to date"];
-
-/** 一条消息该怎么着色:好、坏、提醒、普通。 */
-export type MessageTone = "ok" | "bad" | "warn" | "info";
-
-export function messageTone(message: MaintenanceMessage): MessageTone {
-  if (message.level === "error") return "bad";
-  if (message.level === "warning") return "warn";
-  if (message.level === "status") return OK_STATUSES.includes(message.text.trim().toLowerCase()) ? "ok" : "bad";
-  return "info";
-}
-
-/** 有 error 行或者 status 不是 OK:这次维护发现了问题(表坏了、表不存在、没做成)。 */
+/** 后端归为失败的消息(error 行,或者 Operation failed、Corrupt 这类 status):这次维护发现了问题。 */
 export function maintenanceProblem(outcome: MaintenanceOutcome): MaintenanceMessage | null {
-  return outcome.messages.find((m) => messageTone(m) === "bad") ?? null;
+  return outcome.messages.find((m) => m.kind === "failure") ?? null;
 }
 
 /** 结果对话框的标题:发现问题时不说「完成」。 */

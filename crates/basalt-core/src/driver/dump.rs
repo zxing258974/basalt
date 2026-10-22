@@ -18,7 +18,7 @@ use crate::design::postgres_dump_statements;
 use crate::error::{CoreError, CoreResult};
 use crate::sql::{Dialect, quote_ident};
 use crate::table::TableRef;
-use crate::transfer::dump::{CreateScript, SequenceColumn};
+use crate::transfer::dump::{CreateScript, SequenceColumn, Trigger};
 
 impl MysqlSession {
     pub(crate) async fn dump_script(&self, table: &TableRef) -> CoreResult<CreateScript> {
@@ -43,14 +43,16 @@ impl MysqlSession {
     }
 }
 
-/// 表上的触发器,按执行顺序拼成 CREATE TRIGGER(不带 DEFINER,还原时归执行的用户;表名不带库名,和转储的建表语句一致)。
-async fn mysql_triggers<'c, E>(executor: E, table: &TableRef) -> CoreResult<Vec<String>>
+/// 表上的触发器,按执行顺序拼成 CREATE TRIGGER(不带 DEFINER,还原时归执行的用户;表名不带库名,和转储的建表语句一致),
+/// 连同建它时的 sql_mode。
+async fn mysql_triggers<'c, E>(executor: E, table: &TableRef) -> CoreResult<Vec<Trigger>>
 where
     E: Executor<'c, Database = sqlx::MySql>,
 {
     let rows = sqlx::query(
         "SELECT CAST(TRIGGER_NAME AS CHAR) AS name, CAST(ACTION_TIMING AS CHAR) AS timing,
-                CAST(EVENT_MANIPULATION AS CHAR) AS event, CAST(ACTION_STATEMENT AS CHAR) AS body
+                CAST(EVENT_MANIPULATION AS CHAR) AS event, CAST(ACTION_STATEMENT AS CHAR) AS body,
+                CAST(SQL_MODE AS CHAR) AS sql_mode
          FROM information_schema.TRIGGERS
          WHERE EVENT_OBJECT_SCHEMA = ? AND EVENT_OBJECT_TABLE = ?
          ORDER BY ACTION_TIMING, EVENT_MANIPULATION, ACTION_ORDER",
@@ -66,12 +68,15 @@ where
             let timing: String = row.try_get("timing")?;
             let event: String = row.try_get("event")?;
             let body: String = row.try_get("body")?;
-            Ok(format!(
-                "CREATE TRIGGER {} {timing} {event} ON {} FOR EACH ROW {}",
-                quote_ident(d, &name),
-                quote_ident(d, &table.table),
-                body.trim().trim_end_matches(';')
-            ))
+            Ok(Trigger {
+                sql: format!(
+                    "CREATE TRIGGER {} {timing} {event} ON {} FOR EACH ROW {}",
+                    quote_ident(d, &name),
+                    quote_ident(d, &table.table),
+                    body.trim().trim_end_matches(';')
+                ),
+                sql_mode: row.try_get("sql_mode")?,
+            })
         })
         .collect::<Result<_, sqlx::Error>>()
         .map_err(CoreError::from)
@@ -96,7 +101,7 @@ impl PgSession {
         let script = CreateScript {
             table: create,
             foreign_keys,
-            triggers,
+            triggers: triggers.into_iter().map(Trigger::plain).collect(),
         };
         Ok((script, sequences))
     }
@@ -162,7 +167,10 @@ impl SqliteSession {
         Ok(CreateScript {
             table: rest.into_iter().map(|(_, sql)| sql).collect(),
             foreign_keys: Vec::new(),
-            triggers: triggers.into_iter().map(|(_, sql)| sql).collect(),
+            triggers: triggers
+                .into_iter()
+                .map(|(_, sql)| Trigger::plain(sql))
+                .collect(),
         })
     }
 }

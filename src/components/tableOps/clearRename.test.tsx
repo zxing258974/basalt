@@ -3,7 +3,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createMockBackend } from "../../lib/mockBackend";
-import type { TablePage } from "../../lib/types";
+import type { ReferencingKey, TablePage } from "../../lib/types";
 import { useTableOps } from "../../stores/tableOps";
 import { tableDataTab, tableDesignTab, useTabs } from "../../stores/tabs";
 import { useUi } from "../../stores/ui";
@@ -118,6 +118,42 @@ describe("clear and truncate", { timeout: 15_000 }, () => {
       }),
     );
     await waitFor(() => expect(clear).toHaveBeenCalledTimes(1));
+  });
+
+  it("also asks about uncommitted edits in tables the clear would cascade into", async () => {
+    const backend = createMockBackend();
+    const clear = vi.spyOn(backend, "clearTable");
+    await backend.openConnection("mock-mysql");
+    const { user } = renderApp(backend);
+    const orders = tableDataTab("mock-mysql", "shop", null, "orders");
+    const connection = (await backend.listConnections()).find((c) => c.id === "mock-mysql")!;
+    act(() => useTabs.getState().open(orders));
+    act(() => useTabs.getState().setPending(orders.id, 2));
+    // mock 里 orders 以 ON DELETE CASCADE 引用 customers:清空 customers 会连带删 orders 的行。
+    act(() => useTableOps.getState().open({ kind: "clear", mode: "delete", rows: null, connection, table: CUSTOMERS }));
+    const dialog = within(screen.getByRole("dialog", { name: "清空表「customers」？" }));
+    expect(await dialog.findByLabelText("外键")).toHaveTextContent("orders 里引用它的行会被删掉");
+    expect(dialog.getByText("表结构、索引都留着；开着的数据页会重新读取。")).toBeInTheDocument();
+    await user.click(dialog.getByRole("button", { name: "清空" }));
+    const ask = within(await screen.findByRole("dialog", { name: "放弃未提交的修改？" }));
+    expect(ask.getByText("有 2 行修改还没有提交，清空后就没有了。")).toBeInTheDocument();
+    await user.click(ask.getByRole("button", { name: "放弃修改并清空" }));
+    await waitFor(() => expect(clear).toHaveBeenCalledTimes(1));
+  });
+
+  it("cannot be confirmed before it knows which tables would be affected", async () => {
+    const backend = createMockBackend();
+    let answer: (keys: ReferencingKey[]) => void = () => undefined;
+    vi.spyOn(backend, "tableReferences").mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    const { user } = await openTableMenu("清空表…", MYSQL_CUSTOMERS, backend);
+    const dialog = within(screen.getByRole("dialog", { name: "清空表「customers」？" }));
+    expect(dialog.getByRole("button", { name: "清空" })).toBeDisabled();
+    expect(dialog.getByText("正在查别的表上引用它的外键…")).toBeInTheDocument();
+    act(() => answer([{ table: { ...CUSTOMERS, table: "orders" }, name: "fk_orders_customer", onDelete: "cascade" }]));
+    await waitFor(() => expect(dialog.getByRole("button", { name: "清空" })).toBeEnabled());
+    expect(dialog.getByLabelText("外键")).toHaveTextContent("orders 里引用它的行会被删掉");
+    expect(dialog.queryByText("正在查别的表上引用它的外键…")).not.toBeInTheDocument();
+    await user.click(dialog.getByRole("button", { name: "取消" }));
   });
 
   it("says a SQLite truncate blocked by foreign keys needs those rows handled first", async () => {

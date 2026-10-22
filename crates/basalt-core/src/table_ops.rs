@@ -177,14 +177,22 @@ impl Session {
     }
 
     /// 执行改动语句,返回每条影响的行数。MySQL 逐条执行(DDL 会隐式提交),另两家在一个事务里。
+    /// `short_locks`:等锁最多几秒就放弃(改名、删表),见 [`crate::driver`] 的 `LOCK_WAIT_SECONDS`。
     async fn execute_changes(
         &self,
         table: &TableRef,
         statements: &[String],
+        short_locks: bool,
     ) -> CoreResult<Vec<u64>> {
         match self {
-            Self::Mysql(s) => s.execute_each(statements).await.map_err(|(_, e)| e),
-            Self::Postgres(s) => s.execute_in_transaction(&table.database, statements).await,
+            Self::Mysql(s) => s
+                .execute_each(statements, short_locks)
+                .await
+                .map_err(|(_, e)| e),
+            Self::Postgres(s) => {
+                s.execute_in_transaction(&table.database, statements, short_locks)
+                    .await
+            }
             Self::Sqlite(s) => s.execute_in_transaction(statements).await,
         }
     }
@@ -192,7 +200,7 @@ impl Session {
     pub async fn drop_table(&self, table: &TableRef) -> CoreResult<()> {
         self.check_table(table)?;
         // 和清空、改名走同一条路:等锁有时限,表被别的会话占着时不会一直卡住。
-        self.execute_changes(table, &[drop_table_sql(self.dialect(), table)])
+        self.execute_changes(table, &[drop_table_sql(self.dialect(), table)], true)
             .await?;
         Ok(())
     }
@@ -207,7 +215,8 @@ impl Session {
         {
             statements.push(reset_sqlite_sequence_sql(table));
         }
-        let counts = self.execute_changes(table, &statements).await?;
+        // 清空不缩短等锁:大表的 DELETE 等行锁是正常的,要等很久时对话框可以转到后台。
+        let counts = self.execute_changes(table, &statements, false).await?;
         let reports_rows = mode == ClearMode::Delete || dialect == Dialect::Sqlite;
         Ok(ClearOutcome {
             rows: reports_rows.then(|| counts[0]),
@@ -219,7 +228,7 @@ impl Session {
         self.check_table(table)?;
         let target = check_name(self.dialect(), table, name)?;
         let sql = rename_table_sql(self.dialect(), table, &target.table);
-        self.execute_changes(table, &[sql]).await?;
+        self.execute_changes(table, &[sql], true).await?;
         Ok(target)
     }
 
@@ -251,11 +260,13 @@ impl Session {
                     table_name(dialect, source)
                 );
                 let statements: Vec<String> = std::iter::once(create).chain(insert).collect();
-                match s.execute_each(&statements).await {
+                match s.execute_each(&statements, false).await {
                     Ok(counts) => counts.get(1).copied(),
                     Err((0, error)) => return Err(error),
                     Err((_, error)) => {
-                        let cleanup = s.execute_each(&[drop_table_sql(dialect, &target)]).await;
+                        let cleanup = s
+                            .execute_each(&[drop_table_sql(dialect, &target)], false)
+                            .await;
                         return Err(CoreError::Database(match cleanup {
                             Ok(_) => {
                                 format!("复制数据失败，刚建的「{}」已经删掉：{error}", target.table)
@@ -281,7 +292,7 @@ impl Session {
                     }
                 }
                 let counts = s
-                    .execute_in_transaction(&source.database, &statements)
+                    .execute_in_transaction(&source.database, &statements, false)
                     .await?;
                 with_data.then(|| counts[1])
             }

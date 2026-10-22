@@ -1,18 +1,18 @@
 // 表操作的纯逻辑:改名后换成哪个标签页、会丢掉的修改、各家的说法与结果。
 import { describe, expect, it } from "vitest";
-import type { ReferencingKey } from "../../lib/types";
+import type { MaintenanceMessage, ReferencingKey, TableRef } from "../../lib/types";
 import { objectsTab, tableDataTab, tableDesignTab } from "../../stores/tabs";
 import {
   DUMP_NOTES,
   MAINTENANCE,
   clearChoices,
   clearRefusal,
+  clearTouches,
   clearedNotice,
   formatDuration,
   levelLabel,
   maintenanceNotice,
   maintenanceTitle,
-  messageTone,
   referenceNotes,
   renamedTab,
   rowsEstimate,
@@ -94,19 +94,38 @@ describe("tableOpsModel", () => {
     expect(formatDuration(12_340)).toBe("12.3 秒");
     const outcome = { sql: "VACUUM", messages: [], size: null, elapsedMs: 1 };
     expect(maintenanceNotice(users, "清理", outcome)).toBe("「users」清理完成：数据库没有返回消息。");
-    const message = (level: string, text: string) => ({ level, text });
-    expect(messageTone(message("status", "OK"))).toBe("ok");
-    expect(messageTone(message("status", "Table is already up to date"))).toBe("ok");
-    expect(messageTone(message("status", "Operation failed"))).toBe("bad");
-    expect(messageTone(message("error", "Table doesn't exist"))).toBe("bad");
-    expect(messageTone(message("warning", "x"))).toBe("warn");
-    expect(messageTone(message("note", "x"))).toBe("info");
+    const message = (level: string, text: string, kind: MaintenanceMessage["kind"]): MaintenanceMessage => ({
+      level,
+      text,
+      kind,
+    });
     const crashed = {
       ...outcome,
-      messages: [message("note", "checking"), message("error", "marked as crashed"), message("status", "Corrupt")],
+      messages: [
+        message("note", "checking", "info"),
+        message("error", "marked as crashed", "failure"),
+        message("status", "Corrupt", "failure"),
+      ],
     };
     expect(maintenanceTitle("检查", crashed)).toBe("检查发现问题");
     expect(maintenanceNotice(users, "检查", crashed)).toBe("「users」检查发现问题：错误 marked as crashed。");
-    expect(maintenanceTitle("检查", { ...outcome, messages: [message("status", "OK")] })).toBe("检查完成");
+    // MariaDB 收集统计时多给的那一行不是问题。
+    const mariadb = {
+      ...outcome,
+      messages: [
+        message("status", "Engine-independent statistics collected", "info"),
+        message("status", "OK", "success"),
+      ],
+    };
+    expect(maintenanceTitle("分析", mariadb)).toBe("分析完成");
+    expect(maintenanceNotice(users, "分析", mariadb)).toBe("「users」分析完成：状态 OK。");
+  });
+
+  it("knows which tables a clear touches", () => {
+    const keys = [key("orders", "cascade"), key("notes", "setNull"), key("audit", "restrict")];
+    const names = (tables: TableRef[]) => tables.map((t) => t.table);
+    expect(names(clearTouches(users, keys, "delete", "mysql"))).toEqual(["users", "orders", "notes"]);
+    expect(names(clearTouches(users, keys, "truncate", "sqlite"))).toEqual(["users", "orders", "notes"]);
+    expect(names(clearTouches(users, keys, "truncate", "postgres"))).toEqual(["users"]);
   });
 });

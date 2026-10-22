@@ -1,4 +1,6 @@
-//! 表的维护在真库上:MySQL 系四种语句都带回数据库的消息(InnoDB 不支持 REPAIR 也是一条消息,MyISAM 能修);
+//! 表的维护在真库上:MySQL 系四种语句都带回数据库的消息(InnoDB 不支持 REPAIR 也是一条消息,MyISAM 能修),
+//! 归类和真实返回对得上:做完了的不算「发现问题」(含 MariaDB 收集统计时多给的那一行),表不存在才算;
+//! 别的会话占着表时维护照数据库原来的等法等下去,不会几秒就放弃;
 //! PostgreSQL 的 VACUUM、REINDEX 量出前后大小,ANALYZE 之后有了行数估算;SQLite 删掉大量数据后 VACUUM
 //! 让库文件变小。各家没有的维护直接拒绝。
 //! MySQL / MariaDB / PostgreSQL 需要 BASALT_IT 选中目标(见 common);SQLite 总是跑。
@@ -7,8 +9,9 @@ mod common;
 
 use basalt_core::session::SessionManager;
 use basalt_core::table::TableRef;
-use basalt_core::table_ops::maintenance::{Maintenance, MaintenanceOutcome};
+use basalt_core::table_ops::maintenance::{Maintenance, MaintenanceOutcome, MessageKind};
 use common::*;
+use sqlx::Connection;
 
 const CONNECTION: &str = "c1";
 
@@ -64,6 +67,7 @@ async fn mysql_family_reports_the_database_messages() {
                 has(&outcome, "status", "OK"),
                 "{label} {operation:?}：{outcome:?}"
             );
+            assert!(!outcome.has_problem(), "{label} {operation:?}：{outcome:?}");
             assert_eq!(outcome.size, None, "{label}");
         }
         let optimized = session
@@ -86,11 +90,14 @@ async fn mysql_family_reports_the_database_messages() {
             has(&repaired, "note", "support repair"),
             "{label}：InnoDB 不支持 REPAIR {repaired:?}"
         );
+        // 不支持只是一条提示,不是「发现问题」。
+        assert!(!repaired.has_problem(), "{label}：{repaired:?}");
         let myisam = session
             .maintain_table(&table("more_myisam"), Maintenance::Repair)
             .await
             .unwrap();
         assert!(has(&myisam, "status", "OK"), "{label}：{myisam:?}");
+        assert!(!myisam.has_problem(), "{label}");
         // 表不存在也是以消息报回来的,不是语句出错。
         let missing = session
             .maintain_table(&table("more_missing"), Maintenance::Check)
@@ -100,6 +107,7 @@ async fn mysql_family_reports_the_database_messages() {
             has(&missing, "error", "more_missing"),
             "{label}：{missing:?}"
         );
+        assert!(missing.has_problem(), "{label}：表不存在是问题");
         let refused = session
             .maintain_table(&tuned, Maintenance::Vacuum)
             .await
@@ -266,6 +274,164 @@ async fn postgres_database_owners_maintain_and_partitions_are_measured() {
         .unwrap();
     let size = vacuumed.size.expect("VACUUM 量了大小");
     assert!(size.before > 0 && size.after > 0, "{size:?}");
+}
+
+/// MariaDB 收集引擎无关统计时(use_stat_tables 为 PREFERABLY,很多服务器这么配),ANALYZE 先给一行
+/// 「Engine-independent statistics collected」再给 OK:这一行不是问题。测试里临时改全局设置,用完改回去。
+#[tokio::test]
+async fn mariadb_statistics_line_is_not_a_problem() {
+    if !selected(MARIADB) {
+        return;
+    }
+    let admin = sqlx::MySqlPool::connect(&mysql_url(MARIADB)).await.unwrap();
+    sqlx::raw_sql(
+        "CREATE DATABASE IF NOT EXISTS basalt_ops_more CHARACTER SET utf8mb4;
+         USE basalt_ops_more;
+         DROP TABLE IF EXISTS basalt_ops_more.more_stats;
+         CREATE TABLE basalt_ops_more.more_stats (id INT PRIMARY KEY, v VARCHAR(20), KEY (v)) ENGINE=InnoDB;
+         INSERT INTO basalt_ops_more.more_stats SELECT seq, CONCAT('x', seq % 50) FROM seq_1_to_2000;",
+    )
+    .execute(&admin)
+    .await
+    .unwrap();
+    let previous: String = sqlx::query_scalar("SELECT CAST(@@GLOBAL.use_stat_tables AS CHAR)")
+        .fetch_one(&admin)
+        .await
+        .unwrap();
+    sqlx::raw_sql("SET GLOBAL use_stat_tables = 'PREFERABLY'")
+        .execute(&admin)
+        .await
+        .unwrap();
+    let sessions = SessionManager::default();
+    sessions
+        .open(CONNECTION, &params(MARIADB, TEST_PASSWORD, None))
+        .await
+        .unwrap();
+    let outcome = sessions
+        .get(CONNECTION)
+        .await
+        .unwrap()
+        .maintain_table(
+            &TableRef {
+                database: "basalt_ops_more".into(),
+                schema: None,
+                table: "more_stats".into(),
+            },
+            Maintenance::Analyze,
+        )
+        .await;
+    sqlx::raw_sql(&format!("SET GLOBAL use_stat_tables = '{previous}'"))
+        .execute(&admin)
+        .await
+        .unwrap();
+    admin.close().await;
+    let outcome = outcome.unwrap();
+    let kinds: Vec<(&str, MessageKind)> = outcome
+        .messages
+        .iter()
+        .map(|m| (m.text.as_str(), m.kind))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ("Engine-independent statistics collected", MessageKind::Info),
+            ("OK", MessageKind::Success)
+        ]
+    );
+    assert!(!outcome.has_problem());
+}
+
+/// 别的会话占着表、过了 5 秒(改名、删表等锁的上限)才放手:维护照常等到它放手再做完,不半途放弃。
+#[tokio::test]
+async fn maintenance_waits_for_locks_like_the_database_does() {
+    const HOLD: std::time::Duration = std::time::Duration::from_secs(7);
+    for target in MYSQL_FAMILY.into_iter().filter(|t| selected(*t)) {
+        let url = format!("{}basalt_ops_more", mysql_url(target));
+        let admin = sqlx::MySqlPool::connect(&mysql_url(target)).await.unwrap();
+        sqlx::raw_sql(
+            "CREATE DATABASE IF NOT EXISTS basalt_ops_more CHARACTER SET utf8mb4;
+             DROP TABLE IF EXISTS basalt_ops_more.more_locked;
+             CREATE TABLE basalt_ops_more.more_locked (id INT PRIMARY KEY) ENGINE=InnoDB;
+             INSERT INTO basalt_ops_more.more_locked VALUES (1), (2);",
+        )
+        .execute(&admin)
+        .await
+        .unwrap();
+        admin.close().await;
+        let sessions = SessionManager::default();
+        sessions
+            .open(CONNECTION, &params(target, TEST_PASSWORD, None))
+            .await
+            .unwrap();
+        let session = sessions.get(CONNECTION).await.unwrap();
+        let mut holder = sqlx::MySqlConnection::connect(&url).await.unwrap();
+        sqlx::raw_sql("BEGIN; SELECT * FROM more_locked;")
+            .execute(&mut holder)
+            .await
+            .unwrap();
+        let started = std::time::Instant::now();
+        let task = tokio::spawn(async move {
+            let locked = TableRef {
+                database: "basalt_ops_more".into(),
+                schema: None,
+                table: "more_locked".into(),
+            };
+            session.maintain_table(&locked, Maintenance::Optimize).await
+        });
+        tokio::time::sleep(HOLD).await;
+        sqlx::raw_sql("ROLLBACK")
+            .execute(&mut holder)
+            .await
+            .unwrap();
+        let outcome = task.await.unwrap().unwrap();
+        assert!(!outcome.has_problem(), "{}：{outcome:?}", target.name);
+        assert!(started.elapsed() >= HOLD, "{}：等到了对方放手", target.name);
+    }
+    if !selected(POSTGRES) {
+        return;
+    }
+    let pool = postgres_fixture_pool().await;
+    sqlx::raw_sql(
+        "DROP TABLE IF EXISTS public.more_locked;
+         CREATE TABLE public.more_locked (id integer PRIMARY KEY);
+         INSERT INTO public.more_locked VALUES (1), (2);",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+    let sessions = SessionManager::default();
+    sessions
+        .open(
+            CONNECTION,
+            &params(POSTGRES, TEST_PASSWORD, Some(FIXTURE_DB)),
+        )
+        .await
+        .unwrap();
+    let session = sessions.get(CONNECTION).await.unwrap();
+    let mut holder = sqlx::PgConnection::connect(&postgres_url(FIXTURE_DB))
+        .await
+        .unwrap();
+    sqlx::raw_sql("BEGIN; LOCK TABLE public.more_locked IN EXCLUSIVE MODE;")
+        .execute(&mut holder)
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    let task = tokio::spawn(async move {
+        let locked = TableRef {
+            database: FIXTURE_DB.into(),
+            schema: Some("public".into()),
+            table: "more_locked".into(),
+        };
+        session.maintain_table(&locked, Maintenance::Vacuum).await
+    });
+    tokio::time::sleep(HOLD).await;
+    sqlx::raw_sql("ROLLBACK")
+        .execute(&mut holder)
+        .await
+        .unwrap();
+    task.await.unwrap().unwrap();
+    assert!(started.elapsed() >= HOLD, "PostgreSQL：等到了对方放手");
 }
 
 #[tokio::test]

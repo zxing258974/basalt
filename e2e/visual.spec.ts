@@ -85,7 +85,10 @@ test("clear table dialog", async ({ page }) => {
   await expandShop(page);
   await row(page, "customers").click({ button: "right" });
   await page.getByRole("menuitem", { name: "截断表…" }).click();
-  await expect(page.getByRole("dialog", { name: "截断表「customers」？" })).toBeVisible();
+  const dialog = page.getByRole("dialog", { name: "截断表「customers」？" });
+  // 外键查完才显示连带警告、按钮才能点:等到这个状态再截图,不截到「正在查」的中间态。
+  await expect(dialog.getByLabel("外键")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "截断" })).toBeEnabled();
   await snapshot(page, "clear-table");
 });
 

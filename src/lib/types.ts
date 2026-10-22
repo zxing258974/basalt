@@ -62,10 +62,14 @@ export interface ReferencingKey {
 /** 表的维护,各家能做的不一样(见 tableOpsModel 的 MAINTENANCE)。 */
 export type Maintenance = "analyze" | "check" | "optimize" | "repair" | "vacuum" | "reindex";
 
+/** 一条维护消息说明了什么,由后端按 MySQL / MariaDB 的真实返回归类。 */
+export type MessageKind = "success" | "failure" | "warning" | "info";
+
 /** 数据库返回的一条消息。level 是 MySQL 的 Msg_type:status、error、info、note、warning。 */
 export interface MaintenanceMessage {
   level: string;
   text: string;
+  kind: MessageKind;
 }
 
 /** 维护的结果。PostgreSQL、SQLite 不返回消息;size 只有 VACUUM、REINDEX 才有(字节)。 */

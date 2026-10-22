@@ -262,6 +262,18 @@ async fn mysql_family_dumps_restore_into_the_same_table() {
             "{}：{text}",
             target.name
         );
+        // 触发器是在严格模式下建的:还原之后里面的写入也要照严格模式来。
+        let modes = "SELECT TRIGGER_NAME, CAST(SQL_MODE AS CHAR) FROM information_schema.TRIGGERS
+                     WHERE TRIGGER_SCHEMA = 'basalt_ops_more' ORDER BY TRIGGER_NAME";
+        let (_, trigger_modes) = case.rows(modes).await;
+        assert_eq!(trigger_modes.len(), 2, "{}", target.name);
+        for row in &trigger_modes {
+            assert!(
+                matches!(&row[1], CellValue::Text(mode) if mode.contains("STRICT_TRANS_TABLES")),
+                "{}：{row:?}",
+                target.name
+            );
+        }
         exercise(
             &case,
             |sql| {
@@ -280,6 +292,12 @@ async fn mysql_family_dumps_restore_into_the_same_table() {
             "id, name, price, data, at, doc, parent_id, seen, label",
         )
         .await;
+        assert_eq!(
+            case.rows(modes).await.1,
+            trigger_modes,
+            "{}：触发器的 sql_mode",
+            target.name
+        );
         // 外键约束跟着建表语句回来了。
         let (_, fks) = case
             .rows(

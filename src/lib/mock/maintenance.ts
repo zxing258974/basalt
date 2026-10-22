@@ -5,6 +5,7 @@ import type {
   CommandError,
   DriverKind,
   Maintenance,
+  MaintenanceMessage,
   MaintenanceOutcome,
   ReferencingKey,
   TableRef,
@@ -34,16 +35,16 @@ function quoted(driver: DriverKind, table: TableRef): string {
   return `${q(first)}.${q(table.table)}`;
 }
 
-/** InnoDB 上 OPTIMIZE 是重建表、REPAIR 不支持,和真库返回的一样。 */
-function mysqlMessages(operation: Maintenance) {
+/** InnoDB 上 OPTIMIZE 是重建表、REPAIR 不支持,和真库返回的一样;归类照后端的规则。 */
+function mysqlMessages(operation: Maintenance): MaintenanceMessage[] {
   if (operation === "optimize")
     return [
-      { level: "note", text: "Table does not support optimize, doing recreate + analyze instead" },
-      { level: "status", text: "OK" },
+      { level: "note", text: "Table does not support optimize, doing recreate + analyze instead", kind: "info" },
+      { level: "status", text: "OK", kind: "success" },
     ];
   if (operation === "repair")
-    return [{ level: "note", text: "The storage engine for the table doesn't support repair" }];
-  return [{ level: "status", text: "OK" }];
+    return [{ level: "note", text: "The storage engine for the table doesn't support repair", kind: "info" }];
+  return [{ level: "status", text: "OK", kind: "success" }];
 }
 
 function sqlOf(driver: DriverKind, table: TableRef, operation: Maintenance): string {

@@ -20,7 +20,6 @@ import {
   levelLabel,
   maintenanceNotice,
   maintenanceTitle,
-  messageTone,
   qualifiedName,
 } from "./tableOpsModel";
 import { useDetachable } from "./useDetachable";
@@ -144,7 +143,7 @@ function MaintenanceResult({ outcome, wholeFile }: { outcome: MaintenanceOutcome
         <ul className="maintenance-messages" aria-label="数据库返回的消息">
           {outcome.messages.map((message, index) => (
             <li key={index} className="maintenance-message">
-              <span className={`maintenance-level is-${messageTone(message)}`}>{levelLabel(message.level)}</span>
+              <span className={`maintenance-level is-${message.kind}`}>{levelLabel(message.level)}</span>
               <span className="maintenance-text selectable">{message.text}</span>
             </li>
           ))}

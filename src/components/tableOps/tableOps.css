@@ -49,13 +49,13 @@
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
 }
-/* 按内容着色:status 是 OK 才是绿的;Corrupt、Operation failed 这类 status 和 error 一样是红的 */
-.maintenance-level.is-ok {
+/* 按后端的归类着色:做完了是绿的;Corrupt、Operation failed 这类 status 和 error 一样是红的 */
+.maintenance-level.is-success {
   background: var(--success-soft);
   color: var(--success);
 }
-.maintenance-level.is-bad,
-.maintenance-level.is-warn {
+.maintenance-level.is-failure,
+.maintenance-level.is-warning {
   background: var(--danger-soft);
   color: var(--danger);
 }

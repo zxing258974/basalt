@@ -49,6 +49,16 @@ describe("opening", () => {
     expect(useTabs.getState().tabs).toHaveLength(1);
   });
 
+  it("is offered for Redis", async () => {
+    const { user } = renderApp();
+    await user.dblClick(await rowOf("开发"));
+    await user.dblClick(await rowOf("本地 Redis"));
+    await tree().findByRole("treeitem", { name: "db0（默认库）" });
+    await user.pointer({ keys: "[MouseRight]", target: await rowOf("本地 Redis") });
+    await user.click(screen.getByRole("menuitem", { name: "服务器监控" }));
+    expect(await screen.findByRole("region", { name: "命令 / 秒" })).toBeInTheDocument();
+  });
+
   it("is not offered for SQLite", async () => {
     const { user } = renderApp();
     await user.pointer({ keys: "[MouseRight]", target: await rowOf("笔记") });
@@ -173,6 +183,56 @@ describe("sessions", () => {
     await user.click(screen.getByRole("button", { name: "断开连接" }));
     const dialog = within(screen.getByRole("dialog", { name: "断开会话 1184？" }));
     expect(await dialog.findByRole("alert")).toHaveTextContent("Unknown thread id: 1184");
+  });
+});
+
+describe("redis", () => {
+  async function showRedis() {
+    const backend = createMockBackend();
+    await backend.openConnection("mock-redis");
+    const context = renderApp(backend);
+    act(() => useTabs.getState().open(monitorTab("mock-redis")));
+    await screen.findByRole("region", { name: "命令 / 秒" });
+    return context;
+  }
+  const sessions = () => within(screen.getByRole("region", { name: "会话" }));
+
+  it("shows commands, memory, keys and the slow log", async () => {
+    await showRedis();
+    const tile = (name: string) => screen.getByRole("region", { name });
+    expect(tile("内存")).toHaveTextContent("700 MB / 1 GB");
+    expect(tile("内存")).toHaveTextContent("allkeys-lru");
+    expect(within(tile("内存")).getByRole("meter", { name: "内存占上限的比例" })).toBeInTheDocument();
+    expect(tile("键")).toHaveTextContent("61");
+    expect(tile("键")).toHaveTextContent("12 个会过期 · 淘汰过 1,204 个");
+    expect(tile("键命中率")).toHaveTextContent("读键时键存在的比例");
+    expect(tile("连接")).toHaveTextContent("10 / 10,000");
+    expect(tile("连接")).toHaveTextContent("阻塞 1");
+    expect(tile("慢命令")).toHaveTextContent("3");
+    expect(screen.queryByRole("region", { name: "COMMIT / 秒" })).not.toBeInTheDocument();
+    expect(screen.getByText(/^主节点 · 已运行 3 天 4 小时 · 更新于/)).toBeInTheDocument();
+
+    expect(screen.getByText("共 11 个 · 阻塞 1")).toBeInTheDocument();
+    expect(sessions().getByRole("columnheader", { name: "最近的命令" })).toBeInTheDocument();
+    const slowlog = within(screen.getByRole("region", { name: "慢日志" }));
+    expect(slowlog.getByText("KEYS product:*")).toBeInTheDocument();
+    expect(slowlog.getByText("48.21 ms")).toBeInTheDocument();
+    expect(slowlog.getByText("report")).toBeInTheDocument();
+  });
+
+  it("unblocks a waiting client after confirming", async () => {
+    const { user } = await showRedis();
+    expect(sessions().getByRole("button", { name: "解除会话 11 的阻塞" })).toHaveAttribute("title", "没有在阻塞等待");
+    expect(sessions().getByRole("button", { name: "断开会话 14" })).toHaveAttribute(
+      "title",
+      "主从复制、MONITOR 用的连接",
+    );
+    await user.click(sessions().getByRole("button", { name: "解除会话 12 的阻塞" }));
+    const dialog = within(screen.getByRole("dialog", { name: "解除会话 12 的阻塞？" }));
+    expect(dialog.getByText(/马上返回空结果/)).toBeInTheDocument();
+    await user.click(dialog.getByRole("button", { name: "解除阻塞" }));
+    expect(await screen.findByText("已解除会话 12 的阻塞。")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("共 11 个 · 阻塞 0")).toBeInTheDocument());
   });
 });
 

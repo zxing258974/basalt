@@ -53,6 +53,39 @@ export interface ServerSnapshot {
   takenAtMs: number;
   /** 账号权限不够、只看得到一部分时的说明。 */
   limited: string | null;
+  /** Redis 才有的:内存、键数、慢日志。 */
+  redis: RedisStats | null;
+}
+
+/** Redis 的内存、键和慢日志。读不到的为 null。 */
+export interface RedisStats {
+  memoryUsed: number | null;
+  memoryPeak: number | null;
+  /** maxmemory;没设上限为 null。 */
+  memoryMax: number | null;
+  /** 到了上限怎么办:noeviction、allkeys-lru…… */
+  evictionPolicy: string | null;
+  /** 所有库加起来的键数、设了过期时间的键数。 */
+  keys: number;
+  expires: number;
+  evictedKeys: number | null;
+  expiredKeys: number | null;
+  role: string | null;
+  /** 这次运行的编号:变了就是重启过,或者同一个地址换了节点。 */
+  runId: string | null;
+  /** 最近的慢命令,新的在前;这个账号不能执行 SLOWLOG 时为 null。 */
+  slowlog: SlowCommand[] | null;
+}
+
+export interface SlowCommand {
+  id: number;
+  /** Unix 秒。 */
+  at: number;
+  micros: number;
+  /** 命令和参数,照 redis-cli 的写法。 */
+  command: string;
+  client: string | null;
+  name: string | null;
 }
 
 /** 只停掉正在执行的语句,还是连同连接一起断开。 */

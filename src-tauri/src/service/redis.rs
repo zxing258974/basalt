@@ -1,4 +1,4 @@
-//! Redis 连接的命令:库列表、键浏览与编辑、命令行(监控在后面加)。
+//! Redis 连接的命令:库列表、键浏览与编辑、命令行。服务器监控和 SQL 数据库共用 monitor 里的命令。
 
 use basalt_core::redis_db::RedisKeyspace;
 use basalt_core::redis_db::console::ConsoleOutcome;

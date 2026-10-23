@@ -119,6 +119,7 @@ async fn snapshot(dedicated: &mut Dedicated<MySqlConnection>) -> CoreResult<Serv
         processes,
         taken_at_ms,
         limited,
+        redis: None,
     })
 }
 

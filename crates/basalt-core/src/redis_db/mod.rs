@@ -7,6 +7,7 @@ pub mod edit;
 mod error;
 pub mod keys;
 mod link;
+mod monitor;
 mod tls;
 
 use std::collections::{BTreeSet, HashMap};

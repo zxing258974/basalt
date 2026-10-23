@@ -31,16 +31,23 @@ function perSecond(before: number | null, after: number | null, seconds: number)
   return (after - before) / seconds;
 }
 
-/** 两份快照之间服务器重启过:运行时长变短了。 */
-function restarted(a: ServerCounters, b: ServerCounters): boolean {
-  return a.uptimeSeconds !== null && b.uptimeSeconds !== null && b.uptimeSeconds < a.uptimeSeconds;
+/**
+ * 两份快照之间服务器重启过:运行时长变短了;Redis 的 run_id 变了也算
+ * (云上同一个地址主备切换到另一个节点,运行时长不一定变短,计数却换了一套)。
+ */
+function restarted(before: ServerSnapshot, after: ServerSnapshot): boolean {
+  const a = before.counters.uptimeSeconds;
+  const b = after.counters.uptimeSeconds;
+  const runA = before.redis?.runId;
+  const runB = after.redis?.runId;
+  return (a !== null && b !== null && b < a) || (runA != null && runB != null && runA !== runB);
 }
 
 export function ratesBetween(before: ServerSnapshot, after: ServerSnapshot): RatePoint | null {
   const seconds = (after.takenAtMs - before.takenAtMs) / 1000;
   const a = before.counters;
   const b = after.counters;
-  if (seconds <= 0 || restarted(a, b)) return null;
+  if (seconds <= 0 || restarted(before, after)) return null;
   const rate = (key: keyof ServerCounters) => perSecond(a[key], b[key], seconds);
   const reads = rate("cacheReads");
   const misses = rate("cacheMisses");
@@ -66,7 +73,7 @@ export function recordSnapshot(
 ): MonitorHistory {
   const { last } = history;
   const point = last ? ratesBetween(last, snapshot) : null;
-  const restart = last !== null && restarted(last.counters, snapshot.counters);
+  const restart = last !== null && restarted(last, snapshot);
   return {
     first: restart ? snapshot : (history.first ?? snapshot),
     last: snapshot,

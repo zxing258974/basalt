@@ -12,6 +12,7 @@ use crate::driver::postgres::PgSession;
 use crate::driver::sqlite::SqliteSession;
 use crate::driver::{ConnectParams, ServerInfo, TableInfo};
 use crate::error::{CoreError, CoreResult};
+use crate::monitor::{KillTarget, ServerSnapshot};
 use crate::query::lease::EditorLease;
 use crate::query::results::ResultSort;
 use crate::query::{EditorRegistry, QueryScope, StatementOutcome};
@@ -246,6 +247,21 @@ impl SessionManager {
         match self.entry(id).await? {
             Entry::Redis(session) => Ok(session),
             Entry::Sql(_) => Err(CoreError::Unsupported("这不是 Redis 连接".into())),
+        }
+    }
+
+    /// 服务器监控:SQL 数据库和 Redis 都给同样形状的快照。
+    pub async fn server_snapshot(&self, id: &str) -> CoreResult<ServerSnapshot> {
+        match self.entry(id).await? {
+            Entry::Sql(session) => session.server_snapshot().await,
+            Entry::Redis(session) => session.server_snapshot().await,
+        }
+    }
+
+    pub async fn kill_process(&self, id: &str, target: &KillTarget) -> CoreResult<()> {
+        match self.entry(id).await? {
+            Entry::Sql(session) => session.kill_process(target).await,
+            Entry::Redis(session) => session.kill_client(target).await,
         }
     }
 

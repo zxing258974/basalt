@@ -6,11 +6,9 @@ use super::CommandResult;
 use crate::state::AppState;
 
 pub async fn server_snapshot(state: &AppState, id: &str) -> CommandResult<ServerSnapshot> {
-    let session = state.sessions.get(id).await?;
-    Ok(session.server_snapshot().await?)
+    Ok(state.sessions.server_snapshot(id).await?)
 }
 
 pub async fn kill_process(state: &AppState, id: &str, target: &KillTarget) -> CommandResult<()> {
-    let session = state.sessions.get(id).await?;
-    Ok(session.kill_process(target).await?)
+    Ok(state.sessions.kill_process(id, target).await?)
 }

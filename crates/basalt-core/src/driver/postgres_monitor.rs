@@ -141,6 +141,7 @@ async fn snapshot(dedicated: &mut Dedicated<PgConnection>) -> CoreResult<ServerS
         processes,
         taken_at_ms,
         limited: (sees_all == Some(false)).then(|| LIMITED.to_owned()),
+        redis: None,
     })
 }
 

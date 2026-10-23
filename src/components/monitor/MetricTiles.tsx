@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { formatCount } from "../../lib/format";
+import { formatBytes, formatCount } from "../../lib/format";
+import type { RedisStats } from "../../lib/monitorTypes";
 import type { DriverKind } from "../../lib/types";
 import {
   formatBytesPerSecond,
@@ -12,8 +13,9 @@ import {
 } from "./monitorModel";
 import { Sparkline } from "./Sparkline";
 
-/** 连接数到上限的这个比例就标红:再多就要被拒了。 */
+/** 连接数、内存到上限的这个比例就标红:再多就要被拒了(或开始淘汰键)。 */
 const CONNECTIONS_WARNING = 0.9;
+const MEMORY_WARNING = 0.9;
 
 type RateKey = Exclude<keyof RatePoint, "at">;
 
@@ -25,7 +27,7 @@ function Tile({
   children,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   caption?: ReactNode;
   wide?: boolean;
   children?: ReactNode;
@@ -75,7 +77,46 @@ function RateTile({
   );
 }
 
-function ConnectionsTile({ connections, max, running }: { connections: number; max: number | null; running: number }) {
+/** 占上限的比例条:读数封顶在上限,原数写在 valuetext 里。 */
+function Meter({
+  label,
+  value,
+  max,
+  crowded,
+  text,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  crowded: boolean;
+  text: string;
+}) {
+  return (
+    <div
+      className={crowded ? "metric-meter is-crowded" : "metric-meter"}
+      role="meter"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={max}
+      aria-valuenow={Math.min(value, max)}
+      aria-valuetext={text}
+    >
+      <span style={{ transform: `scaleX(${Math.min(1, value / max)})` }} />
+    </div>
+  );
+}
+
+function ConnectionsTile({
+  connections,
+  max,
+  running,
+  runningLabel,
+}: {
+  connections: number;
+  max: number | null;
+  running: number;
+  runningLabel: string;
+}) {
   const ratio = max ? Math.min(1, connections / max) : null;
   const crowded = ratio !== null && ratio >= CONNECTIONS_WARNING;
   return (
@@ -84,24 +125,57 @@ function ConnectionsTile({ connections, max, running }: { connections: number; m
       value={max ? `${formatCount(connections)} / ${formatCount(max)}` : formatCount(connections)}
       caption={
         <>
-          在执行 {formatCount(running)}
+          {runningLabel} {formatCount(running)}
           {crowded && <span className="metric-alert"> · 接近上限</span>}
         </>
       }
     >
-      {ratio !== null && max !== null && (
-        // 超级用户的保留连接能让连接数超过上限,读数封顶在上限,原数写在 valuetext 里。
-        <div
-          className={crowded ? "metric-meter is-crowded" : "metric-meter"}
-          role="meter"
-          aria-label="连接数占上限的比例"
-          aria-valuemin={0}
-          aria-valuemax={max}
-          aria-valuenow={Math.min(connections, max)}
-          aria-valuetext={`${formatCount(connections)} / ${formatCount(max)}`}
-        >
-          <span style={{ transform: `scaleX(${ratio})` }} />
-        </div>
+      {/* 超级用户的保留连接能让连接数超过上限。 */}
+      {max !== null && (
+        <Meter
+          label="连接数占上限的比例"
+          value={connections}
+          max={max}
+          crowded={crowded}
+          text={`${formatCount(connections)} / ${formatCount(max)}`}
+        />
+      )}
+    </Tile>
+  );
+}
+
+/** Redis 用了多少内存;设了上限的话画比例条,快满了标红(满了就要淘汰键或拒绝写入)。 */
+function MemoryTile({ stats }: { stats: RedisStats }) {
+  const { memoryUsed: used, memoryMax: max } = stats;
+  const crowded = used !== null && max !== null && used / max >= MEMORY_WARNING;
+  const parts = [
+    stats.memoryPeak !== null ? `峰值 ${formatBytes(stats.memoryPeak)}` : null,
+    max === null ? "没设上限" : stats.evictionPolicy,
+  ].filter(Boolean);
+  return (
+    <Tile
+      label="内存"
+      value={
+        <>
+          {formatBytes(used)}
+          {max !== null && <span className="metric-value-of"> / {formatBytes(max)}</span>}
+        </>
+      }
+      caption={
+        <>
+          {parts.join(" · ")}
+          {crowded && <span className="metric-alert"> · 接近上限</span>}
+        </>
+      }
+    >
+      {used !== null && max !== null && (
+        <Meter
+          label="内存占上限的比例"
+          value={used}
+          max={max}
+          crowded={crowded}
+          text={`${formatBytes(used)} / ${formatBytes(max)}`}
+        />
       )}
     </Tile>
   );
@@ -113,6 +187,7 @@ export function MetricTiles({ history, driver }: { history: MonitorHistory; driv
   if (!snapshot) return null;
   const { counters } = snapshot;
   const postgres = driver === "postgres";
+  const redis = driver === "redis" ? snapshot.redis : null;
   const rollbacks = history.points.at(-1)?.rollbacks ?? null;
   const slowGrowth = growthSince(history.first, snapshot, "slowQueries");
 
@@ -121,7 +196,13 @@ export function MetricTiles({ history, driver }: { history: MonitorHistory; driv
       {/* 标题层级:指标和下面的「会话」同级。 */}
       <h2 className="visually-hidden">指标</h2>
       {counters.queries !== null && (
-        <RateTile history={history} rate="queries" label="查询 / 秒" format={formatPerSecond} wide />
+        <RateTile
+          history={history}
+          rate="queries"
+          label={redis ? "命令 / 秒" : "查询 / 秒"}
+          format={formatPerSecond}
+          wide
+        />
       )}
       {counters.commits !== null && (
         <RateTile
@@ -133,16 +214,34 @@ export function MetricTiles({ history, driver }: { history: MonitorHistory; driv
           caption={`回滚 ${formatPerSecond(rollbacks)} / 秒`}
         />
       )}
-      <ConnectionsTile connections={counters.connections} max={counters.maxConnections} running={counters.running} />
+      <ConnectionsTile
+        connections={counters.connections}
+        max={counters.maxConnections}
+        running={counters.running}
+        runningLabel={redis ? "阻塞" : "在执行"}
+      />
+      {redis && <MemoryTile stats={redis} />}
+      {redis && (
+        <Tile
+          label="键"
+          value={formatCount(redis.keys)}
+          caption={[
+            `${formatCount(redis.expires)} 个会过期`,
+            redis.evictedKeys ? `淘汰过 ${formatCount(redis.evictedKeys)} 个` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        />
+      )}
       {counters.cacheReads !== null && (
         <RateTile
           history={history}
           rate="hitRate"
-          label="缓存命中率"
+          label={redis ? "键命中率" : "缓存命中率"}
           format={formatPercent}
           zeroBased={false}
           fallback={lifetimeHitRate(counters)}
-          caption={postgres ? "共享缓冲区" : "InnoDB 缓冲池"}
+          caption={redis ? "读键时键存在的比例" : postgres ? "共享缓冲区" : "InnoDB 缓冲池"}
         />
       )}
       {counters.bytesReceived !== null && (
@@ -153,9 +252,11 @@ export function MetricTiles({ history, driver }: { history: MonitorHistory; driv
       )}
       {counters.slowQueries !== null && (
         <Tile
-          label="慢查询"
+          label={redis ? "慢命令" : "慢查询"}
           value={formatCount(counters.slowQueries)}
-          caption={slowGrowth ? `打开监控以来 +${formatCount(slowGrowth)}` : "启动以来累计"}
+          caption={
+            redis ? "SLOWLOG 里现有的条数" : slowGrowth ? `打开监控以来 +${formatCount(slowGrowth)}` : "启动以来累计"
+          }
         />
       )}
     </section>

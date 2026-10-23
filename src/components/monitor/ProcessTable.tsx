@@ -1,17 +1,18 @@
 import { CircleStop, Unplug } from "lucide-react";
 import type { KillMode, ServerProcess } from "../../lib/monitorTypes";
 import { formatDuration } from "./monitorModel";
+import type { MonitorWords } from "./monitorWords";
 
 const SELF_HINT = "Basalt 取监控数据用的就是这条连接";
-const BACKGROUND_HINT = "服务器自己的线程（事件调度器、复制）";
 const UNKNOWN_HINT = "账号权限不够，看不到它在做什么";
 
 interface ProcessTableProps {
   processes: readonly ServerProcess[];
+  words: MonitorWords;
   onKill(process: ServerProcess, mode: KillMode): void;
 }
 
-export function ProcessTable({ processes, onKill }: ProcessTableProps) {
+export function ProcessTable({ processes, words, onKill }: ProcessTableProps) {
   return (
     <table className="process-table">
       <thead>
@@ -19,10 +20,10 @@ export function ProcessTable({ processes, onKill }: ProcessTableProps) {
           <th className="is-numeric">编号</th>
           <th>用户</th>
           <th className="col-host">客户端</th>
-          <th className="col-database">数据库</th>
+          <th className="col-database">{words.databaseColumn}</th>
           <th>状态</th>
           <th className="is-numeric">时长</th>
-          <th className="col-query">语句</th>
+          <th className="col-query">{words.queryColumn}</th>
           <th className="col-actions">
             <span className="visually-hidden">操作</span>
           </th>
@@ -30,7 +31,7 @@ export function ProcessTable({ processes, onKill }: ProcessTableProps) {
       </thead>
       <tbody>
         {processes.map((process) => (
-          <ProcessRow key={process.id} process={process} onKill={onKill} />
+          <ProcessRow key={process.id} process={process} words={words} onKill={onKill} />
         ))}
       </tbody>
     </table>
@@ -38,30 +39,38 @@ export function ProcessTable({ processes, onKill }: ProcessTableProps) {
 }
 
 /** 按钮为什么不能点;能点时为 null。 */
-function queryBlocker(process: ServerProcess): string | null {
+function queryBlocker(process: ServerProcess, words: MonitorWords): string | null {
   if (process.isSelf) return SELF_HINT;
   switch (process.activity) {
     case "running":
       return null;
     case "background":
-      return BACKGROUND_HINT;
+      return words.background;
     case "unknown":
       return UNKNOWN_HINT;
     default:
-      return "没有在执行的语句";
+      return words.stop.nothing;
   }
 }
 
-function connectionBlocker(process: ServerProcess): string | null {
+function connectionBlocker(process: ServerProcess, words: MonitorWords): string | null {
   if (process.isSelf) return SELF_HINT;
-  return process.activity === "background" ? BACKGROUND_HINT : null;
+  return process.activity === "background" ? words.background : null;
 }
 
-function ProcessRow({ process, onKill }: { process: ServerProcess; onKill: ProcessTableProps["onKill"] }) {
+function ProcessRow({
+  process,
+  words,
+  onKill,
+}: {
+  process: ServerProcess;
+  words: MonitorWords;
+  onKill: ProcessTableProps["onKill"];
+}) {
   const quiet = process.activity === "idle" || process.activity === "background";
   const classes = [quiet && "is-idle", process.isSelf && "is-self"].filter(Boolean).join(" ");
-  const stopQuery = queryBlocker(process);
-  const disconnect = connectionBlocker(process);
+  const stopQuery = queryBlocker(process, words);
+  const disconnect = connectionBlocker(process, words);
   return (
     <tr className={classes || undefined}>
       <td className="is-numeric mono">
@@ -99,8 +108,8 @@ function ProcessRow({ process, onKill }: { process: ServerProcess; onKill: Proce
       <td className="col-actions">
         <button
           className="process-action"
-          aria-label={`终止会话 ${process.id} 正在执行的语句`}
-          title={stopQuery ?? "终止查询"}
+          aria-label={words.stop.aria(process.id)}
+          title={stopQuery ?? words.stop.label}
           disabled={stopQuery !== null}
           onClick={() => onKill(process, "query")}
         >

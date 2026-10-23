@@ -1,7 +1,15 @@
 // mock 后端的服务器监控:每个连接一台假服务器,计数器按时间往上涨(速率随快照次数起伏),
 // 会话列表里有在跑的、在等锁的、空闲的连接池和后台线程。终止会话会真的改掉列表,
 // 和后端一样先核对会话还是确认时的样子。
-import type { KillTarget, ProcessActivity, ServerCounters, ServerProcess, ServerSnapshot } from "../monitorTypes";
+import type {
+  KillTarget,
+  ProcessActivity,
+  RedisStats,
+  ServerCounters,
+  ServerProcess,
+  ServerSnapshot,
+  SlowCommand,
+} from "../monitorTypes";
 import type { CommandError, DriverKind } from "../types";
 
 function fail(code: string, message: string): never {
@@ -108,8 +116,29 @@ const PG_SEEDS: Seed[] = [
   ],
 ];
 
+/** Redis 的客户端:状态、库号、客户端名都照 CLIENT LIST 换算后的样子(见 redis_db/monitor.rs)。 */
+const REDIS_SEEDS: Seed[] = [
+  [11, "default", "10.0.8.31:50112", "db0", "空闲", "web-1 · redis-py 5.0.1", 2, "GET"],
+  [12, "default", "10.0.8.31:50118", "db1", "阻塞中", "mailer · ioredis 5.4.1", 38, "BLPOP"],
+  [13, "app", "10.0.8.33:41001", "db0", "事务中", null, 1, "SET"],
+  [14, "default", "10.0.8.50:6380", "db0", "从节点", null, 0, "REPLCONF"],
+  [15, "default", "127.0.0.1:52190", "db0", "空闲", "basalt 0.3.1", 0, "CLIENT LIST"],
+];
+
 /** 连接池里闲着的连接。 */
 function poolSeeds(driver: DriverKind): Seed[] {
+  if (driver === "redis") {
+    return Array.from({ length: 6 }, (_, i) => [
+      20 + i,
+      "default",
+      `10.0.8.${31 + (i % 3)}:${50200 + i}`,
+      "db0",
+      "空闲",
+      `web-${(i % 3) + 1} · redis-py 5.0.1`,
+      3 + i * 41,
+      i % 2 ? "HGETALL" : "GET",
+    ]);
+  }
   const mysql = driver !== "postgres";
   return Array.from({ length: 8 }, (_, i) => [
     mysql ? 1100 + i * 7 : 41700 + i * 11,
@@ -123,8 +152,26 @@ function poolSeeds(driver: DriverKind): Seed[] {
   ]);
 }
 
+/** 慢日志:新的在前。 */
+const REDIS_SLOWLOG: Omit<SlowCommand, "at">[] = [
+  { id: 42, micros: 48_210, command: "KEYS product:*", client: "10.0.8.40:51022", name: "report" },
+  { id: 41, micros: 15_904, command: "HGETALL session:7f3a9c2e", client: "10.0.8.31:50112", name: "web-1" },
+  {
+    id: 40,
+    micros: 12_377,
+    command: 'ZRANGE leaderboard:weekly 0 -1 WITHSCORES "... (1 more arguments)"',
+    client: "10.0.8.33:41001",
+    name: null,
+  },
+];
+
 /** 和后端一样按状态分:MySQL 看 Command 和用户,PostgreSQL 看 state。 */
 function activityOf(driver: DriverKind, state: string, user: string): ProcessActivity {
+  if (driver === "redis") {
+    if (state === "阻塞中") return "running";
+    if (state === "事务中") return "inTransaction";
+    return ["从节点", "主节点", "MONITOR"].includes(state) ? "background" : "idle";
+  }
   if (driver === "postgres") {
     if (state === "active") return "running";
     if (state.startsWith("idle in transaction")) return "inTransaction";
@@ -135,8 +182,8 @@ function activityOf(driver: DriverKind, state: string, user: string): ProcessAct
 }
 
 function createServer(driver: DriverKind, now: number): Server {
-  const mysql = driver !== "postgres";
-  const seeds = [...(mysql ? MYSQL_SEEDS : PG_SEEDS), ...poolSeeds(driver)];
+  const mysql = driver !== "postgres" && driver !== "redis";
+  const seeds = [...(driver === "redis" ? REDIS_SEEDS : mysql ? MYSQL_SEEDS : PG_SEEDS), ...poolSeeds(driver)];
   // 两份种子里第 5 个都是取快照用的那条连接。
   const selfId = seeds[4]![0];
   return {
@@ -164,8 +211,13 @@ function createServer(driver: DriverKind, now: number): Server {
       since: now - ago * 1000,
       query,
       activity: activityOf(driver, state, user),
-      // PostgreSQL 的 backend_start:比进入当前状态早一点。
-      sessionStart: mysql ? null : new Date(now - ago * 1000 - 5_000).toISOString(),
+      // PostgreSQL 的 backend_start:比进入当前状态早一点;Redis 是服务器的 run_id。
+      sessionStart:
+        driver === "postgres"
+          ? new Date(now - ago * 1000 - 5_000).toISOString()
+          : driver === "redis"
+            ? REDIS_RUN_ID
+            : null,
       isSelf: id === selfId,
     })),
   };
@@ -187,6 +239,7 @@ function ratesAt(n: number) {
 }
 
 function counters(server: Server, now: number): ServerCounters {
+  if (server.driver === "redis") return redisCounters(server, now);
   const mysql = server.driver !== "postgres";
   const whole = (value: number) => Math.round(value);
   const t = server.totals;
@@ -203,6 +256,45 @@ function counters(server: Server, now: number): ServerCounters {
     cacheReads: whole(t.reads),
     cacheMisses: whole(t.misses),
     slowQueries: mysql ? server.slow : null,
+  };
+}
+
+const REDIS_RUN_ID = "5b2f8c41d7e9a0b3c6f1e2d4a7b8c9d0e1f2a3b4";
+
+/** Redis:命令数、流量、键命中;没有事务计数;「在执行」是阻塞着的客户端。 */
+function redisCounters(server: Server, now: number): ServerCounters {
+  const whole = (value: number) => Math.round(value);
+  const t = server.totals;
+  return {
+    uptimeSeconds: Math.floor((now - server.startedAt) / 1000),
+    // connected_clients 不算从节点和 MONITOR。
+    connections: server.processes.filter((p) => p.activity !== "background").length,
+    maxConnections: 10_000,
+    running: server.processes.filter((p) => p.activity === "running").length,
+    queries: whole(t.queries * 6),
+    commits: null,
+    rollbacks: null,
+    bytesReceived: whole(t.received / 8),
+    bytesSent: whole(t.sent / 8),
+    cacheReads: whole(t.reads / 20),
+    cacheMisses: whole(t.misses * 3),
+    slowQueries: REDIS_SLOWLOG.length,
+  };
+}
+
+function redisStats(now: number): RedisStats {
+  return {
+    memoryUsed: 734_003_200,
+    memoryPeak: 902_823_936,
+    memoryMax: 1_073_741_824,
+    evictionPolicy: "allkeys-lru",
+    keys: 61,
+    expires: 12,
+    evictedKeys: 1_204,
+    expiredKeys: 88_410,
+    role: "master",
+    runId: REDIS_RUN_ID,
+    slowlog: REDIS_SLOWLOG.map((entry, i) => ({ ...entry, at: Math.floor(now / 1000) - 60 * (i + 1) * 7 })),
   };
 }
 
@@ -238,6 +330,7 @@ export function createMockMonitor() {
         })),
         takenAtMs: now,
         limited: null,
+        redis: driver === "redis" ? redisStats(now) : null,
       };
     },
 
@@ -248,7 +341,12 @@ export function createMockMonitor() {
       if (!current || (target.sessionStart !== null && current.sessionStart !== target.sessionStart)) {
         fail("database", `会话 ${target.id} 已经结束了。`);
       }
-      if (target.mode === "query") {
+      if (target.mode === "query" && driver === "redis") {
+        if (current.activity !== "running") {
+          fail("database", `会话 ${target.id} 现在没有在等（不在阻塞状态，或者已经断开了），没有动它。`);
+        }
+        server.processes = server.processes.map((p) => (p === current ? stopped(p, driver) : p));
+      } else if (target.mode === "query") {
         if (current.activity !== "running" || (target.query !== null && current.query !== target.query)) {
           fail("database", `会话 ${target.id} 已经不在执行刚才那条语句了（执行完了，或者换了一条），没有终止。`);
         }
@@ -262,6 +360,8 @@ export function createMockMonitor() {
 
 /** 语句被取消后的样子:MySQL 回到 Sleep,PostgreSQL 回到 idle 并留着上一条语句。 */
 function stopped(process: MockProcess, driver: DriverKind): MockProcess {
+  // Redis 解除阻塞:BLPOP 回了空,客户端闲下来,最近的命令还是它。
+  if (driver === "redis") return { ...process, state: "空闲", activity: "idle", since: Date.now() };
   const postgres = driver === "postgres";
   return {
     ...process,

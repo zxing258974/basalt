@@ -24,7 +24,12 @@ impl From<RedisError> for CoreError {
         {
             Self::Network(tls_hint(&message))
         } else {
-            Self::Database(message)
+            // 服务器报的错照 Redis 原样写「错误码 说明」(redis 的显示用的是 NoPerm 这样的种类名):
+            // 按 NOPERM、NOSCRIPT 判断原因的地方才对得上。
+            Self::Database(match (error.code(), error.detail()) {
+                (Some(code), Some(detail)) => format!("{code} {detail}"),
+                _ => message,
+            })
         }
     }
 }
@@ -32,4 +37,25 @@ impl From<RedisError> for CoreError {
 /// 连接断了(服务器重启、空闲超时被踢、网络切换):值得换一条新连接再试一次。
 pub(super) fn is_broken(error: &CoreError) -> bool {
     matches!(error, CoreError::Network(_))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_errors_keep_redis_own_code() {
+        let parsed = redis::parse_redis_value(
+            b"-NOPERM User app has no permissions to run the 'client|list' command\r\n",
+        )
+        .unwrap();
+        let error = parsed.extract_error().unwrap_err();
+        let CoreError::Database(message) = CoreError::from(error) else {
+            panic!("应该是数据库错误");
+        };
+        assert_eq!(
+            message,
+            "NOPERM User app has no permissions to run the 'client|list' command"
+        );
+    }
 }

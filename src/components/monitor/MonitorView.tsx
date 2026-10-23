@@ -2,7 +2,7 @@ import { Pause, Play, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useConnections } from "../../hooks/useCatalog";
 import { useConnectionActions } from "../../hooks/useConnectionActions";
-import type { KillMode, ServerProcess } from "../../lib/monitorTypes";
+import type { KillMode, ServerProcess, ServerSnapshot } from "../../lib/monitorTypes";
 import { errorMessage } from "../../lib/types";
 import type { MonitorTab } from "../../stores/tabs";
 import { DriverBadge } from "../connection/DriverBadge";
@@ -11,8 +11,10 @@ import { EmptyState } from "../ui/EmptyState";
 import { Checkbox } from "../ui/Field";
 import { KillProcessDialog } from "./KillProcessDialog";
 import { MetricTiles } from "./MetricTiles";
+import { monitorWords } from "./monitorWords";
 import { formatClock, formatDuration, runningCount, visibleProcesses } from "./monitorModel";
 import { ProcessTable } from "./ProcessTable";
+import { SlowLog } from "./SlowLog";
 import { useServerMonitor } from "./useServerMonitor";
 
 const INTERVALS = [
@@ -21,10 +23,15 @@ const INTERVALS = [
   { ms: 10_000, label: "10 秒" },
 ] as const;
 
-/** 标题栏右边:服务器跑了多久、数据是几点的。 */
-function summary(uptimeSeconds: number | null, takenAtMs: number, paused: boolean): string {
+const ROLES: Record<string, string> = { master: "主节点", slave: "从节点" };
+
+/** 标题栏右边:Redis 是主是从、服务器跑了多久、数据是几点的。 */
+function summary(snapshot: ServerSnapshot, paused: boolean): string {
+  const { counters, takenAtMs } = snapshot;
+  const role = snapshot.redis?.role;
   const parts = [
-    uptimeSeconds === null ? null : `已运行 ${formatDuration(uptimeSeconds)}`,
+    role ? (ROLES[role] ?? role) : null,
+    counters.uptimeSeconds === null ? null : `已运行 ${formatDuration(counters.uptimeSeconds)}`,
     `${paused ? "已暂停，停在" : "更新于"} ${formatClock(takenAtMs)}`,
   ];
   return parts.filter(Boolean).join(" · ");
@@ -47,6 +54,7 @@ export function MonitorView({ tab, active }: { tab: MonitorTab; active: boolean 
   // 只有手动刷新时转圈:后台轮询也转的话,焦点在按钮上的人每隔两秒就丢一次焦点。
   const [refreshing, setRefreshing] = useState(false);
   const isOpen = Boolean(connection?.isOpen);
+  const words = monitorWords(connection?.driver);
   const { query, history } = useServerMonitor({
     connectionId: tab.connectionId,
     enabled: isOpen,
@@ -73,9 +81,7 @@ export function MonitorView({ tab, active }: { tab: MonitorTab; active: boolean 
           <span className="objects-crumb">{connection?.name ?? "已关闭的连接"}</span>
           <span className="objects-crumb-sep">/</span>
           <h1 className="objects-title">{tab.title}</h1>
-          <span className="objects-summary">
-            {snapshot ? summary(snapshot.counters.uptimeSeconds, snapshot.takenAtMs, paused) : ""}
-          </span>
+          <span className="objects-summary">{snapshot ? summary(snapshot, paused) : ""}</span>
           {/* 读屏只念暂停、继续,不每隔两秒念一遍时间。 */}
           <span className="visually-hidden" aria-live="polite">
             {paused ? "已暂停刷新" : ""}
@@ -149,14 +155,14 @@ export function MonitorView({ tab, active }: { tab: MonitorTab; active: boolean 
                 会话
               </h2>
               <span className="monitor-sessions-count">
-                共 {total} 个 · 在执行 {running}
+                共 {total} 个 · {words.running} {running}
               </span>
               <Checkbox label="隐藏空闲" checked={hideIdle} onCheckedChange={setHideIdle} />
               <label className="search-box">
                 <Search aria-hidden />
                 <input
                   value={search}
-                  placeholder="按用户、地址、语句筛选"
+                  placeholder={words.search}
                   aria-label="筛选会话"
                   onChange={(e) => setSearch(e.target.value)}
                   spellCheck={false}
@@ -167,9 +173,14 @@ export function MonitorView({ tab, active }: { tab: MonitorTab; active: boolean 
             {processes.length === 0 ? (
               <p className="monitor-sessions-empty">{total === 0 ? "没有会话" : "没有符合筛选条件的会话"}</p>
             ) : (
-              <ProcessTable processes={processes} onKill={(process, mode) => setKilling({ process, mode })} />
+              <ProcessTable
+                processes={processes}
+                words={words}
+                onKill={(process, mode) => setKilling({ process, mode })}
+              />
             )}
           </section>
+          {snapshot.redis && <SlowLog entries={snapshot.redis.slowlog} headingId={`${tab.id}-slowlog`} />}
         </div>
       )}
       {killing && (
@@ -177,6 +188,7 @@ export function MonitorView({ tab, active }: { tab: MonitorTab; active: boolean 
           connectionId={tab.connectionId}
           process={killing.process}
           mode={killing.mode}
+          words={words}
           onClose={() => setKilling(null)}
           onDone={refresh}
         />

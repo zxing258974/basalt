@@ -88,6 +88,46 @@ pub struct ServerSnapshot {
     pub taken_at_ms: u64,
     /// 账号权限不够、只看得到一部分会话时的说明。
     pub limited: Option<String>,
+    /// Redis 才有的:内存、键数、慢日志。
+    pub redis: Option<RedisStats>,
+}
+
+/// Redis 的内存、键和慢日志(INFO memory / keyspace / stats,SLOWLOG GET)。读不到的为 `None`。
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisStats {
+    pub memory_used: Option<u64>,
+    pub memory_peak: Option<u64>,
+    /// maxmemory;没设上限(0)为 `None`。
+    pub memory_max: Option<u64>,
+    /// 到了上限怎么办:noeviction、allkeys-lru……
+    pub eviction_policy: Option<String>,
+    /// 所有库加起来的键数、设了过期时间的键数。
+    pub keys: u64,
+    pub expires: u64,
+    /// 累计因为内存满了被淘汰、因为过期被删的键数。
+    pub evicted_keys: Option<u64>,
+    pub expired_keys: Option<u64>,
+    /// master 或 slave。
+    pub role: Option<String>,
+    /// 这次运行的编号:变了就是重启过,或者同一个地址换了节点(云上的主备切换)。
+    pub run_id: Option<String>,
+    /// 最近的慢命令,新的在前;这个账号不能执行 SLOWLOG 时为 `None`。
+    pub slowlog: Option<Vec<SlowCommand>>,
+}
+
+/// 慢日志里的一条。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlowCommand {
+    pub id: u64,
+    /// 发生的时刻(Unix 秒)。
+    pub at: u64,
+    pub micros: u64,
+    /// 命令和参数,照 redis-cli 的写法(参数太多、太长时服务器已经截过)。
+    pub command: String,
+    pub client: Option<String>,
+    pub name: Option<String>,
 }
 
 /// 终止一个会话:只停掉正在执行的语句,还是连同连接一起断开。

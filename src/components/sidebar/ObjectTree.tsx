@@ -133,8 +133,8 @@ function ConnectionNode({ connection, depth }: { connection: ConnectionView; dep
           },
         ]
       : []),
-    // SQLite 是本进程打开的文件,没有服务器可看。Redis 的监控在做。
-    ...(connection.driver === "sqlite" || connection.driver === "redis"
+    // SQLite 是本进程打开的文件,没有服务器可看。
+    ...(connection.driver === "sqlite"
       ? []
       : [
           {

@@ -53,6 +53,20 @@ test("server monitor", async ({ page }) => {
   await snapshot(page, "server-monitor");
 });
 
+test("redis: server monitor", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-10-22T09:30:00+08:00") });
+  await openWelcome(page);
+  await row(page, "开发").dblclick();
+  await row(page, "本地 Redis").dblclick();
+  await expect(row(page, "db0（默认库）")).toBeVisible();
+  await page.clock.pauseAt(new Date("2026-10-22T09:31:00+08:00"));
+  await row(page, "本地 Redis").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "服务器监控" }).click();
+  for (let tick = 0; tick < 24; tick += 1) await page.clock.runFor(2_000);
+  await expect(page.getByText(/更新于 09:31:46/)).toBeVisible();
+  await snapshot(page, "redis-monitor");
+});
+
 test("new connection: pick a type", async ({ page }) => {
   await openWelcome(page);
   await page.getByRole("banner").getByRole("button", { name: "新建连接" }).click();

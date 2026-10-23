@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ServerCounters, ServerProcess, ServerSnapshot } from "../../lib/monitorTypes";
+import type { RedisStats, ServerCounters, ServerProcess, ServerSnapshot } from "../../lib/monitorTypes";
 import {
   EMPTY_HISTORY,
   formatBytesPerSecond,
@@ -29,8 +29,22 @@ const COUNTERS: ServerCounters = {
   slowQueries: 4,
 };
 
+const REDIS_STATS: RedisStats = {
+  memoryUsed: null,
+  memoryPeak: null,
+  memoryMax: null,
+  evictionPolicy: null,
+  keys: 0,
+  expires: 0,
+  evictedKeys: null,
+  expiredKeys: null,
+  role: null,
+  runId: null,
+  slowlog: null,
+};
+
 function snapshot(at: number, counters: Partial<ServerCounters> = {}): ServerSnapshot {
-  return { counters: { ...COUNTERS, ...counters }, processes: [], takenAtMs: at, limited: null };
+  return { counters: { ...COUNTERS, ...counters }, processes: [], takenAtMs: at, limited: null, redis: null };
 }
 
 function process(id: number, partial: Partial<ServerProcess> = {}): ServerProcess {
@@ -86,6 +100,15 @@ describe("rates between two snapshots", () => {
   it("refuses snapshots taken at the same moment or out of order", () => {
     expect(ratesBetween(snapshot(1000), snapshot(1000))).toBeNull();
     expect(ratesBetween(snapshot(2000), snapshot(1000))).toBeNull();
+  });
+
+  it("treats a Redis whose run id changed as restarted, even when it has been up longer", () => {
+    const redis = (runId: string) => ({ ...REDIS_STATS, runId });
+    const before = { ...snapshot(0, { uptimeSeconds: 100, queries: 10 }), redis: redis("a") };
+    const sameNode = { ...snapshot(1000, { uptimeSeconds: 101, queries: 20 }), redis: redis("a") };
+    const otherNode = { ...snapshot(1000, { uptimeSeconds: 9_000, queries: 900_000 }), redis: redis("b") };
+    expect(ratesBetween(before, sameNode)?.queries).toBe(10);
+    expect(ratesBetween(before, otherNode)).toBeNull();
   });
 });
 

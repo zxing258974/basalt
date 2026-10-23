@@ -22,6 +22,7 @@ import "./components/transfer/transfer-tables.css";
 import "./components/tableOps/tableOps.css";
 import "./components/inspector/inspector.css";
 import "./components/assistant/assistant.css";
+import "./components/redis/redis.css";
 
 // 样式按平台分:Windows 没有红绿灯,标题栏是系统自己的。
 document.documentElement.dataset.platform = platform();

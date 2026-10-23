@@ -1,5 +1,5 @@
 import type { DdlOutcome, DdlPreview, TableDesign } from "./designTypes";
-import type { RedisKeyspace } from "./redisTypes";
+import type { KeyDetail, KeyName, NewKey, RedisKeyspace, RedisKind, ScanPage, ScanRequest } from "./redisTypes";
 import type { ImportCandidate, ImportReport, ImportSource } from "./importTypes";
 import type { KillTarget, ServerSnapshot } from "./monitorTypes";
 import type {
@@ -80,6 +80,28 @@ export interface Backend {
   listDatabases(id: string): Promise<string[]>;
   /** Redis 连接下有哪些库、各有多少键。 */
   redisKeyspace(id: string): Promise<RedisKeyspace>;
+  /** 按模式和类型扫描一批键。 */
+  redisScanKeys(id: string, db: number, request: ScanRequest): Promise<ScanPage>;
+  redisReadKey(id: string, db: number, key: string): Promise<KeyDetail>;
+  /** hash、list、set、zset 表格里的修改 → 给人看的命令。 */
+  redisPreviewKeyChanges(id: string, key: string, kind: RedisKind, changes: RowChange[]): Promise<string[]>;
+  /** 核对后一起写入;`expected` 是看过的预览,重新生成的不一样就不执行。 */
+  redisApplyKeyChanges(
+    id: string,
+    db: number,
+    key: string,
+    kind: RedisKind,
+    changes: RowChange[],
+    expected: string[],
+  ): Promise<ApplyOutcome>;
+  /** 改字符串的值;`original` 是读出来时的值,被别人改过就不覆盖。 */
+  redisSetString(id: string, db: number, key: string, original: string, value: string): Promise<void>;
+  redisCreateKey(id: string, db: number, key: NewKey): Promise<KeyName>;
+  /** 新名字已经有键时报 already_exists,不覆盖。 */
+  redisRenameKey(id: string, db: number, key: string, name: string): Promise<KeyName>;
+  redisDeleteKeys(id: string, db: number, keys: string[]): Promise<number>;
+  /** `seconds` 为 null 时不过期。 */
+  redisSetTtl(id: string, db: number, key: string, seconds: number | null): Promise<void>;
   listSchemas(id: string, database: string): Promise<string[]>;
   listTables(id: string, database: string, schema?: string | null): Promise<TableInfo[]>;
   readTablePage(id: string, table: TableRef, request: PageRequest): Promise<TablePage>;
@@ -236,6 +258,16 @@ function createTauriBackend(): Backend {
     closeConnection: (id) => call("close_connection", { id }),
     listDatabases: (id) => call("list_databases", { id }),
     redisKeyspace: (id) => call("redis_keyspace", { id }),
+    redisScanKeys: (id, db, request) => call("redis_scan_keys", { id, db, request }),
+    redisReadKey: (id, db, key) => call("redis_read_key", { id, db, key }),
+    redisPreviewKeyChanges: (id, key, kind, changes) => call("redis_preview_key_changes", { id, key, kind, changes }),
+    redisApplyKeyChanges: (id, db, key, kind, changes, expected) =>
+      call("redis_apply_key_changes", { id, db, key, kind, changes, expected }),
+    redisSetString: (id, db, key, original, value) => call("redis_set_string", { id, db, key, original, value }),
+    redisCreateKey: (id, db, key) => call("redis_create_key", { id, db, key }),
+    redisRenameKey: (id, db, key, name) => call("redis_rename_key", { id, db, key, name }),
+    redisDeleteKeys: (id, db, keys) => call("redis_delete_keys", { id, db, keys }),
+    redisSetTtl: (id, db, key, seconds) => call("redis_set_ttl", { id, db, key, seconds }),
     listSchemas: (id, database) => call("list_schemas", { id, database }),
     listTables: (id, database, schema) => call("list_tables", { id, database, schema: schema ?? null }),
     dropTable: (id, table) => call("drop_table", { id, table }),

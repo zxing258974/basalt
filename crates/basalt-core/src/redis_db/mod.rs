@@ -1,7 +1,9 @@
 //! Redis 单机。连接流自己建(直连、SSH 隧道、TLS,见 [`link`]),交给 redis 的多路复用连接。
 //! `SELECT` 只对当前连接生效:每个库号各开一条连接,几个标签页看不同的库互不干扰。
 
+pub mod edit;
 mod error;
+pub mod keys;
 mod link;
 mod tls;
 
@@ -9,7 +11,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::time::Duration;
 
 use redis::aio::MultiplexedConnection;
-use redis::{Cmd, FromRedisValue};
+use redis::{Cmd, FromRedisValue, Pipeline, ScriptInvocation};
 use serde::Serialize;
 use tokio::sync::Mutex;
 
@@ -157,6 +159,58 @@ impl RedisSession {
             }
             other => other,
         }
+    }
+
+    /// 只读的流水线:同 [`Self::query`]。
+    pub(crate) async fn query_pipe<T: FromRedisValue>(
+        &self,
+        db: u32,
+        pipe: &Pipeline,
+    ) -> CoreResult<T> {
+        let mut conn = self.conn(db).await?;
+        match pipe
+            .query_async::<T>(&mut conn)
+            .await
+            .map_err(CoreError::from)
+        {
+            Err(error) if is_broken(&error) => {
+                self.reset(db).await;
+                let mut conn = self.conn(db).await?;
+                Ok(pipe.query_async(&mut conn).await?)
+            }
+            other => other,
+        }
+    }
+
+    /// 会改数据的命令:连接断了不重试(可能已经执行过了),只换掉坏连接,下次用新的。
+    pub(crate) async fn execute<T: FromRedisValue>(&self, db: u32, cmd: &Cmd) -> CoreResult<T> {
+        let mut conn = self.conn(db).await?;
+        let result = cmd
+            .query_async::<T>(&mut conn)
+            .await
+            .map_err(CoreError::from);
+        if result.as_ref().is_err_and(is_broken) {
+            self.reset(db).await;
+        }
+        result
+    }
+
+    /// 执行一段脚本(EVALSHA,服务器上没有缓存时自动换成 EVAL);同 [`Self::execute`] 不重试。
+    pub(crate) async fn invoke(
+        &self,
+        db: u32,
+        invocation: &ScriptInvocation<'_>,
+    ) -> CoreResult<()> {
+        let mut conn = self.conn(db).await?;
+        let result = invocation
+            .invoke_async::<redis::Value>(&mut conn)
+            .await
+            .map(drop)
+            .map_err(CoreError::from);
+        if result.as_ref().is_err_and(is_broken) {
+            self.reset(db).await;
+        }
+        result
     }
 
     async fn conn(&self, db: u32) -> CoreResult<MultiplexedConnection> {

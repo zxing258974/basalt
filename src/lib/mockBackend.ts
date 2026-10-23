@@ -10,6 +10,7 @@ import { createMockTransfer } from "./mock/transferMock";
 import { createMockLlm } from "./mock/llmMock";
 import { createMockMonitor } from "./mock/monitorMock";
 import { createMockRedis } from "./mock/redisMock";
+import { createMockRedisKeys } from "./mock/redisKeysMock";
 import { createMockTunnels, mockCredentialFile, validateTransport } from "./mock/tunnelMock";
 import { classifyMockImport, mockImportSources, planMockImport } from "./mockImport";
 import type {
@@ -241,6 +242,12 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
   const llm = createMockLlm(wait);
   const monitor = createMockMonitor();
   const redis = createMockRedis();
+  const redisKeys = createMockRedisKeys(redis);
+  /** Redis 连接才能用的操作。 */
+  const requireRedis = (id: string) => {
+    const config = requireOpen(id);
+    if (config.driver !== "redis") fail("unsupported", "这不是 Redis 连接");
+  };
   /** 上次开着的标签页,和后端的 workspace.json 一样只认 JSON 对象。 */
   let workspace: string | null = null;
 
@@ -389,6 +396,51 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       if (config.driver !== "redis") fail("unsupported", "这不是 Redis 连接");
       const db = config.endpoint.kind === "network" ? Number(config.endpoint.database ?? 0) : 0;
       return redis.keyspace(Number.isInteger(db) ? db : 0);
+    },
+    async redisScanKeys(id, db, request) {
+      await wait();
+      requireRedis(id);
+      return redisKeys.scan(db, request);
+    },
+    async redisReadKey(id, db, key) {
+      await wait(80);
+      requireRedis(id);
+      return redisKeys.read(db, key);
+    },
+    async redisPreviewKeyChanges(id, key, kind, changes) {
+      await wait(80);
+      requireRedis(id);
+      return redisKeys.preview(key, kind, changes);
+    },
+    async redisApplyKeyChanges(id, db, key, kind, changes, expected) {
+      await wait(150);
+      requireRedis(id);
+      return redisKeys.apply(db, key, kind, changes, expected);
+    },
+    async redisSetString(id, db, key, original, value) {
+      await wait(120);
+      requireRedis(id);
+      redisKeys.setString(db, key, original, value);
+    },
+    async redisCreateKey(id, db, key) {
+      await wait(120);
+      requireRedis(id);
+      return redisKeys.create(db, key);
+    },
+    async redisRenameKey(id, db, key, name) {
+      await wait(120);
+      requireRedis(id);
+      return redisKeys.rename(db, key, name);
+    },
+    async redisDeleteKeys(id, db, keys) {
+      await wait(120);
+      requireRedis(id);
+      return redisKeys.remove(db, keys);
+    },
+    async redisSetTtl(id, db, key, seconds) {
+      await wait(80);
+      requireRedis(id);
+      redisKeys.setTtl(db, key, seconds);
     },
     async listSchemas(id, database) {
       await wait();

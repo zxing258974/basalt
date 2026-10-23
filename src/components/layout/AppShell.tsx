@@ -7,6 +7,7 @@ import { TableDesignView } from "../design/TableDesignView";
 import { TableDataView } from "../data/TableDataView";
 import { InspectorPanel } from "../inspector/InspectorPanel";
 import { MonitorView } from "../monitor/MonitorView";
+import { RedisKeysView } from "../redis/RedisKeysView";
 import { ObjectListView } from "../objects/ObjectListView";
 import { EmptyState } from "../ui/EmptyState";
 import { ObjectTree } from "../sidebar/ObjectTree";
@@ -114,6 +115,8 @@ function TabContent({ tab, active }: { tab: Tab; active: boolean }) {
       return <TableDataView tab={tab} active={active} />;
     case "monitor":
       return <MonitorView tab={tab} active={active} />;
+    case "redisKeys":
+      return <RedisKeysView tab={tab} active={active} />;
     case "query":
       return (
         <Suspense fallback={<EmptyState title="正在加载 SQL 编辑器…" />}>

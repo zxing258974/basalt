@@ -1,6 +1,15 @@
 // 上次开着的标签页:关掉 Basalt 再打开,查询里写的 SQL、开着的表、对象列表和服务器监控都还在。
 // 这里只管格式和换算,存取在 hooks/useWorkspace.ts,文件由后端写在配置目录的 workspace.json。
-import type { MonitorTab, ObjectsTab, QueryTab, Tab, TableDataTab, TableDesignTab, TabsState } from "../stores/tabs";
+import type {
+  MonitorTab,
+  ObjectsTab,
+  QueryTab,
+  RedisKeysTab,
+  Tab,
+  TableDataTab,
+  TableDesignTab,
+  TabsState,
+} from "../stores/tabs";
 
 export const WORKSPACE_VERSION = 1;
 
@@ -11,7 +20,8 @@ export interface SavedQueryTab extends Omit<QueryTab, "initialSql" | "baselineSq
 }
 
 /** 设计器只记已有的表:还没建出来的新表,设计内容本来就不记。 */
-export type SavedTab = ObjectsTab | TableDataTab | (TableDesignTab & { table: string }) | SavedQueryTab | MonitorTab;
+export type SavedTab =
+  ObjectsTab | TableDataTab | (TableDesignTab & { table: string }) | SavedQueryTab | MonitorTab | RedisKeysTab;
 
 export interface Workspace {
   version: typeof WORKSPACE_VERSION;
@@ -113,6 +123,14 @@ function parseTab(value: unknown): SavedTab | null {
     case "monitor":
       // id 由连接 id 定:对不上的话会和新开的同一个监控页重复。
       return value.id === `monitor:${value.connectionId as string}` ? (value as unknown as MonitorTab) : null;
+    case "redisKeys": {
+      // 同上,id 由连接和库号定。
+      const db = value.db;
+      const valid = typeof db === "number" && Number.isInteger(db) && db >= 0;
+      return valid && value.id === `redis:${value.connectionId as string}:${db}`
+        ? (value as unknown as RedisKeysTab)
+        : null;
+    }
     default:
       return null;
   }

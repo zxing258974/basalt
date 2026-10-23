@@ -122,7 +122,7 @@ const PeekView = memo(function PeekView({ peek, raw, onRawChange }: PeekViewProp
   );
 });
 
-const ColoredJson = memo(function ColoredJson({ text }: { text: string }) {
+export const ColoredJson = memo(function ColoredJson({ text }: { text: string }) {
   const tokens = useMemo(() => jsonTokens(text), [text]);
   return tokens.map((token, index) =>
     token.kind === "space" || token.kind === "punct" ? (

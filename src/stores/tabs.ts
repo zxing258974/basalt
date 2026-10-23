@@ -55,7 +55,16 @@ export interface MonitorTab {
   connectionId: string;
 }
 
-export type Tab = ObjectsTab | TableDataTab | QueryTab | TableDesignTab | MonitorTab;
+/** Redis 一个库的键:左边键列表,右边选中的键的值。每个连接的每个库只开一个。 */
+export interface RedisKeysTab {
+  kind: "redisKeys";
+  id: string;
+  title: string;
+  connectionId: string;
+  db: number;
+}
+
+export type Tab = ObjectsTab | TableDataTab | QueryTab | TableDesignTab | MonitorTab | RedisKeysTab;
 
 export interface TabsState {
   tabs: Tab[];
@@ -92,6 +101,10 @@ export function tableDataTab(
 
 export function monitorTab(connectionId: string): MonitorTab {
   return { kind: "monitor", id: `monitor:${connectionId}`, title: "服务器监控", connectionId };
+}
+
+export function redisKeysTab(connectionId: string, db: number): RedisKeysTab {
+  return { kind: "redisKeys", id: `redis:${connectionId}:${db}`, title: `db${db}`, connectionId, db };
 }
 
 const UNTITLED = /^查询 (\d+)$/;

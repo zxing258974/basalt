@@ -17,9 +17,44 @@ interface PreviewDialogProps {
   state: PreviewState;
   onCancel(): void;
   onSubmit(): void;
+  /** Redis 的修改是命令,不是事务里的 SQL。 */
+  language?: "sql" | "redis";
 }
 
-const VERB_TONE: Record<string, string> = { UPDATE: "is-update", INSERT: "is-insert", DELETE: "is-delete" };
+const VERB_TONE: Record<string, string> = {
+  UPDATE: "is-update",
+  INSERT: "is-insert",
+  DELETE: "is-delete",
+  SET: "is-update",
+  HSET: "is-update",
+  LSET: "is-update",
+  ZADD: "is-update",
+  RPUSH: "is-insert",
+  SADD: "is-insert",
+  XADD: "is-insert",
+  HDEL: "is-delete",
+  SREM: "is-delete",
+  ZREM: "is-delete",
+  LREM: "is-delete",
+};
+
+const WORDING = {
+  sql: {
+    ready: (count: number) => `将在一个事务里执行下面 ${count} 条语句；任何一条失败都会整体回滚。`,
+    invalid: "修改里有数据库无法接受的内容，什么都没有执行。",
+    loading: "正在生成将要执行的 SQL…",
+    cannot: "无法生成 SQL",
+    list: "将要执行的语句",
+  },
+  redis: {
+    ready: (count: number) =>
+      `提交时先核对改的这些项还是读出来时的样子，都对得上才执行下面 ${count} 条命令；有一项对不上就一条都不执行。`,
+    invalid: "修改里有 Redis 无法接受的内容，什么都没有执行。",
+    loading: "正在生成将要执行的命令…",
+    cannot: "无法生成命令",
+    list: "将要执行的命令",
+  },
+};
 
 /** 语句开头的动词按语义上色:改=余烬、增=绿、删=红。 */
 function Statement({ sql }: { sql: string }) {
@@ -31,7 +66,8 @@ function Statement({ sql }: { sql: string }) {
   );
 }
 
-export function PreviewDialog({ state, onCancel, onSubmit }: PreviewDialogProps) {
+export function PreviewDialog({ state, onCancel, onSubmit, language = "sql" }: PreviewDialogProps) {
+  const wording = WORDING[language];
   const ready = state.phase === "ready" ? state : null;
   const applying = ready?.applying ?? false;
   const count = ready?.statements.length ?? 0;
@@ -55,13 +91,7 @@ export function PreviewDialog({ state, onCancel, onSubmit }: PreviewDialogProps)
     <Dialog
       open
       title="提交修改"
-      subtitle={
-        ready
-          ? `将在一个事务里执行下面 ${count} 条语句；任何一条失败都会整体回滚。`
-          : state.phase === "invalid"
-            ? "修改里有数据库无法接受的内容，什么都没有执行。"
-            : "正在生成将要执行的 SQL…"
-      }
+      subtitle={ready ? wording.ready(count) : state.phase === "invalid" ? wording.invalid : wording.loading}
       width={720}
       onClose={() => {
         if (!applying) onCancel();
@@ -81,7 +111,7 @@ export function PreviewDialog({ state, onCancel, onSubmit }: PreviewDialogProps)
       }
     >
       <div className="preview-body">
-        {state.phase === "invalid" && <PreviewError title="无法生成 SQL" message={state.message} />}
+        {state.phase === "invalid" && <PreviewError title={wording.cannot} message={state.message} />}
         {ready?.error && <PreviewError title="提交失败" message={ready.error} />}
         {state.phase === "loading" && (
           <p className="preview-loading">
@@ -89,7 +119,7 @@ export function PreviewDialog({ state, onCancel, onSubmit }: PreviewDialogProps)
           </p>
         )}
         {ready && (
-          <ol className="sql-list" aria-label="将要执行的语句">
+          <ol className="sql-list" aria-label={wording.list}>
             {ready.statements.map((sql, index) => (
               <li key={index} className="sql-item">
                 <span className="sql-number mono">{index + 1}</span>

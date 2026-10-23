@@ -13,6 +13,10 @@ export interface GridEditOps {
   apply(changes: RowChange[], statements: string[]): Promise<ApplyOutcome>;
   /** 提交成功后重读数据;等它完成再关对话框、清修改,免得先闪回旧值。失败也照样收尾:数据库里已经提交了。 */
   refresh(outcome: ApplyOutcome): Promise<void>;
+  /** 定位一行时带上所有列的原值(Redis 提交前要核对整行还是读出来时的样子),而不只是主键。 */
+  wholeRowKeys?: boolean;
+  /** 提交后底栏的说法;不给时按 SQL 说「语句」「行」。 */
+  summary?(outcome: ApplyOutcome): string;
 }
 
 export function useGridEdits(page: TablePage | undefined, resetKey: unknown, ops: GridEditOps) {
@@ -67,7 +71,7 @@ export function useGridEdits(page: TablePage | undefined, resetKey: unknown, ops
   const openPreview = useCallback(async () => {
     const { page: current, edits: currentEdits, preview: shown, ops: currentOps } = latest.current;
     if (!current || shown.phase !== "closed" || editing.pendingCount(currentEdits) === 0) return;
-    const changes = editing.buildChanges(currentEdits, current);
+    const changes = editing.buildChanges(currentEdits, current, currentOps.wholeRowKeys ?? false);
     const token = ++previewToken.current;
     setPreview({ phase: "loading" });
     try {
@@ -88,7 +92,9 @@ export function useGridEdits(page: TablePage | undefined, resetKey: unknown, ops
       await currentOps.refresh(outcome).catch((error: unknown) => console.warn("提交后重读数据失败", error));
       setEdits(editing.EMPTY_EDITS);
       closePreview();
-      setMessage(`已提交 ${outcome.statements} 条语句，影响 ${outcome.affectedRows} 行。`);
+      setMessage(
+        currentOps.summary?.(outcome) ?? `已提交 ${outcome.statements} 条语句，影响 ${outcome.affectedRows} 行。`,
+      );
     } catch (error) {
       setPreview({ ...shown, applying: false, error: errorMessage(error) });
     }

@@ -1,0 +1,469 @@
+/* ---------- Redis 键浏览:左边键列表(侧栏那层表面),右边选中的键 ---------- */
+.redis-keys {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  container: redis-keys / inline-size;
+}
+.redis-split {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: clamp(220px, 34%, 320px) minmax(0, 1fr);
+  border-top: 1px solid var(--line);
+}
+/* 窄了上下排:键列表在上,值在下 */
+@container redis-keys (max-width: 640px) {
+  .redis-split {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(180px, 38%) minmax(0, 1fr);
+  }
+  .key-browser {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+}
+
+/* 类型徽标:等宽的缩写,类型色的字、淡淡的同色底 */
+.kind-badge {
+  --kind: var(--text-muted);
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 17px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-xs);
+  background: color-mix(in oklch, var(--kind) 14%, transparent);
+  color: var(--kind);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+}
+.kind-badge.is-md {
+  height: 22px;
+  min-width: 0;
+  padding: 0 var(--space-3);
+  font-size: var(--text-xs);
+}
+.kind-string {
+  --kind: var(--kind-string);
+}
+.kind-hash {
+  --kind: var(--kind-hash);
+}
+.kind-list {
+  --kind: var(--kind-list);
+}
+.kind-set {
+  --kind: var(--kind-set);
+}
+.kind-zset {
+  --kind: var(--kind-zset);
+}
+.kind-stream {
+  --kind: var(--kind-stream);
+}
+
+/* ---------- 左:键列表 ---------- */
+.key-browser {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--surface-sidebar);
+}
+.key-browser-bar {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+}
+.key-filter {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text-faint);
+}
+.key-filter:focus-within {
+  background: var(--surface-canvas);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.key-filter svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.key-filter input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-strong);
+  user-select: text;
+  -webkit-user-select: text;
+}
+.key-filter input::placeholder {
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+.key-filter-clear {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-muted);
+}
+.key-filter-clear:hover {
+  background: var(--surface-hover);
+  color: var(--text-strong);
+}
+.key-kind-select {
+  flex: none;
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-canvas);
+  color: var(--text);
+  font-size: var(--text-xs);
+}
+.key-browser-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-3);
+}
+.key-browser-tools > :last-child {
+  margin-left: auto;
+}
+.key-view-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+.key-view-toggle button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-muted);
+}
+.key-view-toggle button svg {
+  width: 14px;
+  height: 14px;
+}
+.key-view-toggle button[aria-pressed="true"] {
+  background: var(--surface-raised);
+  color: var(--text-strong);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.key-view-toggle button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.key-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+  border-top: 1px solid var(--line-hairline);
+}
+.key-list:focus {
+  outline: none;
+}
+.key-list-status {
+  margin: var(--space-6) var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--text-faint);
+}
+.key-list-status.is-error {
+  color: var(--danger);
+}
+.key-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-right: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text);
+  cursor: default;
+}
+.key-row:hover {
+  background: var(--surface-hover);
+}
+.key-row.is-selected {
+  background: var(--surface-selected);
+  color: var(--text-strong);
+}
+.key-list:focus-visible .key-row.is-active {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+}
+.key-row-chevron {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--text-faint);
+  transition: transform var(--duration-fast) ease;
+}
+.key-row[aria-expanded="true"] .key-row-chevron {
+  transform: rotate(90deg);
+}
+.key-row.is-folder .key-row-label {
+  font-weight: var(--weight-medium);
+}
+.key-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.key-row-label.mono {
+  font-size: var(--text-xs);
+}
+.key-row-count {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.key-row-ttl {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+}
+.key-row-ttl svg {
+  width: 12px;
+  height: 12px;
+}
+.key-browser-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 34px;
+  padding: 0 var(--space-4);
+  border-top: 1px solid var(--line-hairline);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 右:选中的键 ---------- */
+.key-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface-canvas);
+  container: key-panel / inline-size;
+}
+.key-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-4) var(--space-5);
+  padding: var(--space-6) var(--space-6) var(--space-5);
+  border-bottom: 1px solid var(--line-hairline);
+}
+.key-head-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.key-name {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  line-height: 1.35;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+.key-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.key-head-actions .is-danger {
+  color: var(--danger);
+}
+/* 值这一栏窄了:操作按钮挪到键名下面,键名独占一行 */
+@container key-panel (max-width: 560px) {
+  .key-head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .key-head-actions {
+    margin-left: calc(-1 * var(--space-3));
+  }
+}
+.key-facts {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-7);
+  margin: 0;
+}
+.key-fact {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+.key-fact dt {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+.key-fact dt svg {
+  width: 12px;
+  height: 12px;
+  align-self: center;
+}
+.key-fact dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+.key-fact.is-expiring dd {
+  color: var(--accent);
+}
+
+/* 值:字符串是阅读视图或文本框,集合类是表格 */
+.key-value {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.text-value,
+.key-value:not(.table-value) {
+  padding: var(--space-4) var(--space-6) var(--space-6);
+}
+.key-value-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 28px;
+}
+.table-value .key-value-bar {
+  padding: var(--space-3) var(--space-5) 0;
+  justify-content: flex-end;
+}
+.key-value-bar > .btn:first-of-type:not(:only-child) {
+  margin-left: auto;
+}
+.text-value .key-value-bar .btn:first-of-type {
+  margin-left: auto;
+}
+.key-value-hint,
+.key-value-stats {
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.key-value-note {
+  margin: 0;
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.table-value .key-value-note {
+  margin: 0 var(--space-5);
+}
+.key-value-error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--danger);
+}
+.text-value-view {
+  flex: 1;
+  min-height: 0;
+}
+.text-value-editor {
+  flex: 1;
+  min-height: 160px;
+  padding: var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-canvas);
+  color: var(--text-strong);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  resize: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.text-value-editor:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+.key-value-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  min-height: 30px;
+  padding: 0 var(--space-5);
+  border-top: 1px solid var(--line-hairline);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.key-value-pending {
+  color: var(--accent);
+}
+.key-value-message {
+  color: var(--success);
+}
+.key-value-command {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-2xs);
+}
+
+/* 对话框 */
+.redis-form {
+  display: grid;
+  gap: var(--space-5);
+}
+.ttl-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

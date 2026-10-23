@@ -1,10 +1,12 @@
 // 对象树里 Redis 连接以下的节点:一个库一行,行尾是键数。
-import { Database } from "lucide-react";
+import { Database, KeyRound } from "lucide-react";
 import { useRedisKeyspace } from "../../hooks/useCatalog";
 import type { ConnectionView } from "../../lib/types";
 import type { RedisDatabase } from "../../lib/redisTypes";
 import { Children } from "./CatalogNodes";
+import { redisKeysTab, useTabs } from "../../stores/tabs";
 import { redisDbKey } from "./treeKeys";
+import { useTreeMenu } from "./treeMenu";
 import { TreeRow, TreeStatusRow } from "./TreeRow";
 
 export function RedisDatabaseList({ connection, depth }: { connection: ConnectionView; depth: number }) {
@@ -39,6 +41,7 @@ function RedisDatabaseNode(props: {
   depth: number;
 }) {
   const { connection, database, depth } = props;
+  const openMenu = useTreeMenu();
   const name = `db${database.index}`;
   const expiring = database.expires > 0 ? `，其中 ${database.expires.toLocaleString()} 个会过期` : "";
   return (
@@ -50,6 +53,16 @@ function RedisDatabaseNode(props: {
       title={`${database.keys.toLocaleString()} 个键${expiring}${props.isDefault ? "。连接配置里的默认库" : ""}`}
       icon={<Database />}
       count={database.keys}
+      onActivate={() => useTabs.getState().open(redisKeysTab(connection.id, database.index))}
+      onContextMenu={(event) =>
+        openMenu(event, [
+          {
+            label: "浏览键",
+            icon: <KeyRound />,
+            onSelect: () => useTabs.getState().open(redisKeysTab(connection.id, database.index)),
+          },
+        ])
+      }
     />
   );
 }

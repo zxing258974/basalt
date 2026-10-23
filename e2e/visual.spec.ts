@@ -138,6 +138,31 @@ test("inspector: cell value", async ({ page }) => {
   await snapshot(page, "inspector-cell-value");
 });
 
+/** 打开「本地 Redis」的 db0 键浏览,点开分组 `group`,选中键 `key`(分组里显示的名字)。 */
+async function openRedisKey(page: Page, group: string, key: string) {
+  await openWelcome(page);
+  await row(page, "开发").dblclick();
+  await row(page, "本地 Redis").dblclick();
+  await row(page, "db0（默认库）").dblclick();
+  const keys = page.getByRole("tree", { name: "db0 的键" });
+  await keys.getByRole("treeitem", { name: new RegExp(`^${group}，`) }).click();
+  await keys.getByRole("treeitem", { name: new RegExp(`^${group}:${key}（`) }).click();
+  return keys;
+}
+
+test("redis: hash key", async ({ page }) => {
+  await openRedisKey(page, "user", "1001");
+  await expect(page.getByRole("grid", { name: "user:1001 的值" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "user:1001" })).toBeVisible();
+  await snapshot(page, "redis-hash");
+});
+
+test("redis: JSON string", async ({ page }) => {
+  await openRedisKey(page, "config", "feature_flags");
+  await expect(page.getByLabel("字符串的值")).toContainText('"newCheckout": true');
+  await snapshot(page, "redis-string");
+});
+
 test("copy table dialog", async ({ page }) => {
   await openWelcome(page);
   await expandShop(page);

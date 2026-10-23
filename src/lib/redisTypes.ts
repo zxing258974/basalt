@@ -1,4 +1,5 @@
 // Redis 的数据结构,与 crates/basalt-core/src/redis_db 的序列化结构一一对应。
+import type { TablePage } from "./types";
 
 /** 一个库:键数和设了过期时间的键数。 */
 export interface RedisDatabase {
@@ -15,3 +16,69 @@ export interface RedisKeyspace {
   /** 连接配置里的库号。 */
   defaultDb: number;
 }
+
+/** 键的名字。`id` 回传给后端定位键(二进制的键名按十六进制),`name` 给人看。 */
+export interface KeyName {
+  id: string;
+  name: string;
+  /** 键名不是 UTF-8,`name` 是 0x 开头的十六进制。 */
+  binary: boolean;
+}
+
+/** TYPE 的回复;模块的类型名(如 ReJSON-RL)也可能出现。 */
+export type RedisKind = "string" | "hash" | "list" | "set" | "zset" | "stream" | (string & {});
+
+export interface KeySummary {
+  key: KeyName;
+  kind: RedisKind;
+  /** 剩余的毫秒数;不过期为 null。 */
+  ttlMs: number | null;
+}
+
+export interface ScanRequest {
+  /** SCAN 的 MATCH 模式。 */
+  pattern: string;
+  kind: RedisKind | null;
+  /** 从头扫是 "0"。 */
+  cursor: string;
+  /** 凑够这么多个就先回来。 */
+  count: number;
+}
+
+export interface ScanPage {
+  keys: KeySummary[];
+  /** "0" 表示扫完了。 */
+  cursor: string;
+}
+
+export type KeyValue =
+  | { kind: "text"; text: string; truncated: boolean }
+  | { kind: "bytes"; hex: string; truncated: boolean }
+  | { kind: "table"; page: TablePage; truncated: boolean }
+  | { kind: "unsupported"; reason: string };
+
+export interface KeyDetail {
+  key: KeyName;
+  kind: RedisKind;
+  ttlMs: number | null;
+  /** 字符串的字节数,集合类的项数。 */
+  length: number | null;
+  memory: number | null;
+  encoding: string | null;
+  value: KeyValue;
+}
+
+export interface NewKey {
+  name: string;
+  kind: RedisKind;
+  ttlSeconds: number | null;
+  /** hash、stream 的第一个字段。 */
+  field: string | null;
+  /** 字符串的值,集合类的第一个元素 / 成员,hash、stream 的第一个值。 */
+  value: string;
+  /** zset 的第一个分数。 */
+  score: string | null;
+}
+
+/** 能新建、能在类型筛选里选的几种。 */
+export const REDIS_KINDS = ["string", "hash", "list", "set", "zset", "stream"] as const;

@@ -95,20 +95,23 @@ export function editedValue(state: EditState, target: RowTarget, column: string)
   return values && column in values ? values[column] : undefined;
 }
 
-function keyOf(page: TablePage, index: number): Record<string, CellValue> {
+function keyOf(page: TablePage, index: number, wholeRow: boolean): Record<string, CellValue> {
   const row = page.rows[index] ?? [];
   return Object.fromEntries(
-    page.columns.flatMap((column, i) => (column.isPrimaryKey && row[i] ? [[column.name, row[i]]] : [])),
+    page.columns.flatMap((column, i) => ((wholeRow || column.isPrimaryKey) && row[i] ? [[column.name, row[i]]] : [])),
   );
 }
 
-/** 按行号顺序给出修改与删除,新增排在最后。主键用读出来时的原值定位。 */
-export function buildChanges(state: EditState, page: TablePage): RowChange[] {
+/**
+ * 按行号顺序给出修改与删除,新增排在最后。主键用读出来时的原值定位;
+ * `wholeRow` 时带上所有列的原值(Redis 提交前要核对)。
+ */
+export function buildChanges(state: EditState, page: TablePage, wholeRow = false): RowChange[] {
   const touched = [...new Set([...Object.keys(state.edits).map(Number), ...state.deleted])].sort((a, b) => a - b);
   const existing = touched.map((index): RowChange =>
     state.deleted.includes(index)
-      ? { kind: "delete", key: keyOf(page, index) }
-      : { kind: "update", key: keyOf(page, index), values: { ...state.edits[index] } },
+      ? { kind: "delete", key: keyOf(page, index, wholeRow) }
+      : { kind: "update", key: keyOf(page, index, wholeRow), values: { ...state.edits[index] } },
   );
   const inserts = state.inserted.map((row): RowChange => ({ kind: "insert", values: { ...row.values } }));
   return [...existing, ...inserts];

@@ -7,6 +7,10 @@ use crate::error::{CoreError, tls_hint};
 
 impl From<RedisError> for CoreError {
     fn from(error: RedisError) -> Self {
+        // Basalt 自己的脚本报的核对失败(见 edit.lua):原样交给 edit 去解释,不依赖 redis 的显示格式。
+        if error.code() == Some("BASALT") {
+            return Self::Database(format!("BASALT {}", error.detail().unwrap_or_default()));
+        }
         let message = error.to_string();
         let auth = error.kind() == ErrorKind::AuthenticationFailed
             || matches!(error.code(), Some("NOAUTH" | "WRONGPASS"));

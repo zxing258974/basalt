@@ -16,6 +16,8 @@ use basalt_core::query::results::ResultSort;
 use basalt_core::query::saved::{SavedQueryInfo, SavedQueryRef};
 use basalt_core::query::{QueryScope, StatementOutcome};
 use basalt_core::redis_db::RedisKeyspace;
+use basalt_core::redis_db::edit::NewKey;
+use basalt_core::redis_db::keys::{KeyDetail, KeyName, ScanPage, ScanRequest};
 use basalt_core::table::{ApplyOutcome, ColumnInfo, PageRequest, RowChange, TablePage, TableRef};
 use basalt_core::table_info::TableDetails;
 use basalt_core::table_ops::maintenance::{Maintenance, MaintenanceOutcome};
@@ -131,6 +133,108 @@ pub async fn redis_keyspace(
     id: String,
 ) -> CommandResult<RedisKeyspace> {
     service::redis::keyspace(&state, &id).await
+}
+
+#[tauri::command]
+pub async fn redis_scan_keys(
+    state: State<'_, AppState>,
+    id: String,
+    db: u32,
+    request: ScanRequest,
+) -> CommandResult<ScanPage> {
+    service::redis::scan_keys(&state, &id, db, &request).await
+}
+
+#[tauri::command]
+pub async fn redis_read_key(
+    state: State<'_, AppState>,
+    id: String,
+    db: u32,
+    key: String,
+) -> CommandResult<KeyDetail> {
+    service::redis::read_key(&state, &id, db, &key).await
+}
+
+#[tauri::command]
+pub async fn redis_preview_key_changes(
+    state: State<'_, AppState>,
+    id: String,
+    key: String,
+    kind: String,
+    changes: Vec<RowChange>,
+) -> CommandResult<Vec<String>> {
+    service::redis::preview_key_changes(&state, &id, &key, &kind, &changes).await
+}
+
+/// `expected` 是用户确认过的预览,重新生成的命令不一样就不执行。
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn redis_apply_key_changes(
+    state: State<'_, AppState>,
+    id: String,
+    db: u32,
+    key: String,
+    kind: String,
+    changes: Vec<RowChange>,
+    expected: Option<Vec<String>>,
+) -> CommandResult<ApplyOutcome> {
+    service::redis::apply_key_changes(&state, &id, db, &key, &kind, &changes, expected.as_deref())
+        .await
+}
+
+#[tauri::command]
+pub async fn redis_set_string(
+    state: State<'_, AppState>,
+    id: String,
+    db: u32,
+    key: String,
+    original: String,
+    value: String,
+) -> CommandResult<()> {
+    service::redis::set_string(&state, &id, db, &key, &original, &value).await
+}
+
+#[tauri::command]
+pub async fn redis_create_key(
+    state: State<'_, AppState>,
+    id: String,
+    db: u32,
+    key: NewKey,
+) -> CommandResult<KeyName> {
+    service::redis::create_key(&state, &id, db, &key).await
+}
+
+#[tauri::command]
+pub async fn redis_rename_key(
+    state: State<'_, AppState>,
+    id: String,
+    db: u32,
+    key: String,
+    name: String,
+) -> CommandResult<KeyName> {
+    service::redis::rename_key(&state, &id, db, &key, &name).await
+}
+
+#[tauri::command]
+pub async fn redis_delete_keys(
+    state: State<'_, AppState>,
+    id: String,
+    db: u32,
+    keys: Vec<String>,
+) -> CommandResult<u64> {
+    service::redis::delete_keys(&state, &id, db, &keys).await
+}
+
+/// `seconds` 为 null 时不过期。
+#[tauri::command]
+pub async fn redis_set_ttl(
+    state: State<'_, AppState>,
+    id: String,
+    db: u32,
+    key: String,
+    seconds: Option<u64>,
+) -> CommandResult<()> {
+    service::redis::set_ttl(&state, &id, db, &key, seconds).await
 }
 
 #[tauri::command]

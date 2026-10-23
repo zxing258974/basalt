@@ -25,6 +25,8 @@ services:
       MYSQL_ROOT_PASSWORD: basalt-test
     ports: ["127.0.0.1:23307:3306"]
     profiles: ["full"]
+    # MySQL 8 默认开二进制日志、30 天才过期:大表导入导出的测试会攒出十几 GB,测试用不到它。
+    command: ["--disable-log-bin"]
 
   mariadb:
     image: mariadb:11.4

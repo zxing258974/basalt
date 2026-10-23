@@ -1,6 +1,6 @@
 # Basalt
 
-macOS 上的桌面数据库客户端，连 MySQL、MariaDB、PostgreSQL 和 SQLite：看表、改数据、写 SQL、改表结构、导入导出、看服务器在忙什么。
+macOS 上的桌面数据库客户端，连 MySQL、MariaDB、PostgreSQL、SQLite 和 Redis：看表、改数据、写 SQL、改表结构、导入导出、看服务器在忙什么；Redis 能浏览、编辑键，有命令行。
 基于 Tauri 2、Rust 和 React，配置和密码只存在本机。
 
 设计取舍、实现细节和已知限制见 [DESIGN.md](DESIGN.md)。以 [MIT](LICENSE) 许可发布。
@@ -9,7 +9,7 @@ macOS 上的桌面数据库客户端，连 MySQL、MariaDB、PostgreSQL 和 SQLi
 
 **连接**
 
-- 新建、编辑、复制、删除、分组、测试连接；四种数据库各有表单。
+- 新建、编辑、复制、删除、分组、测试连接；每种数据库各有表单。
 - 连接对话框分「常规 / SSH / SSL」三页：
   - SSH 隧道支持密码、私钥（可带口令）和 SSH Agent 登录，可以串起一台或几台跳板机（写法同 OpenSSH 的 ProxyJump）。
     也能从 `~/.ssh/config` 选一台主机，自动填好地址、用户名、私钥和跳板机。
@@ -72,12 +72,31 @@ macOS 上的桌面数据库客户端，连 MySQL、MariaDB、PostgreSQL 和 SQLi
   - 复制表、重命名、维护（分析、检查、优化、VACUUM 等）；
   - 清空、截断、删除。
 
+**Redis**
+
+- 单机 Redis 5+ 和 Valkey，可以经 SSH 隧道、开 TLS，用 ACL 用户名加密码登录。集群和哨兵暂不支持（云上的集群版用它的代理地址连）。
+- 对象树里一个库一行，带键数；双击打开这个库的键。
+- 键列表：
+  - 按名字（支持 `*` `?` 通配）和类型筛选，按冒号分组成树，也能平铺；
+  - 用 SCAN 一批批往下扫，不用 KEYS，大库也不卡服务器。
+- 选中一个键：
+  - 右边显示类型、剩余时间、大小、内存和编码；
+  - 字符串里的 JSON 自动排版，可以直接改；
+  - hash、list、set、zset 像表格一样增删改，⌘S 先看要执行的命令。提交时核对改的那些项还是读出来时的样子，有一项被别人改过就一条都不写；改完剩余时间不变。stream 只读。
+- 新建键、改名（不覆盖已有的键）、设过期时间、删除。
+- 命令行（⌘T、连接或库的右键菜单）：
+  - 每个标签页一条自己的连接，`SELECT`、`MULTI` 只影响这里；
+  - 回复照 redis-cli 的样子显示；
+  - 有历史和命令补全，能停下一直在等的 `BLPOP`；
+  - `FLUSHDB`、`KEYS` 这类危险的命令执行前先确认。
+
 **服务器监控**
 
 - 连接右键「服务器监控」：
   - 每秒查询数（PostgreSQL 是事务数）、连接数占上限的比例、缓存命中率、收发流量、慢查询，带最近一段的走势；
   - 下面是会话列表，在执行的排前面。
 - 能终止某个会话正在执行的语句，或者断开它的连接（先确认，确认后会话变了就不动手）。
+- Redis 显示每秒命令数、内存、键数、键命中率和慢日志；能解除阻塞着的客户端，或者断开它。
 - 账号权限不够、只看得到一部分时，页面上写明。
 
 ## 快捷键
@@ -191,23 +210,23 @@ cargo test --workspace                      # 单测 + SQLite 集成测试
 连真实数据库的集成测试要先起测试容器：
 
 ```bash
-docker compose -f docker-compose.test.yml up -d --build          # MySQL 5.7 + PostgreSQL 17 + sshd
+docker compose -f docker-compose.test.yml up -d --build          # MySQL 5.7 + PostgreSQL 17 + Redis 7.4 + sshd
 docker compose -f docker-compose.test.yml --profile full up -d   # 再加 MySQL 8.4 + MariaDB 11.4
-BASALT_IT=1 cargo test --workspace          # 连 MySQL 5.7、PostgreSQL 与 sshd
+BASALT_IT=1 cargo test --workspace          # 连 MySQL 5.7、PostgreSQL、Redis 与 sshd
 BASALT_IT=all cargo test --workspace        # 连全部容器
 BASALT_IT=all cargo llvm-cov --workspace --fail-under-lines 80   # 覆盖率
 ```
 
 容器的端口和账号：
 
-- 容器只监听 127.0.0.1：MySQL 5.7 `23306`、MySQL 8.4 `23307`、MariaDB `23308`、PostgreSQL `25432`、sshd `20022`。
+- 容器只监听 127.0.0.1：MySQL 5.7 `23306`、MySQL 8.4 `23307`、MariaDB `23308`、PostgreSQL `25432`、Redis `26379`（TLS `26380`）、sshd `20022`。
 - 账号见 `docker-compose.test.yml`，只用于本机的一次性容器。
 - `BASALT_IT=all` 会在测试库里建几个 `basalt_` 开头的库和账号。
 
 SSH 与 SSL 的测试：
 
 - sshd 容器是 SSH 跳板机，和数据库容器在同一个网络，经它连库时地址写容器名（`mysql57`、`postgres`）。
-- MySQL 5.7 和 PostgreSQL 挂着 `tests/fixtures/tls` 里测试 CA 签的证书开 SSL。
+- MySQL 5.7、PostgreSQL 和 Redis 挂着 `tests/fixtures/tls` 里测试 CA 签的证书开 SSL。
 - `BASALT_IT` 的名单里写 `sshd` 选中跳板机；经隧道的测试要同时选中 sshd 和对应的库。
 
 设了 `BASALT_IT` 时还会跑 `transfer_large`：

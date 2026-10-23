@@ -1,9 +1,12 @@
-//! 退出前确认:⌘Q、从程序坞右键「退出」、关机或注销(macOS),点主窗口的关闭按钮、Alt+F4(Windows)时,
-//! 前端有未提交的表格修改、没保存的查询就先问一句。
+//! 关窗口和退出。
 //!
+//! macOS 上点主窗口的关闭按钮只把窗口收起来,应用留在程序坞,点程序坞图标再叫回来(见 [`on_run_event`]);
+//! ⌘Q、程序坞右键「退出」、关机或注销才真正退出。Windows 上只有这一个窗口,点关闭按钮、Alt+F4 就是退出。
+//!
+//! 退出前确认:前端有未提交的表格修改、没保存的查询就先问一句。
 //! 前端一有变化就用 [`set_unsaved_work`] 报告有没有这样的东西。没有就照常退出,不等前端
-//! (前端卡住、没加载出来也退得掉);有就拦下来,发 [`QUIT_REQUESTED`] 给前端,
-//! 前端弹确认框,用户确认放弃后调 [`quit_app`] 真正退出。
+//! (前端卡住、没加载出来也退得掉);有就拦下来,先把主窗口叫回来(收着的话确认框弹在看不见的窗口里,
+//! 看起来就像退不出去),再发 [`QUIT_REQUESTED`] 给前端,前端弹确认框,用户确认放弃后调 [`quit_app`] 真正退出。
 //!
 //! 程序坞的「退出」和关机走的是系统的 `terminate:`,不经过菜单,tao 也没接 `applicationShouldTerminate:`:
 //! 启动时给 tao 的应用代理补上这个方法(见 [`install_terminate_guard`]),拦下来时回答「先不退」。
@@ -13,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(target_os = "macos")]
 use tauri::menu::{Menu, MenuEvent};
-use tauri::{AppHandle, Emitter, Manager, Runtime, State, Window, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, State, Window, WindowEvent};
 
 /// 拦下退出时发给前端的事件,和 src/lib/api.ts 一致。
 pub const QUIT_REQUESTED: &str = "quit-requested";
@@ -49,11 +52,46 @@ impl QuitGuard {
     }
 }
 
+/// 把主窗口叫回来,放到最前面:点了关闭按钮收起来的、缩进程序坞的、全屏时跟着应用一起藏起来的都算。
+pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
+    #[cfg(target_os = "macos")]
+    if let Err(error) = app.show() {
+        log::warn!("没能取消隐藏应用:{error}");
+    }
+    let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
+        return;
+    };
+    for (step, result) in [
+        ("显示", window.show()),
+        ("还原", window.unminimize()),
+        ("激活", window.set_focus()),
+    ] {
+        if let Err(error) = result {
+            log::warn!("没能{step}主窗口:{error}");
+        }
+    }
+}
+
+/// 点主窗口的关闭按钮时把它收起来。全屏时 `orderOut:` 会在全屏空间里留下一块黑屏,
+/// 改成隐藏整个应用:系统自己退出那个空间,点程序坞图标再回到全屏。
+#[cfg(target_os = "macos")]
+fn hide_main_window<R: Runtime>(window: &Window<R>) {
+    let result = if window.is_fullscreen().unwrap_or(false) {
+        window.app_handle().hide()
+    } else {
+        window.hide()
+    };
+    if let Err(error) = result {
+        log::error!("没能收起主窗口:{error}");
+    }
+}
+
 /// 有未保存的东西就交给前端确认,返回 true 表示这次退出要拦下。
 fn hand_to_frontend<R: Runtime>(app: &AppHandle<R>) -> bool {
     if !app.state::<QuitGuard>().has_unsaved() {
         return false;
     }
+    show_main_window(app);
     match app.emit_to(MAIN_WINDOW, QUIT_REQUESTED, ()) {
         Ok(()) => true,
         Err(error) => {
@@ -72,13 +110,33 @@ pub fn on_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     }
 }
 
-/// 点主窗口的关闭按钮。只有这一个窗口,关了应用也就退出了。
+/// 点主窗口的关闭按钮。macOS 上只收起窗口,什么都不会丢,不用问;
+/// 别的平台只有这一个窗口,关了应用也就退出了,有未保存的东西先问。
 pub fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEvent) {
-    if let WindowEvent::CloseRequested { api, .. } = event
-        && window.label() == MAIN_WINDOW
-        && hand_to_frontend(window.app_handle())
+    let WindowEvent::CloseRequested { api, .. } = event else {
+        return;
+    };
+    if window.label() != MAIN_WINDOW {
+        return;
+    }
+    #[cfg(target_os = "macos")]
     {
         api.prevent_close();
+        hide_main_window(window);
+    }
+    #[cfg(not(target_os = "macos"))]
+    if hand_to_frontend(window.app_handle()) {
+        api.prevent_close();
+    }
+}
+
+/// 应用级事件:点程序坞图标(macOS 的 Reopen)时把收起来的主窗口叫回来。
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
+pub fn on_run_event<R: Runtime>(app: &AppHandle<R>, event: &RunEvent) {
+    // 窗口开着时也叫一次:全屏时收起的是整个应用,系统取消隐藏的时机说不准,show 一下没有坏处。
+    #[cfg(target_os = "macos")]
+    if let RunEvent::Reopen { .. } = event {
+        show_main_window(app);
     }
 }
 
@@ -313,6 +371,31 @@ mod tests {
         assert!(!guard.has_unsaved());
     }
 
+    /// macOS:关主窗口只是收起来,应用不退出,所以有没有未保存的东西都不问。
+    /// (mock 窗口的显示状态不会变,收起来本身只能在真窗口里看。)
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn closing_the_main_window_only_hides_it() {
+        for unsaved in [false, true] {
+            let (app, requests) = app(unsaved);
+            assert_eq!(press_close(&app, MAIN_WINDOW).try_recv(), Ok(true));
+            assert_eq!(requests.load(Ordering::SeqCst), 0);
+        }
+    }
+
+    #[test]
+    fn bringing_the_main_window_back_works_with_or_without_it() {
+        let (app, requests) = app(true);
+        show_main_window(app.handle());
+        app.get_webview_window(MAIN_WINDOW)
+            .expect("main window")
+            .destroy()
+            .expect("destroy");
+        show_main_window(app.handle());
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+    }
+
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn closing_the_main_window_goes_ahead_when_nothing_is_unsaved() {
         let (app, requests) = app(false);
@@ -320,6 +403,7 @@ mod tests {
         assert_eq!(requests.load(Ordering::SeqCst), 0);
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn closing_the_main_window_with_unsaved_work_waits_for_the_frontend() {
         let (app, requests) = app(true);

@@ -150,6 +150,7 @@ pub fn run() {
             quit::set_unsaved_work,
             quit::quit_app,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Basalt");
+        .build(tauri::generate_context!())
+        .expect("error while running Basalt")
+        .run(|app, event| quit::on_run_event(app, &event));
 }

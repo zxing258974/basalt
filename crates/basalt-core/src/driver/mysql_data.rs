@@ -2,16 +2,17 @@
 
 use sqlx::mysql::{MySql, MySqlArguments, MySqlRow};
 use sqlx::query::Query;
-use sqlx::{Row, TypeInfo, ValueRef};
+use sqlx::{Executor, Row, TypeInfo, ValueRef};
 
 use super::mysql::MysqlSession;
+use super::mysql_query::text_value;
 use super::{check_affected, finish_transaction, statement_failed, table_not_found};
 use crate::error::CoreResult;
 use crate::sql::bind::BindValue;
 use crate::sql::dml::Statement;
 use crate::sql::dynamic;
 use crate::table::{ColumnInfo, TableRef, ValueType};
-use crate::value::{CellValue, widen_f32};
+use crate::value::CellValue;
 
 impl MysqlSession {
     pub async fn columns(&self, table: &TableRef) -> CoreResult<Vec<ColumnInfo>> {
@@ -78,10 +79,9 @@ impl MysqlSession {
         sql: &str,
         columns: &[ColumnInfo],
     ) -> CoreResult<Vec<Vec<CellValue>>> {
-        let rows = sqlx::query(dynamic(sql))
-            .persistent(false)
-            .fetch_all(&self.pool)
-            .await?;
+        // 走文本协议:预备语句读视图,在打开的表比 table_definition_cache 多的服务器上次次报 1615
+        // (Prepared statement needs to be re-prepared)。SQL 拼好了不带参数,筛选条件已查过不含分号。
+        let rows = (&self.pool).fetch_all(dynamic(sql)).await?;
         Ok(rows
             .iter()
             .map(|row| {
@@ -160,71 +160,72 @@ fn is_generated(extra: &str) -> bool {
     .any(|marker| extra.to_ascii_uppercase().contains(marker))
 }
 
-/// 按结果列的线上类型解码一个单元格。`declared` 是表结构里的类型:
-/// utf8mb4_bin 这类二进制排序规则的文本列在线上被报成 VARBINARY / BLOB,
-/// 要靠它认回文本。解不了或解码失败的值返回 [`CellValue::Unsupported`]。
+/// 表数据页、导出整张表时线上类型能显示的列;别的(GEOMETRY 等)显示成类型名,不让改。
+const SHOWN_TYPES: [&str; 24] = [
+    "BOOLEAN",
+    "TINYINT",
+    "SMALLINT",
+    "MEDIUMINT",
+    "INT",
+    "BIGINT",
+    "YEAR",
+    "BIT",
+    "FLOAT",
+    "DOUBLE",
+    "DECIMAL",
+    "DATE",
+    "DATETIME",
+    "TIMESTAMP",
+    "TIME",
+    "JSON",
+    "CHAR",
+    "VARCHAR",
+    "TINYTEXT",
+    "TEXT",
+    "MEDIUMTEXT",
+    "LONGTEXT",
+    "ENUM",
+    "SET",
+];
+const BINARY_TYPES: [&str; 6] = [
+    "BINARY",
+    "VARBINARY",
+    "TINYBLOB",
+    "BLOB",
+    "MEDIUMBLOB",
+    "LONGBLOB",
+];
+
+/// 文本协议里的一个单元格,按结果列的线上类型解码。`declared` 是表结构里的类型:
+/// utf8mb4_bin 这类二进制排序规则的文本列在线上被报成 VARBINARY / BLOB,要靠它认回文本。
+/// 日期时间照服务器发来的原文,零日期 0000-00-00 也一样。解不了的值返回 [`CellValue::Unsupported`]。
 pub(crate) fn decode_cell(row: &MySqlRow, index: usize, declared: ValueType) -> CellValue {
     let Ok(raw) = row.try_get_raw(index) else {
         return CellValue::unsupported("?");
     };
-    let type_name = raw.type_info().name().to_owned();
-    // sqlx 把零日期 0000-00-00 也报成 NULL;日期类型改看原始字节,真 NULL 才读不到字节。
-    if matches!(type_name.as_str(), "DATE" | "DATETIME" | "TIMESTAMP") {
-        return match raw_bytes(row, index) {
-            Ok(bytes) if type_name == "DATE" => {
-                flatten(Ok(format_date(&bytes).map(CellValue::Date)), type_name)
-            }
-            Ok(bytes) => flatten(
-                Ok(format_datetime(&bytes).map(CellValue::DateTime)),
-                type_name,
-            ),
-            Err(_) => CellValue::Null,
-        };
-    }
     if raw.is_null() {
         return CellValue::Null;
     }
-    let decoded = match type_name.as_str() {
-        "BOOLEAN" | "TINYINT" | "SMALLINT" | "MEDIUMINT" | "INT" | "BIGINT" => row
-            .try_get_unchecked::<i64, _>(index)
-            .map(|n| Some(CellValue::Int(n))),
-        name if name.ends_with(" UNSIGNED") => row
-            .try_get_unchecked::<u64, _>(index)
-            .map(|n| Some(CellValue::UInt(n))),
-        "YEAR" | "BIT" => row
-            .try_get_unchecked::<u64, _>(index)
-            .map(|n| Some(CellValue::UInt(n))),
-        "FLOAT" => row
-            .try_get_unchecked::<f32, _>(index)
-            .map(|f| Some(CellValue::Float(widen_f32(f)))),
-        "DOUBLE" => row
-            .try_get_unchecked::<f64, _>(index)
-            .map(|f| Some(CellValue::Float(f))),
-        "DECIMAL" => row
-            .try_get_unchecked::<String, _>(index)
-            .map(|s| Some(CellValue::Decimal(s))),
-        "DATE" => raw_bytes(row, index).map(|b| format_date(&b).map(CellValue::Date)),
-        "DATETIME" | "TIMESTAMP" => {
-            raw_bytes(row, index).map(|b| format_datetime(&b).map(CellValue::DateTime))
+    let type_name = raw.type_info().name().to_owned();
+    match row.try_get_unchecked::<Vec<u8>, _>(index) {
+        Ok(bytes) => table_cell(type_name, bytes, declared),
+        Err(error) => {
+            log::warn!("读取 MySQL {type_name} 失败：{error}");
+            CellValue::Unsupported { type_name }
         }
-        "TIME" => raw_bytes(row, index).map(|b| format_time(&b).map(CellValue::Time)),
-        "JSON" => row
-            .try_get_unchecked::<String, _>(index)
-            .map(|s| Some(CellValue::Json(s))),
-        "CHAR" | "VARCHAR" | "TINYTEXT" | "TEXT" | "MEDIUMTEXT" | "LONGTEXT" | "ENUM" | "SET" => {
-            row.try_get_unchecked::<String, _>(index)
-                .map(|s| Some(CellValue::Text(s)))
-        }
-        "BINARY" | "VARBINARY" | "TINYBLOB" | "BLOB" | "MEDIUMBLOB" | "LONGBLOB" => {
-            raw_bytes(row, index).map(|bytes| Some(binary_cell(bytes, declared)))
-        }
-        _ => return CellValue::Unsupported { type_name },
-    };
-    flatten(decoded, type_name)
+    }
 }
 
-fn raw_bytes(row: &MySqlRow, index: usize) -> Result<Vec<u8>, sqlx::Error> {
-    row.try_get_unchecked::<Vec<u8>, _>(index)
+/// 文本协议里的一个非 NULL 值:二进制类型看表结构,能显示的交给和 SQL 编辑器同一套解码。
+fn table_cell(type_name: String, bytes: Vec<u8>, declared: ValueType) -> CellValue {
+    let name = type_name.as_str();
+    if BINARY_TYPES.contains(&name) {
+        binary_cell(bytes, declared)
+    } else if SHOWN_TYPES.contains(&name) || name.ends_with(" UNSIGNED") {
+        text_value(name, bytes)
+    } else {
+        CellValue::Unsupported { type_name }
+    }
 }
 
 fn binary_cell(bytes: Vec<u8>, declared: ValueType) -> CellValue {
@@ -235,129 +236,9 @@ fn binary_cell(bytes: Vec<u8>, declared: ValueType) -> CellValue {
     }
 }
 
-/// 解码失败也不能静默丢掉:记日志并显示成类型名。
-fn flatten(decoded: Result<Option<CellValue>, sqlx::Error>, type_name: String) -> CellValue {
-    match decoded {
-        Ok(Some(value)) => value,
-        Ok(None) => CellValue::Unsupported { type_name },
-        Err(error) => {
-            log::warn!("解码 MySQL {type_name} 失败：{error}");
-            CellValue::Unsupported { type_name }
-        }
-    }
-}
-
-// 二进制协议里日期时间的线上格式:首字节是长度,全零时长度为 0。
-// 不经过 chrono:零日期 0000-00-00、ALLOW_INVALID_DATES 下的 2026-02-30 都要原样显示。
-
-fn format_date(raw: &[u8]) -> Option<String> {
-    let (date, _) = split_date(raw)?;
-    Some(date)
-}
-
-fn format_datetime(raw: &[u8]) -> Option<String> {
-    let (date, rest) = split_date(raw)?;
-    let time = match rest {
-        [] => "00:00:00".to_owned(),
-        [h, m, s, micros @ ..] => clock(u32::from(*h), *m, *s, micros)?,
-        _ => return None,
-    };
-    Some(format!("{date} {time}"))
-}
-
-fn split_date(raw: &[u8]) -> Option<(String, &[u8])> {
-    let (&len, body) = raw.split_first()?;
-    if len == 0 {
-        return Some(("0000-00-00".into(), &[]));
-    }
-    let body = body.get(..usize::from(len))?;
-    let [y0, y1, month, day, rest @ ..] = body else {
-        return None;
-    };
-    let year = u16::from_le_bytes([*y0, *y1]);
-    Some((format!("{year:04}-{month:02}-{day:02}"), rest))
-}
-
-/// TIME 可以是负数,也可以超过 24 小时(-838:59:59 到 838:59:59)。
-fn format_time(raw: &[u8]) -> Option<String> {
-    let (&len, body) = raw.split_first()?;
-    if len == 0 {
-        return Some("00:00:00".into());
-    }
-    let [negative, d0, d1, d2, d3, h, m, s, micros @ ..] = body.get(..usize::from(len))? else {
-        return None;
-    };
-    let days = u32::from_le_bytes([*d0, *d1, *d2, *d3]);
-    let hours = days.checked_mul(24)?.checked_add(u32::from(*h))?;
-    let sign = if *negative == 1 { "-" } else { "" };
-    Some(format!("{sign}{}", clock(hours, *m, *s, micros)?))
-}
-
-fn clock(hours: u32, minutes: u8, seconds: u8, micros: &[u8]) -> Option<String> {
-    let fraction = match micros {
-        [] => 0,
-        [a, b, c, d] => u32::from_le_bytes([*a, *b, *c, *d]),
-        _ => return None,
-    };
-    let mut out = format!("{hours:02}:{minutes:02}:{seconds:02}");
-    if fraction != 0 {
-        out.push_str(format!(".{fraction:06}").trim_end_matches('0'));
-    }
-    Some(out)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn zero_and_partial_dates_are_shown_as_stored() {
-        assert_eq!(format_date(&[0]).as_deref(), Some("0000-00-00"));
-        assert_eq!(
-            format_date(&[4, 0xEA, 0x07, 10, 20]).as_deref(),
-            Some("2026-10-20")
-        );
-        assert_eq!(
-            format_date(&[4, 0xEA, 0x07, 2, 30]).as_deref(),
-            Some("2026-02-30")
-        );
-        assert_eq!(
-            format_datetime(&[0]).as_deref(),
-            Some("0000-00-00 00:00:00")
-        );
-        assert_eq!(
-            format_datetime(&[4, 0xEA, 0x07, 10, 20]).as_deref(),
-            Some("2026-10-20 00:00:00")
-        );
-        assert_eq!(
-            format_datetime(&[7, 0xEA, 0x07, 10, 20, 8, 5, 9]).as_deref(),
-            Some("2026-10-20 08:05:09")
-        );
-        // 120000 微秒 = .12
-        assert_eq!(
-            format_datetime(&[11, 0xEA, 0x07, 10, 20, 8, 5, 9, 0xC0, 0xD4, 0x01, 0x00]).as_deref(),
-            Some("2026-10-20 08:05:09.12")
-        );
-        assert_eq!(format_date(&[4, 1]), None, "长度不够");
-    }
-
-    #[test]
-    fn times_can_be_negative_and_exceed_a_day() {
-        assert_eq!(format_time(&[0]).as_deref(), Some("00:00:00"));
-        assert_eq!(
-            format_time(&[8, 0, 0, 0, 0, 0, 13, 5, 1]).as_deref(),
-            Some("13:05:01")
-        );
-        // -34 天 22 小时 59 分 59 秒 = -838:59:59
-        assert_eq!(
-            format_time(&[8, 1, 34, 0, 0, 0, 22, 59, 59]).as_deref(),
-            Some("-838:59:59")
-        );
-        assert_eq!(
-            format_time(&[12, 0, 0, 0, 0, 0, 1, 2, 3, 1, 0, 0, 0]).as_deref(),
-            Some("01:02:03.000001")
-        );
-    }
 
     #[test]
     fn declared_types_drive_write_conversion() {
@@ -376,6 +257,41 @@ mod tests {
         assert!(!is_generated(
             "DEFAULT_GENERATED on update CURRENT_TIMESTAMP"
         ));
+    }
+
+    #[test]
+    fn table_cells_are_shown_as_the_server_sent_them() {
+        let cell = |name: &str, text: &str| {
+            table_cell(name.into(), text.as_bytes().to_vec(), ValueType::Text)
+        };
+        assert_eq!(
+            cell("DATE", "0000-00-00"),
+            CellValue::Date("0000-00-00".into())
+        );
+        assert_eq!(
+            cell("DATETIME", "2026-10-20 08:05:09.120"),
+            CellValue::DateTime("2026-10-20 08:05:09.120".into())
+        );
+        assert_eq!(
+            cell("TIME", "-838:59:59"),
+            CellValue::Time("-838:59:59".into())
+        );
+        assert_eq!(
+            cell("BIGINT UNSIGNED", "18446744073709551615"),
+            CellValue::UInt(u64::MAX)
+        );
+        assert_eq!(cell("FLOAT", "0.1"), CellValue::Float(0.1));
+        assert_eq!(cell("SET", "r,w"), CellValue::Text("r,w".into()));
+        assert_eq!(
+            cell("GEOMETRY", "\0\0"),
+            CellValue::unsupported("GEOMETRY"),
+            "显示不了的类型不让改"
+        );
+        assert_eq!(
+            table_cell("VARBINARY".into(), b"abc".to_vec(), ValueType::Binary),
+            CellValue::Bytes(b"abc".to_vec()),
+            "真正的二进制列不因内容碰巧是文本就显示成文本"
+        );
     }
 
     #[test]

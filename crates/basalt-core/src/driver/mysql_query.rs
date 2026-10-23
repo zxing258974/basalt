@@ -136,7 +136,7 @@ pub(crate) fn decode_text_cell(row: &MySqlRow, index: usize) -> CellValue {
 }
 
 /// 文本协议里的一个非 NULL 值。数字解析失败(不该发生)时保留原文,不丢数据。
-fn text_value(type_name: &str, bytes: Vec<u8>) -> CellValue {
+pub(crate) fn text_value(type_name: &str, bytes: Vec<u8>) -> CellValue {
     match type_name {
         "BOOLEAN" | "TINYINT" | "SMALLINT" | "MEDIUMINT" | "INT" | "BIGINT" => {
             parsed(bytes, CellValue::Int)

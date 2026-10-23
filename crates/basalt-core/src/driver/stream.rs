@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures_util::{Stream, StreamExt};
-use sqlx::mysql::{MySqlQueryResult, MySqlRow};
+use sqlx::mysql::MySqlRow;
 use sqlx::postgres::{PgQueryResult, PgRow};
 use sqlx::sqlite::{SqliteConnection, SqliteQueryResult, SqliteRow};
 use sqlx::{Either, Executor, Row};
@@ -159,11 +159,9 @@ impl EditorConnection {
             }
         };
         match self {
+            // 和表数据页一样走文本协议:预备语句读视图可能次次报 1615(见 MysqlSession::fetch_rows)。
             Self::Mysql(editor) if typed => {
-                let stream = sqlx::query(dynamic(sql))
-                    .persistent(false)
-                    .fetch(&mut editor.conn)
-                    .map(right::<MySqlQueryResult, MySqlRow>);
+                let stream = sqlx::raw_sql(dynamic(sql)).fetch_many(&mut editor.conn);
                 drive(stream, mysql_typed, &types, sink, cancel, requested, true).await
             }
             Self::Mysql(editor) => {

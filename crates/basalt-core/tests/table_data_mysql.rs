@@ -174,8 +174,8 @@ async fn decodes_every_column_type_without_losing_values() {
         );
         assert_eq!(
             cell(full, "seen"),
-            CellValue::DateTime("2026-10-20 08:05:09.12".into()),
-            "{who}"
+            CellValue::DateTime("2026-10-20 08:05:09.120".into()),
+            "{who}: 小数位数照列定义,和 SQL 编辑器一样"
         );
         assert_eq!(
             cell(full, "span"),
@@ -198,7 +198,7 @@ async fn decodes_every_column_type_without_losing_values() {
         );
         assert_eq!(
             cell(zero, "seen"),
-            CellValue::DateTime("0000-00-00 00:00:00".into()),
+            CellValue::DateTime("0000-00-00 00:00:00.000".into()),
             "{who}"
         );
         assert_eq!(cell(zero, "flag"), CellValue::Null, "{who}");

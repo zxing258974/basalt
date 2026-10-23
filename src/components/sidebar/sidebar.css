@@ -102,6 +102,11 @@
   font-size: var(--text-xs);
   color: var(--text-faint);
 }
+/* Redis:连接配置里的默认库 */
+.redis-db-default {
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+}
 .connection-name.is-open {
   font-weight: var(--weight-medium);
   color: var(--text-strong);

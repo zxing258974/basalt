@@ -9,7 +9,7 @@ import { formatBytes, formatCount, safeFileName } from "../transfer/exportModel"
 import { TransferProgressView } from "../transfer/TransferProgressView";
 import { useTransferJob } from "../transfer/useTransferJob";
 import { ChoiceList, type Choice } from "./ChoiceList";
-import { DUMP_NOTES, qualifiedName } from "./tableOpsModel";
+import { DUMP_NOTES, driverNote, qualifiedName } from "./tableOpsModel";
 
 interface DumpTableDialogProps {
   connection: ConnectionView;
@@ -110,7 +110,7 @@ export function DumpTableDialog({ connection, table, onClose }: DumpTableDialogP
       ) : (
         <div className="table-ops-form">
           <ChoiceList label="转储内容" choices={CHOICES} value={withData} onChange={setWithData} />
-          <p className="dialog-text is-muted">{DUMP_NOTES[connection.driver]}</p>
+          <p className="dialog-text is-muted">{driverNote(DUMP_NOTES, connection.driver)}</p>
           {message?.tone === "error" && (
             <p className="transfer-error" role="alert">
               {message.text}

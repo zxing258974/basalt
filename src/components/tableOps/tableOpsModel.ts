@@ -10,6 +10,7 @@ import type {
   MaintenanceOutcome,
   ReferencingKey,
   TableRef,
+  SqlDriverKind,
 } from "../../lib/types";
 
 /** 「名字_copy1」,已经有了就往后数。 */
@@ -48,7 +49,7 @@ export function qualifiedName(table: TableRef): string {
 }
 
 /** 各家复制表时带不过去的东西。 */
-export const COPY_LIMITS: Record<DriverKind, string> = {
+export const COPY_LIMITS: Record<SqlDriverKind, string> = {
   mysql: "按 CREATE TABLE … LIKE 复制：字段、索引、表选项都一样；外键和触发器不会复制。",
   mariadb: "按 CREATE TABLE … LIKE 复制：字段、索引、表选项都一样；外键和触发器不会复制。",
   postgres:
@@ -72,7 +73,7 @@ export interface ClearChoice {
   detail: string;
 }
 
-const TRUNCATE_DETAIL: Record<DriverKind, string> = {
+const TRUNCATE_DETAIL: Record<SqlDriverKind, string> = {
   mysql:
     "直接重建成空表，很快；自增编号从 1 开始。会立即提交、不能回滚，不触发删除触发器；被别的表的外键引用时会失败。",
   mariadb:
@@ -96,7 +97,7 @@ export function clearChoices(driver: DriverKind): ClearChoice[] {
       mode: "truncate",
       label: "截断",
       sql: driver === "sqlite" ? "DELETE FROM + 计数归零" : "TRUNCATE",
-      detail: TRUNCATE_DETAIL[driver],
+      detail: driver === "redis" ? "" : TRUNCATE_DETAIL[driver],
     },
   ];
 }
@@ -202,7 +203,7 @@ export function rowsEstimate(rows: number): string {
 }
 
 /** 改名之后,引用这张表的东西各家跟不跟着改。 */
-export const RENAME_NOTES: Record<DriverKind, string> = {
+export const RENAME_NOTES: Record<SqlDriverKind, string> = {
   mysql: "外键和触发器会跟着改；视图、存储过程里写的旧表名不会，要自己改。",
   mariadb: "外键和触发器会跟着改；视图、存储过程里写的旧表名不会，要自己改。",
   postgres: "视图、外键、触发器会跟着改；函数里写的旧表名不会，要自己改。",
@@ -210,7 +211,7 @@ export const RENAME_NOTES: Record<DriverKind, string> = {
 };
 
 /** 转储文件开头会做的事,各家不一样。 */
-export const DUMP_NOTES: Record<DriverKind, string> = {
+export const DUMP_NOTES: Record<SqlDriverKind, string> = {
   mysql:
     "文件开头先删掉同名表（DROP TABLE IF EXISTS）再建表；表名不带库名，执行时进当前库。执行期间关掉外键检查，触发器在数据之后重建。",
   mariadb:
@@ -250,7 +251,7 @@ const MYSQL_MAINTENANCE: MaintenanceChoice[] = [
 ];
 
 /** 各家能做的维护,按菜单里的顺序。 */
-export const MAINTENANCE: Record<DriverKind, MaintenanceChoice[]> = {
+export const MAINTENANCE: Record<SqlDriverKind, MaintenanceChoice[]> = {
   mysql: MYSQL_MAINTENANCE,
   mariadb: MYSQL_MAINTENANCE,
   postgres: [
@@ -316,4 +317,13 @@ export function maintenanceNotice(table: TableRef, label: string, outcome: Maint
 /** 用时:不到 1 秒写毫秒,否则写到小数点后一位。 */
 export function formatDuration(ms: number): string {
   return ms < 1000 ? `${ms} 毫秒` : `${(ms / 1000).toFixed(1)} 秒`;
+}
+
+/** 按数据库类型取说明;Redis 没有表,也就没有这些说明。 */
+export function driverNote(notes: Record<SqlDriverKind, string>, driver: DriverKind): string {
+  return driver === "redis" ? "" : notes[driver];
+}
+
+export function maintenanceChoices(driver: DriverKind): MaintenanceChoice[] {
+  return driver === "redis" ? [] : MAINTENANCE[driver];
 }

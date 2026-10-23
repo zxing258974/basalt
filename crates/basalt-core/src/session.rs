@@ -1,5 +1,5 @@
-//! 已打开的连接。`Session` 把三种驱动统一成一套接口,
-//! `SessionManager` 按连接 id 管理它们的生命周期。
+//! 已打开的连接。`Session` 把三种 SQL 驱动统一成一套接口;Redis 不是 SQL 数据库,另有
+//! [`RedisSession`]。`SessionManager` 按连接 id 管理两者的生命周期。
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,6 +15,7 @@ use crate::error::{CoreError, CoreResult};
 use crate::query::lease::EditorLease;
 use crate::query::results::ResultSort;
 use crate::query::{EditorRegistry, QueryScope, StatementOutcome};
+use crate::redis_db::RedisSession;
 use crate::value::CellValue;
 
 pub enum Session {
@@ -32,6 +33,7 @@ impl Session {
             }
             DriverKind::Postgres => Self::Postgres(Box::new(PgSession::open(params).await?)),
             DriverKind::Sqlite => Self::Sqlite(SqliteSession::open(params).await?),
+            DriverKind::Redis => return Err(not_sql()),
         })
     }
 
@@ -91,17 +93,52 @@ impl std::fmt::Debug for Session {
     }
 }
 
+fn not_sql() -> CoreError {
+    CoreError::Unsupported("这是 Redis 连接，没有表和 SQL".into())
+}
+
 /// 打开、读取版本后立即关闭,用于连接对话框的「测试连接」。
 pub async fn test_connection(params: &ConnectParams) -> CoreResult<ServerInfo> {
-    let session = Session::open(params).await?;
-    let server = session.server().clone();
-    session.close().await;
+    let entry = Entry::open(params).await?;
+    let server = entry.server().clone();
+    entry.close().await;
     Ok(server)
+}
+
+/// 打开着的一个连接:SQL 数据库或者 Redis。
+#[derive(Clone)]
+enum Entry {
+    Sql(Arc<Session>),
+    Redis(Arc<RedisSession>),
+}
+
+impl Entry {
+    async fn open(params: &ConnectParams) -> CoreResult<Self> {
+        Ok(if params.driver.is_redis() {
+            Self::Redis(Arc::new(RedisSession::open(params).await?))
+        } else {
+            Self::Sql(Arc::new(Session::open(params).await?))
+        })
+    }
+
+    fn server(&self) -> &ServerInfo {
+        match self {
+            Self::Sql(session) => session.server(),
+            Self::Redis(session) => session.server(),
+        }
+    }
+
+    async fn close(&self) {
+        match self {
+            Self::Sql(session) => session.close().await,
+            Self::Redis(session) => session.close().await,
+        }
+    }
 }
 
 #[derive(Default)]
 struct Registry {
-    sessions: HashMap<String, Arc<Session>>,
+    sessions: HashMap<String, Entry>,
     /// 每个连接 id 的代际号,每次 close 加一。打开前记下代际,
     /// 打开完成时代际变了,说明期间配置被改或连接被删,新会话作废。
     generations: HashMap<String, u64>,
@@ -114,8 +151,8 @@ impl Registry {
 }
 
 /// [`SessionManager::begin_open`] 的结果:已有会话,或开始新建所需的代际票据。
-pub(crate) enum OpenStart {
-    Existing(Arc<Session>),
+enum OpenStart {
+    Existing(Entry),
     Ticket(u64),
 }
 
@@ -127,17 +164,41 @@ pub struct SessionManager {
 }
 
 impl SessionManager {
-    /// 已打开则直接返回现有会话,不会重复建连接。
+    /// 打开 SQL 数据库的连接。已打开则直接返回现有会话,不会重复建连接。
     pub async fn open(&self, id: &str, params: &ConnectParams) -> CoreResult<Arc<Session>> {
-        let generation = match self.begin_open(id).await {
-            OpenStart::Existing(session) => return Ok(session),
-            OpenStart::Ticket(generation) => generation,
-        };
-        let session = Arc::new(Session::open(params).await?);
-        self.finish_open(id, generation, session).await
+        match self.open_entry(id, params).await? {
+            Entry::Sql(session) => Ok(session),
+            Entry::Redis(_) => Err(not_sql()),
+        }
     }
 
-    pub(crate) async fn begin_open(&self, id: &str) -> OpenStart {
+    /// 打开 Redis 连接。已打开则直接返回现有会话。
+    pub async fn open_redis(
+        &self,
+        id: &str,
+        params: &ConnectParams,
+    ) -> CoreResult<Arc<RedisSession>> {
+        match self.open_entry(id, params).await? {
+            Entry::Redis(session) => Ok(session),
+            Entry::Sql(_) => Err(CoreError::Unsupported("这不是 Redis 连接".into())),
+        }
+    }
+
+    /// 不管是哪种数据库,打开它并返回服务器版本。
+    pub async fn connect(&self, id: &str, params: &ConnectParams) -> CoreResult<ServerInfo> {
+        Ok(self.open_entry(id, params).await?.server().clone())
+    }
+
+    async fn open_entry(&self, id: &str, params: &ConnectParams) -> CoreResult<Entry> {
+        let generation = match self.begin_open(id).await {
+            OpenStart::Existing(entry) => return Ok(entry),
+            OpenStart::Ticket(generation) => generation,
+        };
+        let entry = Entry::open(params).await?;
+        self.finish_open(id, generation, entry).await
+    }
+
+    async fn begin_open(&self, id: &str) -> OpenStart {
         let registry = self.registry.read().await;
         match registry.sessions.get(id) {
             Some(existing) => OpenStart::Existing(existing.clone()),
@@ -145,30 +206,25 @@ impl SessionManager {
         }
     }
 
-    pub(crate) async fn finish_open(
-        &self,
-        id: &str,
-        generation: u64,
-        session: Arc<Session>,
-    ) -> CoreResult<Arc<Session>> {
+    async fn finish_open(&self, id: &str, generation: u64, entry: Entry) -> CoreResult<Entry> {
         let mut registry = self.registry.write().await;
         if registry.generation(id) != generation {
             drop(registry);
-            session.close().await;
+            entry.close().await;
             return Err(CoreError::Superseded);
         }
         // 并发打开同一连接时,先写入的那个胜出,后来的关掉自己。
         if let Some(existing) = registry.sessions.get(id) {
             let existing = existing.clone();
             drop(registry);
-            session.close().await;
+            entry.close().await;
             return Ok(existing);
         }
-        registry.sessions.insert(id.to_owned(), session.clone());
-        Ok(session)
+        registry.sessions.insert(id.to_owned(), entry.clone());
+        Ok(entry)
     }
 
-    pub async fn get(&self, id: &str) -> CoreResult<Arc<Session>> {
+    async fn entry(&self, id: &str) -> CoreResult<Entry> {
         self.registry
             .read()
             .await
@@ -176,6 +232,21 @@ impl SessionManager {
             .get(id)
             .cloned()
             .ok_or_else(|| CoreError::NotConnected(id.to_owned()))
+    }
+
+    /// SQL 数据库的会话;Redis 连接报「不支持」。
+    pub async fn get(&self, id: &str) -> CoreResult<Arc<Session>> {
+        match self.entry(id).await? {
+            Entry::Sql(session) => Ok(session),
+            Entry::Redis(_) => Err(not_sql()),
+        }
+    }
+
+    pub async fn get_redis(&self, id: &str) -> CoreResult<Arc<RedisSession>> {
+        match self.entry(id).await? {
+            Entry::Redis(session) => Ok(session),
+            Entry::Sql(_) => Err(CoreError::Unsupported("这不是 Redis 连接".into())),
+        }
     }
 
     pub async fn is_open(&self, id: &str) -> bool {
@@ -202,8 +273,8 @@ impl SessionManager {
         };
         self.editors.close_connection(id).await;
         match removed {
-            Some(session) => {
-                session.close().await;
+            Some(entry) => {
+                entry.close().await;
                 true
             }
             None => false,
@@ -312,12 +383,11 @@ mod tests {
         };
         // 连接还在建立时,配置被编辑或连接被删除。
         manager.close("c1").await;
-        let late = Arc::new(Session::open(&params).await.unwrap());
+        let late = Entry::Sql(Arc::new(Session::open(&params).await.unwrap()));
 
-        let error = manager
-            .finish_open("c1", generation, late)
-            .await
-            .unwrap_err();
+        let Err(error) = manager.finish_open("c1", generation, late).await else {
+            panic!("代际变了,新会话应该作废");
+        };
         assert_eq!(error.code(), "superseded");
         assert!(!manager.is_open("c1").await);
     }
@@ -354,11 +424,8 @@ mod tests {
         let OpenStart::Ticket(generation) = manager.begin_open("c1").await else {
             panic!("还没打开,应该拿到票据");
         };
-        let session = Arc::new(Session::open(&params).await.unwrap());
-        manager
-            .finish_open("c1", generation, session)
-            .await
-            .unwrap();
+        let session = Entry::Sql(Arc::new(Session::open(&params).await.unwrap()));
+        assert!(manager.finish_open("c1", generation, session).await.is_ok());
         assert!(manager.is_open("c1").await);
         assert!(matches!(
             manager.begin_open("c1").await,

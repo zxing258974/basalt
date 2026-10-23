@@ -1,9 +1,9 @@
 // SQL 助手的纯逻辑:系统提示词、表结构怎么取舍、对话历史怎么截、回答怎么拆成文字和 SQL 代码块。
 // 不碰后端和 DOM。
 import type { ChatMessage, OutlineTable } from "../../lib/llmTypes";
-import type { DriverKind } from "../../lib/types";
+import type { DriverKind, SqlDriverKind } from "../../lib/types";
 
-const DIALECTS: Record<DriverKind, string> = {
+const DIALECTS: Record<SqlDriverKind, string> = {
   mysql: "MySQL",
   mariadb: "MariaDB",
   postgres: "PostgreSQL",
@@ -84,7 +84,7 @@ export function outlineText(outline: OutlineTable[], focus: string, budget = OUT
 
 /** 系统提示词:助手是谁、守哪些规矩、库里有什么。 */
 export function systemPrompt(context: PromptContext, focus: string): string {
-  const dialect = DIALECTS[context.driver];
+  const dialect = dialectName(context.driver);
   const version = context.version ? ` ${context.version}` : "";
   const where = context.database
     ? `当前库是「${context.database}」${context.schema ? `，schema 是「${context.schema}」` : ""}`
@@ -151,7 +151,7 @@ export function parseAnswer(answer: string): AnswerPart[] {
 }
 
 export function dialectName(driver: DriverKind): string {
-  return DIALECTS[driver];
+  return driver === "redis" ? "Redis" : DIALECTS[driver];
 }
 
 const RISKY = /\b(DROP|DELETE|TRUNCATE|ALTER|UPDATE|REPLACE|GRANT|REVOKE|RENAME)\b/gi;

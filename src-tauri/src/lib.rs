@@ -97,6 +97,7 @@ pub fn run() {
             commands::open_connection,
             commands::close_connection,
             commands::list_databases,
+            commands::redis_keyspace,
             commands::list_schemas,
             commands::list_tables,
             commands::read_table_page,

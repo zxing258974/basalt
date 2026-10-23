@@ -1,6 +1,9 @@
 // 与 crates/basalt-core 的序列化结构一一对应。
 
-export type DriverKind = "mysql" | "mariadb" | "postgres" | "sqlite";
+export type DriverKind = "mysql" | "mariadb" | "postgres" | "sqlite" | "redis";
+
+/** 有表和 SQL 的数据库:Redis 以外的几种。 */
+export type SqlDriverKind = Exclude<DriverKind, "redis">;
 
 export type Endpoint =
   | { kind: "network"; host: string; port: number; username: string; database?: string | null }

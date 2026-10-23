@@ -32,7 +32,7 @@ interface QueryLike<T> {
 }
 
 /** 统一处理子节点的加载中、出错、为空三种状态。 */
-function Children<T>({
+export function Children<T>({
   query,
   depth,
   empty,

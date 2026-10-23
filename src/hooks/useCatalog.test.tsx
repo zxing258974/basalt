@@ -39,7 +39,7 @@ describe("catalog queries", () => {
   it("loads the connection list", async () => {
     const { wrapper } = setup();
     const { result } = renderHook(() => useConnections(), { wrapper });
-    await waitFor(() => expect(result.current.data).toHaveLength(3));
+    await waitFor(() => expect(result.current.data).toHaveLength(4));
   });
 
   it("reads the server version only from the cache filled on open", async () => {

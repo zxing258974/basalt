@@ -21,6 +21,7 @@ pub enum DriverKind {
     Mariadb,
     Postgres,
     Sqlite,
+    Redis,
 }
 
 impl DriverKind {
@@ -29,7 +30,13 @@ impl DriverKind {
             Self::Mysql | Self::Mariadb => Some(3306),
             Self::Postgres => Some(5432),
             Self::Sqlite => None,
+            Self::Redis => Some(6379),
         }
+    }
+
+    /// Redis 不是 SQL 数据库:表、查询、导入导出这些功能都没有,另有一套键浏览和命令行。
+    pub fn is_redis(self) -> bool {
+        matches!(self, Self::Redis)
     }
 
     pub fn is_file_based(self) -> bool {
@@ -156,6 +163,16 @@ fn non_blank(value: Option<String>) -> Option<String> {
     value.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
 }
 
+/// Redis 的「数据库」是库号:留空是 0。
+fn validate_redis_db(database: Option<&str>, errors: &mut Vec<FieldError>) {
+    let Some(db) = database.map(str::trim).filter(|d| !d.is_empty()) else {
+        return;
+    };
+    if db.parse::<u32>().is_err() {
+        errors.push(FieldError::new("database", "库号要是 0 或正整数"));
+    }
+}
+
 /// 校验表单,返回全部字段错误而不是遇到第一个就停。
 pub fn validate(draft: &ConnectionDraft) -> Vec<FieldError> {
     let mut errors = Vec::new();
@@ -172,7 +189,7 @@ pub fn validate(draft: &ConnectionDraft) -> Vec<FieldError> {
                 host,
                 port,
                 username,
-                ..
+                database,
             },
             false,
         ) => {
@@ -185,13 +202,19 @@ pub fn validate(draft: &ConnectionDraft) -> Vec<FieldError> {
             if *port == 0 {
                 errors.push(FieldError::new("port", "端口范围是 1–65535"));
             }
-            if username.trim().is_empty() {
+            // Redis 只设了 requirepass 时没有用户名(就是 default 用户)。
+            if username.trim().is_empty() && !draft.driver.is_redis() {
                 errors.push(FieldError::new("username", "请填写用户名"));
+            }
+            if draft.driver.is_redis() {
+                validate_redis_db(database.as_deref(), &mut errors);
             }
             if let Some(ssh) = &draft.ssh {
                 transport::validate_ssh(ssh, &mut errors);
             }
-            transport::validate_ssl(&draft.ssl, draft.ssh.is_some(), &mut errors);
+            // Redis 的 TLS 自己握手,经隧道也用原来的主机名核对证书。
+            let hostname_lost = draft.ssh.is_some() && !draft.driver.is_redis();
+            transport::validate_ssl(&draft.ssl, hostname_lost, &mut errors);
         }
         (Endpoint::File { path }, true) => {
             let path = path.trim();

@@ -30,6 +30,18 @@ export const tableKey = (id: string, database: string, schema: string | null, ta
 export const savedQueryKey = (id: string, database: string, schema: string | null, name: string): string =>
   `${containerKey(id, database, schema)}/${segment("q", name)}`;
 
+/** Redis 的库按库号。不用 d: 开头:那是 SQL 的库,⌘T 会照它开 SQL 查询。 */
+export const redisDbKey = (id: string, db: number): string => `${connectionKey(id)}/${segment("r", String(db))}`;
+
+/** Redis 库节点(或它下面的节点)的 key → 哪个连接的几号库;别的节点返回 null。 */
+export function redisDbFromKey(key: string | null): { connectionId: string; db: number } | null {
+  const connectionId = connectionIdFromKey(key);
+  const found = key?.split("/").find((s) => s.startsWith("r:"));
+  if (connectionId === null || found === undefined) return null;
+  const db = Number(found.slice(2));
+  return Number.isInteger(db) && db >= 0 ? { connectionId, db } : null;
+}
+
 /** 从节点 key 里读出它在哪个库、哪个 schema 下;连接节点本身两者都是 null。 */
 export function locationFromKey(key: string | null): { database: string | null; schema: string | null } {
   const segments = key?.split("/") ?? [];

@@ -22,7 +22,7 @@ describe("expanding", () => {
       .getAllByRole("treeitem")
       .map((node) => node.getAttribute("aria-label"));
     expect(names).toEqual(["笔记", "开发"]);
-    expect(within(item("开发")).getByText("2")).toBeInTheDocument();
+    expect(within(item("开发")).getByText("3")).toBeInTheDocument();
   });
 
   it("opens a MySQL connection on expand and opens a database's objects on double click", async () => {
@@ -55,6 +55,21 @@ describe("expanding", () => {
     expect(await findItem("视图")).toBeInTheDocument();
   });
 
+  it("lists a Redis connection's databases with their key counts", async () => {
+    const { user } = renderApp();
+    await user.dblClick(await findRow("开发"));
+    await user.dblClick(await findRow("本地 Redis"));
+
+    const db0 = await findItem("db0（默认库）");
+    expect(rowOf("db0（默认库）")).toHaveAttribute(
+      "title",
+      expect.stringMatching(/^\d+ 个键，其中 \d+ 个会过期。连接配置里的默认库$/),
+    );
+    expect(Number(within(db0).getByText(/^\d+$/).textContent)).toBeGreaterThan(40);
+    expect(rowOf("db2")).toHaveAttribute("title", "0 个键");
+    expect(tree().getAllByRole("treeitem", { name: /^db\d+/ })).toHaveLength(16);
+  });
+
   it("opens the object list from an empty group", async () => {
     const { user } = renderApp();
     await user.dblClick(await findRow("开发"));
@@ -84,7 +99,7 @@ describe("keyboard", () => {
     expect(item("本地 MySQL")).toHaveFocus();
 
     await user.keyboard("{End}");
-    expect(item("FOLIO 测试库")).toHaveFocus();
+    expect(item("本地 Redis")).toHaveFocus();
     await user.keyboard("{ArrowLeft}");
     expect(item("开发")).toHaveFocus();
     await user.keyboard("{ArrowLeft}");

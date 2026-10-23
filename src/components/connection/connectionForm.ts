@@ -75,11 +75,15 @@ function defaultUsername(driver: DriverKind): string {
     case "postgres":
       return "postgres";
     case "sqlite":
+    case "redis":
       return "";
   }
 }
 
 const defaultPort = (driver: DriverKind) => String(driverMeta(driver).defaultPort ?? "");
+
+/** Redis 没有明文和 TLS 之间的协商,没有「优先」这一档,默认不加密。 */
+export const defaultSslMode = (driver: DriverKind): SslMode => (driver === "redis" ? "disabled" : "preferred");
 
 export function emptyForm(driver: DriverKind): ConnectionForm {
   const isFile = driver === "sqlite";
@@ -108,7 +112,7 @@ export function emptyForm(driver: DriverKind): ConnectionForm {
     sshSecretTouched: false,
     sshSaveSecret: true,
     hadSavedSshSecret: false,
-    sslMode: "preferred",
+    sslMode: defaultSslMode(driver),
     sslCa: "",
     sslCert: "",
     sslKey: "",
@@ -130,10 +134,11 @@ function sshFields(ssh: SshTunnel | null | undefined): Partial<ConnectionForm> {
   };
 }
 
-function sslFields(ssl: SslSettings | undefined): Partial<ConnectionForm> {
+function sslFields(ssl: SslSettings | undefined, driver: DriverKind): Partial<ConnectionForm> {
   if (!ssl) return {};
   return {
-    sslMode: ssl.mode,
+    // 从别处导入的 Redis 连接可能带着「优先」:对 Redis 它就是不加密。
+    sslMode: driver === "redis" && ssl.mode === "preferred" ? "disabled" : ssl.mode,
     sslCa: ssl.caPath ?? "",
     sslCert: ssl.clientCertPath ?? "",
     sslKey: ssl.clientKeyPath ?? "",
@@ -154,7 +159,7 @@ export function formFromConfig(config: ConnectionConfig): ConnectionForm {
     savePassword: config.savePassword,
     hadSavedPassword: config.savePassword,
     ...sshFields(config.ssh),
-    ...sslFields(config.ssl),
+    ...sslFields(config.ssl, config.driver),
   };
 }
 
@@ -199,7 +204,7 @@ export function pageOfField(field: string): FormPage {
 /** 这一页的设置是不是和默认不一样:页签上点一个小圆点。 */
 export function pageIsActive(form: ConnectionForm, page: FormPage): boolean {
   if (page === "ssh") return form.sshEnabled;
-  if (page === "ssl") return form.sslMode !== "preferred";
+  if (page === "ssl") return form.sslMode !== defaultSslMode(form.driver);
   return false;
 }
 
@@ -211,6 +216,7 @@ export function withDriver(form: ConnectionForm, driver: DriverKind): Connection
     driver,
     port: form.port === defaultPort(form.driver) ? fresh.port : form.port,
     username: form.username === defaultUsername(form.driver) ? fresh.username : form.username,
+    sslMode: form.sslMode === defaultSslMode(form.driver) ? fresh.sslMode : form.sslMode,
     host: form.host || fresh.host,
   };
 }

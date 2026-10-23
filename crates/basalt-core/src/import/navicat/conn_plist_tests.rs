@@ -81,7 +81,10 @@ fn maps_fields_and_flags_tunnels_and_ssl() {
     assert_eq!(sources[2].warnings, [PLIST_SSL_WARNING]);
 
     assert_eq!(sources[3].source_type, "Redis");
-    assert!(matches!(sources[3].target, SourceTarget::Unsupported(_)));
+    assert_eq!(
+        sources[3].target,
+        network(DriverKind::Redis, "redis.example.test", 6379, "", None)
+    );
 }
 
 #[test]

@@ -40,7 +40,7 @@ describe("connections", () => {
   it("starts from the seed with nothing open", async () => {
     const backend = createMockBackend();
     const connections = await backend.listConnections();
-    expect(connections.map((c) => c.driver)).toEqual(["mysql", "postgres", "sqlite"]);
+    expect(connections.map((c) => c.driver)).toEqual(["mysql", "postgres", "redis", "sqlite"]);
     expect(connections.every((c) => !c.isOpen)).toBe(true);
   });
 

@@ -8,6 +8,8 @@ export const catalogKeys = {
   connection: (id: string) => ["catalog", id] as const,
   server: (id: string) => ["catalog", id, "server"] as const,
   databases: (id: string) => ["catalog", id, "databases"] as const,
+  /** Redis 连接下的库和键数。 */
+  redisKeyspace: (id: string) => ["catalog", id, "redis", "keyspace"] as const,
   schemas: (id: string, database: string) => ["catalog", id, "schemas", database] as const,
   tables: (id: string, database: string, schema: string | null) =>
     ["catalog", id, "tables", database, schema ?? ""] as const,
@@ -61,6 +63,14 @@ export function useServerInfo(id: string | null) {
 
 export function useDatabases(id: string, enabled: boolean) {
   return useQuery({ ...catalogQueries.databases(id), enabled });
+}
+
+export function useRedisKeyspace(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: catalogKeys.redisKeyspace(id),
+    queryFn: async () => (await getBackend()).redisKeyspace(id),
+    enabled,
+  });
 }
 
 export function useSchemas(id: string, database: string, enabled: boolean) {

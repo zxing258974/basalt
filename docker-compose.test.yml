@@ -3,7 +3,8 @@
 # 测试:BASALT_IT=1 cargo test -p basalt-core --test drivers
 # 这些账号密码、证书、密钥只用于本机一次性测试容器。
 # MySQL 5.7 和 PostgreSQL 开着 SSL(测试 CA 签的证书,见 crates/basalt-core/tests/fixtures/tls),
-# sshd 是 SSH 跳板机,和数据库在同一个网络里,经它转发时数据库地址写容器名(mysql57、postgres)。
+# Redis 明文在 26379、TLS 在 26380;default 用户密码 basalt-test,另有 ACL 用户 basalt / basalt-user。
+# sshd 是 SSH 跳板机,和数据库在同一个网络里,经它转发时数据库地址写容器名(mysql57、postgres、redis)。
 services:
   mysql57:
     image: biarms/mysql:5.7
@@ -51,6 +52,33 @@ services:
         && exec docker-entrypoint.sh postgres -c ssl=on
         -c ssl_cert_file=/tls/server.crt -c ssl_key_file=/var/lib/postgresql/server.key
         -c ssl_ca_file=/tls/ca.crt -c hba_file=/tls/pg_hba.conf
+
+  redis:
+    image: redis:7.4.11-alpine
+    ports: ["127.0.0.1:26379:6379", "127.0.0.1:26380:6380"]
+    volumes:
+      - ./crates/basalt-core/tests/fixtures/tls:/tls:ro
+    command:
+      - redis-server
+      - --requirepass
+      - basalt-test
+      - --user
+      - basalt
+      - "on"
+      - ">basalt-user"
+      - "~*"
+      - "&*"
+      - "+@all"
+      - --tls-port
+      - "6380"
+      - --tls-cert-file
+      - /tls/server.crt
+      - --tls-key-file
+      - /tls/server.key
+      - --tls-ca-cert-file
+      - /tls/ca.crt
+      - --tls-auth-clients
+      - optional
 
   sshd:
     build:

@@ -1,5 +1,5 @@
 // 新建 / 编辑连接对话框:选类型、选文件、测试连接、后端字段校验的回显。
-import { act, screen, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createMockBackend } from "../../lib/mockBackend";
 import { useUi } from "../../stores/ui";
@@ -19,6 +19,30 @@ async function openMysqlForm() {
 }
 
 describe("creating", () => {
+  it("creates a Redis connection without a user name and offers no 「preferred」 SSL", async () => {
+    const { user, dialog, backend } = await openCreateDialog();
+    await user.click(dialog.getByText("Redis"));
+    expect(dialog.getByLabelText("端口")).toHaveValue("6379");
+    expect(dialog.getByLabelText("用户名（可选）")).toHaveValue("");
+    await user.type(dialog.getByLabelText("库号"), "x");
+    await user.click(dialog.getByRole("button", { name: "保存" }));
+    expect(await dialog.findByText("库号要是 0 或正整数")).toBeInTheDocument();
+    await user.clear(dialog.getByLabelText("库号"));
+    await user.type(dialog.getByLabelText("库号"), "2");
+
+    await user.click(dialog.getByRole("tab", { name: "SSL" }));
+    const modes = within(dialog.getByLabelText("SSL 模式"))
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(modes).not.toContain("优先");
+    expect(dialog.getByLabelText("SSL 模式")).toHaveValue("disabled");
+
+    await user.click(dialog.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const saved = (await backend.listConnections()).find((c) => c.driver === "redis" && c.id !== "mock-redis");
+    expect(saved?.endpoint).toMatchObject({ kind: "network", port: 6379, username: "", database: "2" });
+  });
+
   it("creates a SQLite connection from a picked file and selects it", async () => {
     const { user, dialog, backend } = await openCreateDialog();
     expect(dialog.getByText("选择要连接的数据库类型")).toBeInTheDocument();
@@ -33,7 +57,7 @@ describe("creating", () => {
     const created = await screen.findByRole("treeitem", { name: "新笔记" });
     expect(created).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(await backend.listConnections()).toHaveLength(4);
+    expect(await backend.listConnections()).toHaveLength(5);
   });
 
   it("goes back to the type list", async () => {
@@ -55,7 +79,7 @@ describe("creating", () => {
     const { user, dialog, backend } = await openMysqlForm();
     await user.click(dialog.getByRole("button", { name: "取消" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(await backend.listConnections()).toHaveLength(3);
+    expect(await backend.listConnections()).toHaveLength(4);
   });
 });
 

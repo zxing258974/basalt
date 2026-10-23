@@ -9,6 +9,7 @@ pub mod import;
 pub mod llm;
 pub mod monitor;
 pub mod query;
+pub mod redis_db;
 pub mod secret;
 pub mod session;
 pub mod sql;

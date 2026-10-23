@@ -181,17 +181,33 @@ fn undecryptable_password_does_not_abort_the_import() {
 #[test]
 fn unsupported_types_explain_why() {
     let sources = parse_ncx(FIXTURE).unwrap();
-    for (index, label) in [(5, "Redis"), (6, "SQL Server")] {
-        assert_eq!(sources[index].source_type, label);
-        let SourceTarget::Unsupported(reason) = &sources[index].target else {
-            panic!("{label} 应该是不支持");
-        };
-        assert!(reason.contains(label), "{reason}");
-        assert!(
-            reason.contains("MySQL、MariaDB、PostgreSQL 和 SQLite"),
-            "{reason}"
-        );
-    }
+    assert_eq!(sources[6].source_type, "SQL Server");
+    let SourceTarget::Unsupported(reason) = &sources[6].target else {
+        panic!("SQL Server 应该是不支持");
+    };
+    assert!(reason.contains("SQL Server"), "{reason}");
+    assert!(
+        reason.contains("MySQL、MariaDB、PostgreSQL、SQLite 和 Redis"),
+        "{reason}"
+    );
+}
+
+#[test]
+fn redis_connections_come_over_without_a_user_name() {
+    let sources = parse_ncx(FIXTURE).unwrap();
+    assert_eq!(sources[5].source_type, "Redis");
+    assert_eq!(
+        sources[5].target,
+        SourceTarget::Supported {
+            driver: DriverKind::Redis,
+            endpoint: Endpoint::Network {
+                host: "redis.example.test".into(),
+                port: 6379,
+                username: String::new(),
+                database: None,
+            },
+        }
+    );
 }
 
 #[test]

@@ -10,7 +10,7 @@ import { Dialog } from "../ui/Dialog";
 import { Field } from "../ui/Field";
 import { ChoiceList, type Choice } from "./ChoiceList";
 import { forgetTable } from "./tableCaches";
-import { COPY_LIMITS, copiedNotice, copyName, qualifiedName } from "./tableOpsModel";
+import { COPY_LIMITS, copiedNotice, copyName, driverNote, qualifiedName } from "./tableOpsModel";
 
 interface CopyTableDialogProps {
   connection: ConnectionView;
@@ -84,7 +84,7 @@ export function CopyTableDialog({ connection, table, onClose }: CopyTableDialogP
       >
         <Field label="新表名" value={name} autoFocus spellCheck={false} onValueChange={setName} />
         <ChoiceList label="复制内容" choices={CHOICES} value={withData} onChange={setWithData} />
-        <p className="dialog-text is-muted">{COPY_LIMITS[connection.driver]}</p>
+        <p className="dialog-text is-muted">{driverNote(COPY_LIMITS, connection.driver)}</p>
       </form>
       {error && (
         <p className="field-error" role="alert">

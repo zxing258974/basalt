@@ -63,6 +63,12 @@ icu_locale_core = "2"
 # 读 ~/.ssh/config:Host 别名、HostName、User、Port、IdentityFile、ProxyJump、Include
 ssh2-config = "0.9"
 russh = { version = "0.64", default-features = false, features = ["ring", "rsa"] }
+# Redis:连接流自己建(直连、SSH 隧道、TLS),交给 redis 的多路复用连接;TLS 和 sqlx 用同一套 rustls(ring)。
+redis = { version = "1.7", default-features = false, features = ["aio", "tokio-comp"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-pki-types = { version = "1.15", features = ["std"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+webpki-roots = "1.0"
 
 # 调试信息只给自己的代码留行号(报错、panic 的回溯照样有文件和行号),依赖不带。
 # 每个集成测试都是一个静态链着 sqlx、tauri、russh 的独立程序,带全量调试信息时一个几百 MB,

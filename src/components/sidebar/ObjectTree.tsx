@@ -9,6 +9,7 @@ import { DriverBadge } from "../connection/DriverBadge";
 import { endpointSummary } from "../connection/driverMeta";
 import { ContextMenu, type MenuEntry } from "../ui/ContextMenu";
 import { DatabaseList } from "./CatalogNodes";
+import { RedisDatabaseList } from "./RedisNodes";
 import { connectionKey, folderKey } from "./treeKeys";
 import { TreeMenuContext, useTreeMenu } from "./treeMenu";
 import { TreeRow, TreeStatusRow } from "./TreeRow";
@@ -119,8 +120,8 @@ function ConnectionNode({ connection, depth }: { connection: ConnectionView; dep
       disabled: !connection.isOpen,
       onSelect: () => actions.withNotice("刷新", () => actions.refresh(connection.id)),
     },
-    // SQLite 是本进程打开的文件,没有服务器可看。
-    ...(connection.driver === "sqlite"
+    // SQLite 是本进程打开的文件,没有服务器可看。Redis 的监控在做。
+    ...(connection.driver === "sqlite" || connection.driver === "redis"
       ? []
       : [
           {
@@ -151,7 +152,12 @@ function ConnectionNode({ connection, depth }: { connection: ConnectionView; dep
       {error ? (
         <TreeStatusRow depth={depth + 1} status="error" message={error} onRetry={() => void openSafely()} />
       ) : (
-        connection.isOpen && <DatabaseList connection={connection} depth={depth + 1} />
+        connection.isOpen &&
+        (connection.driver === "redis" ? (
+          <RedisDatabaseList connection={connection} depth={depth + 1} />
+        ) : (
+          <DatabaseList connection={connection} depth={depth + 1} />
+        ))
       )}
     </TreeRow>
   );

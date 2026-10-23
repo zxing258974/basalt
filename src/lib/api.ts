@@ -1,4 +1,5 @@
 import type { DdlOutcome, DdlPreview, TableDesign } from "./designTypes";
+import type { RedisKeyspace } from "./redisTypes";
 import type { ImportCandidate, ImportReport, ImportSource } from "./importTypes";
 import type { KillTarget, ServerSnapshot } from "./monitorTypes";
 import type {
@@ -77,6 +78,8 @@ export interface Backend {
   openConnection(id: string, password?: string, sshSecret?: string): Promise<ServerInfo>;
   closeConnection(id: string): Promise<void>;
   listDatabases(id: string): Promise<string[]>;
+  /** Redis 连接下有哪些库、各有多少键。 */
+  redisKeyspace(id: string): Promise<RedisKeyspace>;
   listSchemas(id: string, database: string): Promise<string[]>;
   listTables(id: string, database: string, schema?: string | null): Promise<TableInfo[]>;
   readTablePage(id: string, table: TableRef, request: PageRequest): Promise<TablePage>;
@@ -232,6 +235,7 @@ function createTauriBackend(): Backend {
       call("open_connection", { id, password: password ?? null, sshSecret: sshSecret ?? null }),
     closeConnection: (id) => call("close_connection", { id }),
     listDatabases: (id) => call("list_databases", { id }),
+    redisKeyspace: (id) => call("redis_keyspace", { id }),
     listSchemas: (id, database) => call("list_schemas", { id, database }),
     listTables: (id, database, schema) => call("list_tables", { id, database, schema: schema ?? null }),
     dropTable: (id, table) => call("drop_table", { id, table }),

@@ -45,6 +45,14 @@ export const DRIVERS: readonly DriverMeta[] = [
     defaultPort: null,
     databaseHint: "",
   },
+  {
+    kind: "redis",
+    label: "Redis",
+    monogram: "Rd",
+    color: "var(--db-redis)",
+    defaultPort: 6379,
+    databaseHint: "打开连接时先看的库，留空是 0 号库",
+  },
 ];
 
 export function driverMeta(kind: DriverKind): DriverMeta {
@@ -57,7 +65,9 @@ export function driverMeta(kind: DriverKind): DriverMeta {
 export function endpointSummary(config: Pick<ConnectionConfig, "endpoint">): string {
   const { endpoint } = config;
   if (endpoint.kind === "file") return fileName(endpoint.path);
-  return `${endpoint.username}@${endpoint.host}:${endpoint.port}`;
+  // Redis 只设了密码时没有用户名。
+  const user = endpoint.username ? `${endpoint.username}@` : "";
+  return `${user}${endpoint.host}:${endpoint.port}`;
 }
 
 /** 打开前是否要先问密码:网络连接且没有保存数据库密码,或者 SSH 用密码登录又没保存。

@@ -213,8 +213,8 @@ fn sqlite_duplicates_are_matched_by_file_path() {
 #[test]
 fn unsupported_source_keeps_its_reason_and_has_no_target() {
     let sources = [SourceConnection {
-        target: SourceTarget::Unsupported("Basalt 暂不支持 Redis".into()),
-        source_type: "Redis".into(),
+        target: SourceTarget::Unsupported("Basalt 暂不支持 MongoDB".into()),
+        source_type: "MongoDB".into(),
         password: SourcePassword::Absent,
         ..source("r", "缓存", DriverKind::Mysql, network("h", 1, "u"))
     }];
@@ -222,7 +222,7 @@ fn unsupported_source_keeps_its_reason_and_has_no_target() {
     assert_eq!(
         candidate.status,
         CandidateStatus::Unsupported {
-            reason: "Basalt 暂不支持 Redis".into()
+            reason: "Basalt 暂不支持 MongoDB".into()
         }
     );
     assert_eq!(candidate.driver, None);

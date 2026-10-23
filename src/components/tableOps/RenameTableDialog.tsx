@@ -11,7 +11,7 @@ import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { Field } from "../ui/Field";
 import { forgetTable } from "./tableCaches";
-import { RENAME_NOTES, qualifiedName, renamedTab, tabsOfTable } from "./tableOpsModel";
+import { RENAME_NOTES, driverNote, qualifiedName, renamedTab, tabsOfTable } from "./tableOpsModel";
 import { useDetachable } from "./useDetachable";
 
 interface RenameTableDialogProps {
@@ -113,7 +113,7 @@ export function RenameTableDialog({ connection, table, onClose }: RenameTableDia
           onValueChange={setName}
         />
         <p className="dialog-text is-muted">
-          {RENAME_NOTES[connection.driver]}程序里写死的表名也要自己改。开着的数据页和设计器会换成新名字。
+          {driverNote(RENAME_NOTES, connection.driver)}程序里写死的表名也要自己改。开着的数据页和设计器会换成新名字。
         </p>
       </form>
       {error && (

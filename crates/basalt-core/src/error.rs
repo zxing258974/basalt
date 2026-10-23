@@ -187,13 +187,14 @@ impl From<sqlx::Error> for CoreError {
 pub type CoreResult<T> = Result<T, CoreError>;
 
 /// rustls 校验证书失败的原文(`invalid peer certificate: UnknownIssuer`)换成人话,原文附在后面。
-fn tls_hint(message: &str) -> String {
+pub(crate) fn tls_hint(message: &str) -> String {
     if !message.contains("invalid peer certificate") {
         return message.to_owned();
     }
+    // rustls 新版把主机名对不上写成 `certificate not valid for name "…"`,旧版是 `NotValidForName`。
     let reason = if message.contains("UnknownIssuer") {
         "服务器证书不是由所选的 CA 签发的（没选 CA 证书时只认常见的公共 CA）"
-    } else if message.contains("NotValidForName") {
+    } else if message.contains("NotValidForName") || message.contains("not valid for name") {
         "服务器证书里的主机名和连接地址对不上"
     } else if message.contains("Expired") {
         "服务器证书已过期"
@@ -226,6 +227,10 @@ mod tests {
         assert!(unknown.contains("UnknownIssuer"));
         assert!(
             tls_hint("invalid peer certificate: NotValidForNameContext { .. }").contains("主机名")
+        );
+        assert!(
+            tls_hint(r#"invalid peer certificate: certificate not valid for name "redis"; certificate is only valid for DnsName("localhost")"#)
+                .contains("主机名")
         );
         assert!(tls_hint("invalid peer certificate: Expired").contains("过期"));
         assert!(tls_hint("invalid peer certificate: NotValidYet").contains("生效"));

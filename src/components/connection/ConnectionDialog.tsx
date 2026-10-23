@@ -216,6 +216,7 @@ interface GeneralPageProps {
 function GeneralPage({ form, update, errorFor, autoFocus }: GeneralPageProps) {
   const meta = driverMeta(form.driver);
   const isFile = form.driver === "sqlite";
+  const redis = form.driver === "redis";
 
   const browse = async () => {
     const picked = await (await getBackend()).pickSqliteFile();
@@ -267,8 +268,9 @@ function GeneralPage({ form, update, errorFor, autoFocus }: GeneralPageProps) {
             onValueChange={(port) => update({ port })}
           />
           <Field
-            label="用户名"
+            label={redis ? "用户名（可选）" : "用户名"}
             value={form.username}
+            hint={redis ? "只设了 requirepass 时留空；用 ACL 用户时填它的名字" : undefined}
             error={errorFor("username")}
             onValueChange={(username) => update({ username })}
           />
@@ -280,9 +282,11 @@ function GeneralPage({ form, update, errorFor, autoFocus }: GeneralPageProps) {
             onValueChange={(password) => update({ password, passwordTouched: true })}
           />
           <Field
-            label="初始数据库"
+            label={redis ? "库号" : "初始数据库"}
             value={form.database}
+            inputMode={redis ? "numeric" : undefined}
             hint={meta.databaseHint}
+            error={errorFor("database")}
             onValueChange={(database) => update({ database })}
           />
           <div className="span-full">

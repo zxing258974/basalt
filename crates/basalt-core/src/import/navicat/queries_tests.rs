@@ -226,7 +226,7 @@ fn ambiguous_or_missing_targets_explain_why() {
     assert!(same_name.contains("叫「本地」的连接不止一个"));
 
     let redis = match_target(&query("Redis", "缓存", None), &basalt(), &[]).unwrap_err();
-    assert_eq!(redis, "Basalt 暂不支持 Redis 的查询");
+    assert!(redis.contains("Redis 的查询是命令"), "{redis}");
 
     let deep = match_target(&query("MySQL", "本地", Some("extra")), &basalt(), &[]).unwrap_err();
     assert!(deep.contains("认不出库名"));

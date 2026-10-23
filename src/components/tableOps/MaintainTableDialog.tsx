@@ -15,7 +15,7 @@ import { Button } from "../ui/Button";
 import { Dialog } from "../ui/Dialog";
 import { ChoiceList } from "./ChoiceList";
 import {
-  MAINTENANCE,
+  maintenanceChoices,
   formatDuration,
   levelLabel,
   maintenanceNotice,
@@ -37,7 +37,7 @@ interface MaintainTableDialogProps {
 export function MaintainTableDialog({ connection, table, onClose }: MaintainTableDialogProps) {
   const queryClient = useQueryClient();
   const { detach, isDetached } = useDetachable(onClose);
-  const choices = MAINTENANCE[connection.driver];
+  const choices = maintenanceChoices(connection.driver);
   const [operation, setOperation] = useState<Maintenance>(choices[0]!.operation);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();

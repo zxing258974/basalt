@@ -26,7 +26,7 @@ fn maps_navicat_type_names_case_insensitively() {
     assert_eq!(map_type("PostgreSQL"), Ok(DriverKind::Postgres));
     assert_eq!(map_type("POSTGRESQL"), Ok(DriverKind::Postgres));
     assert_eq!(map_type("SQLite"), Ok(DriverKind::Sqlite));
-    assert_eq!(map_type("REDIS"), Err("Redis".into()));
+    assert_eq!(map_type("REDIS"), Ok(DriverKind::Redis));
     assert_eq!(map_type("SQL Server"), Err("SQL Server".into()));
     assert_eq!(map_type("MongoDB"), Err("MongoDB".into()));
     assert_eq!(map_type("Kingbase"), Err("Kingbase".into()));

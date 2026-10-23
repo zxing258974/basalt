@@ -15,6 +15,7 @@ use basalt_core::query::history::HistoryEntry;
 use basalt_core::query::results::ResultSort;
 use basalt_core::query::saved::{SavedQueryInfo, SavedQueryRef};
 use basalt_core::query::{QueryScope, StatementOutcome};
+use basalt_core::redis_db::RedisKeyspace;
 use basalt_core::table::{ApplyOutcome, ColumnInfo, PageRequest, RowChange, TablePage, TableRef};
 use basalt_core::table_info::TableDetails;
 use basalt_core::table_ops::maintenance::{Maintenance, MaintenanceOutcome};
@@ -121,6 +122,15 @@ pub async fn close_connection(state: State<'_, AppState>, id: String) -> Command
 #[tauri::command]
 pub async fn list_databases(state: State<'_, AppState>, id: String) -> CommandResult<Vec<String>> {
     service::list_databases(&state, &id).await
+}
+
+/// Redis 连接下有哪些库、各有多少键。
+#[tauri::command]
+pub async fn redis_keyspace(
+    state: State<'_, AppState>,
+    id: String,
+) -> CommandResult<RedisKeyspace> {
+    service::redis::keyspace(&state, &id).await
 }
 
 #[tauri::command]

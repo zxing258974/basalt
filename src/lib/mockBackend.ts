@@ -9,6 +9,7 @@ import { mockTableDetails } from "./mock/tableDetails";
 import { createMockTransfer } from "./mock/transferMock";
 import { createMockLlm } from "./mock/llmMock";
 import { createMockMonitor } from "./mock/monitorMock";
+import { createMockRedis } from "./mock/redisMock";
 import { createMockTunnels, mockCredentialFile, validateTransport } from "./mock/tunnelMock";
 import { classifyMockImport, mockImportSources, planMockImport } from "./mockImport";
 import type {
@@ -85,6 +86,14 @@ const SEED_CONNECTIONS: ConnectionConfig[] = [
     savePassword: false,
   },
   {
+    id: "mock-redis",
+    name: "本地 Redis",
+    group: "开发",
+    driver: "redis",
+    endpoint: { kind: "network", host: "127.0.0.1", port: 6379, username: "" },
+    savePassword: true,
+  },
+  {
     id: "mock-sqlite",
     name: "笔记",
     driver: "sqlite",
@@ -98,6 +107,7 @@ const SERVERS: Record<DriverKind, ServerInfo> = {
   mariadb: { product: "MariaDB", version: "11.4.4-MariaDB" },
   postgres: { product: "PostgreSQL", version: "17.11" },
   sqlite: { product: "SQLite", version: "3.46.0" },
+  redis: { product: "Redis", version: "7.4.1" },
 };
 
 const MYSQL_TABLES: Record<string, TableInfo[]> = {
@@ -184,7 +194,13 @@ function validate(draft: ConnectionDraft): FieldError[] {
   if (draft.endpoint.kind === "network") {
     if (!draft.endpoint.host.trim()) errors.push({ field: "host", message: "请填写主机地址" });
     if (!draft.endpoint.port) errors.push({ field: "port", message: "端口范围是 1–65535" });
-    if (!draft.endpoint.username.trim()) errors.push({ field: "username", message: "请填写用户名" });
+    if (!draft.endpoint.username.trim() && draft.driver !== "redis") {
+      errors.push({ field: "username", message: "请填写用户名" });
+    }
+    const db = draft.endpoint.database?.trim();
+    if (draft.driver === "redis" && db && !/^\d+$/.test(db)) {
+      errors.push({ field: "database", message: "库号要是 0 或正整数" });
+    }
   } else if (!draft.endpoint.path.startsWith("/")) {
     errors.push({ field: "path", message: "请选择数据库文件" });
   }
@@ -224,6 +240,7 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
   const transfer = createMockTransfer(wait, (id, ref) => rowCounts.get(rowKey(id, ref)), queries.resultSize);
   const llm = createMockLlm(wait);
   const monitor = createMockMonitor();
+  const redis = createMockRedis();
   /** 上次开着的标签页,和后端的 workspace.json 一样只认 JSON 对象。 */
   let workspace: string | null = null;
 
@@ -361,9 +378,17 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
     async listDatabases(id) {
       await wait();
       const config = requireOpen(id);
+      if (config.driver === "redis") fail("unsupported", "这是 Redis 连接，没有表和 SQL");
       if (config.driver === "sqlite") return ["main"];
       if (config.driver === "postgres") return Object.keys(PG_SCHEMAS);
       return Object.keys(MYSQL_TABLES).sort();
+    },
+    async redisKeyspace(id) {
+      await wait();
+      const config = requireOpen(id);
+      if (config.driver !== "redis") fail("unsupported", "这不是 Redis 连接");
+      const db = config.endpoint.kind === "network" ? Number(config.endpoint.database ?? 0) : 0;
+      return redis.keyspace(Number.isInteger(db) ? db : 0);
     },
     async listSchemas(id, database) {
       await wait();

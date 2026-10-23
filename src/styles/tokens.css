@@ -67,6 +67,7 @@
   --db-mariadb: oklch(52% 0.09 55);
   --db-postgres: oklch(52% 0.12 255);
   --db-sqlite: oklch(55% 0.07 130);
+  --db-redis: oklch(56% 0.17 27);
 
   /* 字体:界面跟系统走以贴近原生,数据与 SQL 用等宽。Segoe UI / Cascadia 没有中文,汉字落到后面的苹方或微软雅黑 */
   --font-ui:

@@ -18,6 +18,7 @@ pub mod llm;
 pub mod monitor;
 pub mod query;
 mod query_import;
+pub mod redis;
 mod table_ops;
 pub use table_ops::{
     clear_table, copy_table, drop_table, maintain_table, rename_table, table_details,
@@ -313,8 +314,7 @@ pub async fn open_connection(
         None => state.saved_ssh_secret(&config)?,
     };
     let params = ConnectParams::from_config(&config, password, ssh_secret, &state.known_hosts);
-    let session = state.sessions.open(id, &params).await?;
-    Ok(session.server().clone())
+    Ok(state.sessions.connect(id, &params).await?)
 }
 
 pub async fn close_connection(state: &AppState, id: &str) {

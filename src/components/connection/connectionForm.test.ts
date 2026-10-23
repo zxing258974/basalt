@@ -214,3 +214,41 @@ describe("tunnel and SSL", () => {
     expect(sshSecretLabel("privateKey")).toBe("私钥口令");
   });
 });
+
+describe("Redis", () => {
+  it("has no user name, starts at db 0 and does not encrypt by default", () => {
+    expect(emptyForm("redis")).toMatchObject({ port: "6379", username: "", database: "", sslMode: "disabled" });
+    expect(pageIsActive(emptyForm("redis"), "ssl")).toBe(false);
+    expect(pageIsActive({ ...emptyForm("redis"), sslMode: "required" }, "ssl")).toBe(true);
+  });
+
+  it("swaps the SSL default along with port and user name when the type changes", () => {
+    expect(withDriver(emptyForm("mysql"), "redis")).toMatchObject({
+      port: "6379",
+      username: "",
+      sslMode: "disabled",
+    });
+    expect(withDriver(emptyForm("redis"), "postgres")).toMatchObject({ sslMode: "preferred" });
+    const encrypted = { ...emptyForm("mysql"), sslMode: "verifyCa" as const };
+    expect(withDriver(encrypted, "redis").sslMode).toBe("verifyCa");
+  });
+
+  it("reads an imported 「preferred」 SSL mode as unencrypted", () => {
+    const imported: ConnectionConfig = {
+      id: "r1",
+      name: "缓存",
+      driver: "redis",
+      endpoint: { kind: "network", host: "redis.example.test", port: 6379, username: "", database: "3" },
+      savePassword: true,
+      ssl: { mode: "preferred" },
+    };
+    expect(formFromConfig(imported)).toMatchObject({ sslMode: "disabled", database: "3", username: "" });
+    expect(toDraft(formFromConfig(imported)).endpoint).toEqual({
+      kind: "network",
+      host: "redis.example.test",
+      port: 6379,
+      username: "",
+      database: "3",
+    });
+  });
+});

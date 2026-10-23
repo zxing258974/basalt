@@ -141,10 +141,10 @@ pub(crate) async fn route(params: &ConnectParams) -> CoreResult<Route> {
     };
     let postgres = params.driver == DriverKind::Postgres;
     // PostgreSQL 按「目录/.s.PGSQL.端口」找套接字。
-    let socket_name = if postgres {
-        format!(".s.PGSQL.{}", params.port)
-    } else {
-        "mysqld.sock".to_owned()
+    let socket_name = match params.driver {
+        DriverKind::Postgres => format!(".s.PGSQL.{}", params.port),
+        DriverKind::Redis => "redis.sock".to_owned(),
+        _ => "mysqld.sock".to_owned(),
     };
     let tunnel = Tunnel::open(ssh, &params.host, params.port, &socket_name).await?;
     let direct = ConnectParams {

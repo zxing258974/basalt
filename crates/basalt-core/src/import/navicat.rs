@@ -36,7 +36,7 @@ pub fn local_unavailable() -> CoreError {
         )
     }
 }
-const SUPPORTED_LIST: &str = "MySQL、MariaDB、PostgreSQL 和 SQLite";
+const SUPPORTED_LIST: &str = "MySQL、MariaDB、PostgreSQL、SQLite 和 Redis";
 /// 连接文件不会有这么大,超过就当选错了文件,不整个读进内存。
 const MAX_SOURCE_BYTES: u64 = 16 * 1024 * 1024;
 
@@ -79,7 +79,7 @@ fn map_type(conn_type: &str) -> Result<DriverKind, String> {
         "MARIADB" => Ok(DriverKind::Mariadb),
         "POSTGRESQL" | "POSTGRES" | "PGSQL" => Ok(DriverKind::Postgres),
         "SQLITE" => Ok(DriverKind::Sqlite),
-        "REDIS" => Err("Redis".into()),
+        "REDIS" => Ok(DriverKind::Redis),
         "ORACLE" => Err("Oracle".into()),
         "SQLSERVER" | "MSSQL" => Err("SQL Server".into()),
         "MONGODB" => Err("MongoDB".into()),
@@ -95,6 +95,7 @@ fn display_type(conn_type: &str) -> String {
         Ok(DriverKind::Mariadb) => "MariaDB".into(),
         Ok(DriverKind::Postgres) => "PostgreSQL".into(),
         Ok(DriverKind::Sqlite) => "SQLite".into(),
+        Ok(DriverKind::Redis) => "Redis".into(),
         Err(label) => label,
     }
 }

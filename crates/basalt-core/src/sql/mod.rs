@@ -11,6 +11,7 @@ mod test_support;
 use serde::{Deserialize, Serialize};
 
 use crate::config::DriverKind;
+use crate::error::{CoreError, CoreResult};
 use crate::table::TableRef;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,12 +22,16 @@ pub enum Dialect {
     Sqlite,
 }
 
-impl From<DriverKind> for Dialect {
-    fn from(driver: DriverKind) -> Self {
+/// Redis 没有 SQL 方言。
+impl TryFrom<DriverKind> for Dialect {
+    type Error = CoreError;
+
+    fn try_from(driver: DriverKind) -> CoreResult<Self> {
         match driver {
-            DriverKind::Mysql | DriverKind::Mariadb => Self::Mysql,
-            DriverKind::Postgres => Self::Postgres,
-            DriverKind::Sqlite => Self::Sqlite,
+            DriverKind::Mysql | DriverKind::Mariadb => Ok(Self::Mysql),
+            DriverKind::Postgres => Ok(Self::Postgres),
+            DriverKind::Sqlite => Ok(Self::Sqlite),
+            DriverKind::Redis => Err(CoreError::Unsupported("Redis 不是 SQL 数据库".into())),
         }
     }
 }
@@ -102,7 +107,14 @@ mod tests {
 
     #[test]
     fn mariadb_maps_to_mysql_dialect() {
-        assert_eq!(Dialect::from(DriverKind::Mariadb), Dialect::Mysql);
-        assert_eq!(Dialect::from(DriverKind::Sqlite), Dialect::Sqlite);
+        assert_eq!(
+            Dialect::try_from(DriverKind::Mariadb).unwrap(),
+            Dialect::Mysql
+        );
+        assert_eq!(
+            Dialect::try_from(DriverKind::Sqlite).unwrap(),
+            Dialect::Sqlite
+        );
+        assert!(Dialect::try_from(DriverKind::Redis).is_err());
     }
 }

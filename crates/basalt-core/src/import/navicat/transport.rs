@@ -145,7 +145,8 @@ fn map_ssl(
     if mode == SslMode::VerifyIdentity && raw.allow_invalid_host_name == Some(true) {
         mode = SslMode::VerifyCa;
     }
-    if mode == SslMode::VerifyIdentity && tunneled {
+    // Redis 的 TLS 是 Basalt 自己握手,经隧道也能核对主机名。
+    if mode == SslMode::VerifyIdentity && tunneled && !driver.is_redis() {
         warnings.push("经 SSH 隧道时没法核对证书里的主机名，SSL 已改成「校验 CA」".into());
         mode = SslMode::VerifyCa;
     }

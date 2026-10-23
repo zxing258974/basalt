@@ -1,7 +1,7 @@
 //! 集成测试共用的测试目标与连接参数。
 //!
-//! MySQL / MariaDB / PostgreSQL 需要先起 `docker-compose.test.yml` 里的容器,
-//! 并用 `BASALT_IT` 选择目标:`BASALT_IT=1` 等于 `mysql57,postgres,sshd`,
+//! MySQL / MariaDB / PostgreSQL / Redis 需要先起 `docker-compose.test.yml` 里的容器,
+//! 并用 `BASALT_IT` 选择目标:`BASALT_IT=1` 等于 `mysql57,postgres,redis,sshd`,
 //! `BASALT_IT=all` 是全部,也可以写逗号分隔的名单。没选中的目标直接跳过。
 //! sshd 是 SSH 跳板机,经它连库的测试同时要选中 sshd 和那个库。
 #![allow(dead_code)]
@@ -48,6 +48,15 @@ pub const POSTGRES: Target = Target {
     user: "postgres",
 };
 pub const MYSQL_FAMILY: [Target; 3] = [MYSQL57, MYSQL84, MARIADB];
+/// default 用户只设了密码,没有用户名。
+pub const REDIS: Target = Target {
+    name: "redis",
+    driver: DriverKind::Redis,
+    port: 26379,
+    user: "",
+};
+/// 同一个 Redis 的 TLS 端口(测试 CA 签的证书)。
+pub const REDIS_TLS_PORT: u16 = 26380;
 
 pub fn selected(target: Target) -> bool {
     selected_name(target.name)
@@ -58,7 +67,7 @@ fn selected_name(name: &str) -> bool {
         return false;
     };
     match raw.trim() {
-        "1" => matches!(name, "mysql57" | "postgres" | "sshd"),
+        "1" => matches!(name, "mysql57" | "postgres" | "redis" | "sshd"),
         "all" => true,
         list => list.split(',').any(|n| n.trim() == name),
     }

@@ -122,7 +122,8 @@ async fn scanning_local_navicat_marks_existing_and_unsupported_connections() {
         )
     );
     assert_eq!(statuses[1].1, &CandidateStatus::New);
-    assert!(matches!(statuses[3].1, CandidateStatus::Unsupported { .. }));
+    assert_eq!(statuses[3], ("会话缓存", &CandidateStatus::New));
+    assert_eq!(candidates[3].driver, Some(DriverKind::Redis));
 }
 
 #[tokio::test]
@@ -211,12 +212,12 @@ async fn importing_from_ncx_stores_passwords_in_the_keychain_only() {
             ("订单库", true),
             ("报表 PG", true),
             ("跳板机后的库", false),
-            ("旧版导出", false)
+            ("旧版导出", false),
+            ("缓存", true)
         ]
     );
     let skipped: Vec<_> = report.skipped.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(skipped, ["缓存", "MYSQL:不存在"]);
-    assert!(report.skipped[0].reason.contains("Redis"));
+    assert_eq!(skipped, ["MYSQL:不存在"]);
 
     let saved = service::list_connections(&h.state).await.unwrap();
     let save_flags: Vec<_> = saved
@@ -229,7 +230,8 @@ async fn importing_from_ncx_stores_passwords_in_the_keychain_only() {
             ("订单库", true),
             ("报表 PG", true),
             ("跳板机后的库", false),
-            ("旧版导出", false)
+            ("旧版导出", false),
+            ("缓存", true)
         ],
         "只有带着密码的连接标为保存密码"
     );
@@ -283,9 +285,14 @@ async fn imported_sqlite_connection_opens() {
 #[tokio::test]
 async fn selecting_nothing_importable_does_not_touch_the_config() {
     let h = harness();
-    let report = import_connections(&h.state, &h.ncx(), &ids(&["REDIS:缓存"]), Some(&h.local))
-        .await
-        .unwrap();
+    let report = import_connections(
+        &h.state,
+        &h.ncx(),
+        &ids(&["SQLSERVER:财务"]),
+        Some(&h.local),
+    )
+    .await
+    .unwrap();
     assert!(report.imported.is_empty());
     assert_eq!(report.skipped.len(), 1);
     assert!(!h.dir.path().join("config/connections.json").exists());

@@ -8,10 +8,11 @@ import type {
   MaintenanceMessage,
   MaintenanceOutcome,
   ReferencingKey,
+  SqlDriverKind,
   TableRef,
 } from "../types";
 
-const AVAILABLE: Record<DriverKind, Maintenance[]> = {
+const AVAILABLE: Record<SqlDriverKind, Maintenance[]> = {
   mysql: ["analyze", "check", "optimize", "repair"],
   mariadb: ["analyze", "check", "optimize", "repair"],
   postgres: ["vacuum", "analyze", "reindex"],
@@ -56,7 +57,7 @@ function sqlOf(driver: DriverKind, table: TableRef, operation: Maintenance): str
 }
 
 export function mockMaintenance(driver: DriverKind, table: TableRef, operation: Maintenance): MaintenanceOutcome {
-  if (!AVAILABLE[driver].includes(operation)) {
+  if (driver === "redis" || !AVAILABLE[driver].includes(operation)) {
     const error: CommandError = { code: "unsupported", message: `没有 ${KEYWORD[operation]} 这项维护`, fields: [] };
     throw error;
   }

@@ -234,6 +234,10 @@ pub fn match_target(
 ) -> Result<(QueryTarget, MatchedBy), String> {
     let driver =
         map_type(&query.conn_type).map_err(|label| format!("Basalt 暂不支持 {label} 的查询"))?;
+    // Navicat 给 Redis 存的是命令,不是 SQL,放不进 Basalt 的查询文件。
+    if driver.is_redis() {
+        return Err("Redis 的查询是命令，不是 SQL，Basalt 不导入".into());
+    }
     let candidates: Vec<&ConnectionConfig> = connections
         .iter()
         .filter(|c| same_family(driver, c.driver))

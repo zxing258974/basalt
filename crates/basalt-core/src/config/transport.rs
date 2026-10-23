@@ -198,12 +198,12 @@ pub(super) fn validate_ssh(ssh: &SshTunnel, errors: &mut Vec<FieldError>) {
     }
 }
 
-pub(super) fn validate_ssl(ssl: &SslSettings, tunneled: bool, errors: &mut Vec<FieldError>) {
+/// `hostname_lost`:经隧道时驱动连的是本机转发端口,证书里的主机名永远对不上 127.0.0.1。
+pub(super) fn validate_ssl(ssl: &SslSettings, hostname_lost: bool, errors: &mut Vec<FieldError>) {
     if ssl.mode == SslMode::Disabled {
         return;
     }
-    // 经隧道时驱动连的是本机转发端口,证书里的主机名永远对不上 127.0.0.1。
-    if tunneled && ssl.mode == SslMode::VerifyIdentity {
+    if hostname_lost && ssl.mode == SslMode::VerifyIdentity {
         errors.push(FieldError::new(
             "sslMode",
             "经 SSH 隧道连接时没法核对主机名（实际连的是本机的转发端口），请改用「校验 CA」",

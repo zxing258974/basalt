@@ -97,12 +97,15 @@ describe("toolbar", () => {
 describe("status bar", () => {
   it("describes the selected connection", async () => {
     renderApp();
-    expect(await statusBar().findByText("3 个连接 · 0 个已打开")).toBeInTheDocument();
+    expect(await statusBar().findByText("4 个连接 · 0 个已打开")).toBeInTheDocument();
     expect(statusBar().getByText("未选择连接")).toBeInTheDocument();
     selectConnection("mock-pg");
     expect(statusBar().getByText("FOLIO 测试库")).toBeInTheDocument();
     expect(statusBar().getByText("folio@10.0.8.21:5432")).toBeInTheDocument();
     expect(statusBar().getByText("未连接")).toBeInTheDocument();
+    // Redis 只设了密码时没有用户名,地址前面不带 @。
+    selectConnection("mock-redis");
+    expect(statusBar().getByText("127.0.0.1:6379")).toBeInTheDocument();
   });
 
   describe("notice", () => {

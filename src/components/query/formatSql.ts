@@ -1,6 +1,6 @@
 // SQL 美化:按连接的数据库选方言,两格缩进,语句之间空一行。sql-formatter 不小,只在第一次美化时才加载。
 // 美化完逐词核对(见 formatGuard):只许改空白,词对不上就不换。
-import type { DriverKind } from "../../lib/types";
+import type { DriverKind, SqlDriverKind } from "../../lib/types";
 import { guardFormatted, insideLiteral, sqlTokens, type SqlToken } from "./formatGuard";
 import { editorDialect } from "./SqlEditor";
 
@@ -41,12 +41,12 @@ async function formatChecked(sql: string, driver: DriverKind | null): Promise<{ 
     mariadb: formatter.mariadb,
     postgres: formatter.postgresql,
     sqlite: formatter.sqlite,
-  } satisfies Record<DriverKind, unknown>;
+  } satisfies Record<SqlDriverKind, unknown>;
   const letterCase = keepsCase(driver) ? "preserve" : "upper";
   let formatted: string;
   try {
     formatted = formatter.formatDialect(sql, {
-      dialect: dialects[driver ?? "mysql"],
+      dialect: dialects[driver === null || driver === "redis" ? "mysql" : driver],
       keywordCase: letterCase,
       dataTypeCase: letterCase,
       functionCase: "preserve",

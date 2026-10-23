@@ -38,9 +38,52 @@
 /* ---------- 选择数据库类型 ---------- */
 .driver-picker {
   display: grid;
+  gap: var(--space-6);
+  padding-bottom: var(--space-4);
+}
+.driver-group {
+  display: grid;
+  gap: var(--space-3);
+}
+.driver-group-title {
+  margin: 0;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+.driver-grid {
+  display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: var(--space-4);
-  padding-bottom: var(--space-4);
+}
+/* 一组只有一种时横着排满一行:徽标、名字和端口、它能做什么 */
+.driver-grid.is-single {
+  grid-template-columns: 1fr;
+}
+.driver-grid.is-single .driver-card {
+  grid-template-columns: auto auto 1fr;
+  grid-template-rows: auto auto;
+  justify-items: start;
+  align-items: center;
+  column-gap: var(--space-5);
+  row-gap: var(--space-1);
+  padding: var(--space-5) var(--space-6);
+  text-align: left;
+}
+.driver-grid.is-single .driver-card > :first-child {
+  grid-row: 1 / span 2;
+}
+.driver-grid.is-single .driver-card-meta {
+  grid-column: 2;
+  grid-row: 2;
+}
+.driver-card-note {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  justify-self: end;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
 }
 .driver-card {
   display: grid;

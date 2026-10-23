@@ -227,16 +227,21 @@ function caHint(mode: SslMode): string {
   }
 }
 
+/** Redis 的 TLS 由 Basalt 自己握手:没有「优先」,经隧道也能核对主机名。 */
+const REDIS_DISABLED_HINT =
+  "不加密。Redis 不会在明文和 TLS 之间协商：服务器开了 TLS 就选「必须」或更严的一档，TLS 端口往往也不一样（如 6380）。";
+
 export function SslPage({ form, update, errorFor }: Omit<PageProps, "replace">) {
+  const redis = form.driver === "redis";
   const off = form.sslMode === "disabled";
   const caUnused = off || form.sslMode === "preferred";
-  const options = SSL_MODES.map(({ value }) => {
+  const options = SSL_MODES.filter(({ value }) => !(redis && value === "preferred")).map(({ value }) => {
     const label = SSL_MODE_LABELS[value];
-    // 经隧道时实际连的是本机转发端口,证书里的主机名对不上。
-    const blocked = value === "verifyIdentity" && form.sshEnabled;
+    // 经隧道时实际连的是本机转发端口,证书里的主机名对不上(Redis 除外,见上)。
+    const blocked = value === "verifyIdentity" && form.sshEnabled && !redis;
     return { value, label: blocked ? `${label}（经 SSH 隧道时不能用）` : label, disabled: blocked };
   });
-  const hint = SSL_MODES.find((m) => m.value === form.sslMode)?.hint;
+  const hint = redis && off ? REDIS_DISABLED_HINT : SSL_MODES.find((m) => m.value === form.sslMode)?.hint;
   return (
     <div className="form-grid">
       <SelectField

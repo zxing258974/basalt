@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { SquareTerminal } from "lucide-react";
 import { useConnections, useRedisKeyspace } from "../../hooks/useCatalog";
 import { useConnectionActions } from "../../hooks/useConnectionActions";
+import { useQueryTabs } from "../../hooks/useQueryTabs";
 import { guardDiscard } from "../../stores/discard";
 import { useTabs, type RedisKeysTab } from "../../stores/tabs";
 import { DriverBadge } from "../connection/DriverBadge";
@@ -16,6 +18,7 @@ export function RedisKeysView({ tab, active }: { tab: RedisKeysTab; active: bool
   const connection = useConnections().data?.find((c) => c.id === tab.connectionId);
   const isOpen = Boolean(connection?.isOpen);
   const { openWithFeedback } = useConnectionActions();
+  const { openRedisConsole } = useQueryTabs();
   const keyspace = useRedisKeyspace(tab.connectionId, isOpen).data;
   const refresh = useRefreshAfterChange(tab.connectionId, tab.db);
   const [selected, setSelected] = useState<string | null>(null);
@@ -45,6 +48,17 @@ export function RedisKeysView({ tab, active }: { tab: RedisKeysTab; active: bool
           <span className="data-crumb-sep">/</span>
           <h1 className="data-title">db{tab.db}</h1>
           {keys !== undefined && <span className="data-summary">{keys.toLocaleString()} 个键</span>}
+          {connection?.isOpen && (
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<SquareTerminal />}
+              title="在这个库打开命令行"
+              onClick={() => void openRedisConsole(connection, tab.db)}
+            >
+              命令行
+            </Button>
+          )}
         </div>
       </header>
 

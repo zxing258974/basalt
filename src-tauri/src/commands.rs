@@ -16,6 +16,7 @@ use basalt_core::query::results::ResultSort;
 use basalt_core::query::saved::{SavedQueryInfo, SavedQueryRef};
 use basalt_core::query::{QueryScope, StatementOutcome};
 use basalt_core::redis_db::RedisKeyspace;
+use basalt_core::redis_db::console::ConsoleOutcome;
 use basalt_core::redis_db::edit::NewKey;
 use basalt_core::redis_db::keys::{KeyDetail, KeyName, ScanPage, ScanRequest};
 use basalt_core::table::{ApplyOutcome, ColumnInfo, PageRequest, RowChange, TablePage, TableRef};
@@ -235,6 +236,48 @@ pub async fn redis_set_ttl(
     seconds: Option<u64>,
 ) -> CommandResult<()> {
     service::redis::set_ttl(&state, &id, db, &key, seconds).await
+}
+
+/// 在命令行标签页 `console` 里执行一行;危险的命令要 `confirmed` 才执行,否则回 `confirm`。
+#[tauri::command]
+pub async fn redis_console_run(
+    state: State<'_, AppState>,
+    id: String,
+    console: String,
+    db: u32,
+    line: String,
+    confirmed: bool,
+) -> CommandResult<ConsoleOutcome> {
+    service::redis::run_console(&state, &id, &console, db, &line, confirmed).await
+}
+
+/// 停下命令行里正在跑的命令(断开它的连接)。
+#[tauri::command]
+pub async fn redis_console_cancel(
+    state: State<'_, AppState>,
+    id: String,
+    console: String,
+) -> CommandResult<()> {
+    service::redis::cancel_console(&state, &id, &console).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn redis_console_close(
+    state: State<'_, AppState>,
+    id: String,
+    console: String,
+) -> CommandResult<()> {
+    service::redis::close_console(&state, &id, &console).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn redis_command_names(
+    state: State<'_, AppState>,
+    id: String,
+) -> CommandResult<Vec<String>> {
+    service::redis::command_names(&state, &id).await
 }
 
 #[tauri::command]

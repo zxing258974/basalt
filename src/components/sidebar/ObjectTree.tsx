@@ -1,7 +1,9 @@
-import { Activity, Copy, Folder, Pencil, Plug, PlugZap, RefreshCw, Trash2 } from "lucide-react";
+import { Activity, Copy, Folder, Pencil, Plug, PlugZap, RefreshCw, SquareTerminal, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { useConnections } from "../../hooks/useCatalog";
 import { useConnectionActions } from "../../hooks/useConnectionActions";
+import { useQueryTabs } from "../../hooks/useQueryTabs";
+import { shortcut } from "../../lib/platform";
 import { errorMessage, type ConnectionView } from "../../lib/types";
 import { monitorTab, useTabs } from "../../stores/tabs";
 import { useUi } from "../../stores/ui";
@@ -96,6 +98,7 @@ function ConnectionNode({ connection, depth }: { connection: ConnectionView; dep
   const openMenu = useTreeMenu();
   const actions = useConnectionActions();
   const { openConnectionDialog, confirmDelete } = useUi.getState();
+  const { openRedisConsole } = useQueryTabs();
   const error = useUi((s) => s.connectionErrors[connection.id]);
   const openSafely = () => actions.openWithFeedback(connection);
 
@@ -120,6 +123,16 @@ function ConnectionNode({ connection, depth }: { connection: ConnectionView; dep
       disabled: !connection.isOpen,
       onSelect: () => actions.withNotice("刷新", () => actions.refresh(connection.id)),
     },
+    ...(connection.driver === "redis"
+      ? [
+          {
+            label: "命令行",
+            icon: <SquareTerminal />,
+            shortcut: shortcut("T"),
+            onSelect: () => void openRedisConsole(connection),
+          },
+        ]
+      : []),
     // SQLite 是本进程打开的文件,没有服务器可看。Redis 的监控在做。
     ...(connection.driver === "sqlite" || connection.driver === "redis"
       ? []

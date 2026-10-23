@@ -10,6 +10,7 @@ import { createMockTransfer } from "./mock/transferMock";
 import { createMockLlm } from "./mock/llmMock";
 import { createMockMonitor } from "./mock/monitorMock";
 import { createMockRedis } from "./mock/redisMock";
+import { createMockRedisConsole } from "./mock/redisConsoleMock";
 import { createMockRedisKeys } from "./mock/redisKeysMock";
 import { createMockTunnels, mockCredentialFile, validateTransport } from "./mock/tunnelMock";
 import { classifyMockImport, mockImportSources, planMockImport } from "./mockImport";
@@ -243,6 +244,7 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
   const monitor = createMockMonitor();
   const redis = createMockRedis();
   const redisKeys = createMockRedisKeys(redis);
+  const redisConsole = createMockRedisConsole(redis);
   /** Redis 连接才能用的操作。 */
   const requireRedis = (id: string) => {
     const config = requireOpen(id);
@@ -441,6 +443,24 @@ export function createMockBackend(seed: ConnectionConfig[] = SEED_CONNECTIONS): 
       await wait(80);
       requireRedis(id);
       redisKeys.setTtl(db, key, seconds);
+    },
+    async redisConsoleRun(id, console, db, line, confirmed) {
+      await wait(40);
+      requireRedis(id);
+      return redisConsole.run(`${id}/${console}`, db, line, confirmed);
+    },
+    redisConsoleCancel(id, console) {
+      redisConsole.cancel(`${id}/${console}`);
+      return Promise.resolve();
+    },
+    redisConsoleClose(id, console) {
+      redisConsole.close(`${id}/${console}`);
+      return Promise.resolve();
+    },
+    async redisCommandNames(id) {
+      await wait();
+      requireRedis(id);
+      return redisConsole.commandNames();
     },
     async listSchemas(id, database) {
       await wait();

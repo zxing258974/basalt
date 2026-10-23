@@ -1,9 +1,9 @@
-// 打开查询标签页:新建的,或者对象树里保存的查询。连接没打开时先打开。
+// 打开查询标签页:新建的,或者对象树里保存的查询;Redis 连接开的是命令行。连接没打开时先打开。
 import { useCallback } from "react";
 import { getBackend } from "../lib/api";
 import type { QueryScope, SavedQueryRef } from "../lib/queryTypes";
 import { errorMessage, type ConnectionConfig, type ConnectionView } from "../lib/types";
-import { nextQueryTitle, queryTab, sameSavedQuery, useTabs } from "../stores/tabs";
+import { nextQueryTitle, queryTab, redisConsoleTab, sameSavedQuery, useTabs } from "../stores/tabs";
 import { useUi } from "../stores/ui";
 import { useConnectionActions } from "./useConnectionActions";
 
@@ -13,6 +13,12 @@ export function defaultScope(connection: ConnectionConfig): QueryScope {
   const database = connection.endpoint.kind === "network" ? (connection.endpoint.database ?? null) : null;
   if (connection.driver === "postgres") return { database: database ?? "postgres", schema: null };
   return { database, schema: null };
+}
+
+/** Redis 连接配置里的默认库号,没写或写错是 0。 */
+export function defaultRedisDb(connection: ConnectionConfig): number {
+  const db = connection.endpoint.kind === "network" ? Number(connection.endpoint.database ?? 0) : 0;
+  return Number.isInteger(db) && db >= 0 ? db : 0;
 }
 
 /** 正在读出内容的保存的查询:快速双击两次时不会开出两个标签页。 */
@@ -74,5 +80,15 @@ export function useQueryTabs() {
     [ensureOpen],
   );
 
-  return { openNewQuery, openSavedQuery };
+  /** 新开一个 Redis 命令行,在库 `db`(没给就是连接的默认库)。 */
+  const openRedisConsole = useCallback(
+    async (connection: ConnectionView, db?: number) => {
+      if (!(await ensureOpen(connection))) return;
+      const { tabs, open: openTab } = useTabs.getState();
+      openTab(redisConsoleTab(connection.id, db ?? defaultRedisDb(connection), tabs));
+    },
+    [ensureOpen],
+  );
+
+  return { openNewQuery, openSavedQuery, openRedisConsole };
 }

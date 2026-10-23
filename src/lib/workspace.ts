@@ -4,6 +4,7 @@ import type {
   MonitorTab,
   ObjectsTab,
   QueryTab,
+  RedisConsoleTab,
   RedisKeysTab,
   Tab,
   TableDataTab,
@@ -21,7 +22,13 @@ export interface SavedQueryTab extends Omit<QueryTab, "initialSql" | "baselineSq
 
 /** 设计器只记已有的表:还没建出来的新表,设计内容本来就不记。 */
 export type SavedTab =
-  ObjectsTab | TableDataTab | (TableDesignTab & { table: string }) | SavedQueryTab | MonitorTab | RedisKeysTab;
+  | ObjectsTab
+  | TableDataTab
+  | (TableDesignTab & { table: string })
+  | SavedQueryTab
+  | MonitorTab
+  | RedisKeysTab
+  | RedisConsoleTab;
 
 export interface Workspace {
   version: typeof WORKSPACE_VERSION;
@@ -129,6 +136,13 @@ function parseTab(value: unknown): SavedTab | null {
       const valid = typeof db === "number" && Number.isInteger(db) && db >= 0;
       return valid && value.id === `redis:${value.connectionId as string}:${db}`
         ? (value as unknown as RedisKeysTab)
+        : null;
+    }
+    case "redisConsole": {
+      const db = value.db;
+      const valid = typeof db === "number" && Number.isInteger(db) && db >= 0;
+      return valid && (value.id as string).startsWith(`redis-console:${value.connectionId as string}:`)
+        ? (value as unknown as RedisConsoleTab)
         : null;
     }
     default:

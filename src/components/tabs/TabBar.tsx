@@ -1,4 +1,4 @@
-import { Activity, FileCode2, KeyRound, PencilRuler, Table2, TableProperties, X } from "lucide-react";
+import { Activity, FileCode2, KeyRound, PencilRuler, SquareTerminal, Table2, TableProperties, X } from "lucide-react";
 import { useConnections } from "../../hooks/useCatalog";
 import { closeTabGuarded } from "../../stores/discard";
 import { useTabs, type Tab } from "../../stores/tabs";
@@ -69,6 +69,8 @@ function TabIcon({ tab }: { tab: Tab }) {
       return <Activity className="tab-icon" aria-hidden />;
     case "redisKeys":
       return <KeyRound className="tab-icon" aria-hidden />;
+    case "redisConsole":
+      return <SquareTerminal className="tab-icon" aria-hidden />;
   }
 }
 
@@ -86,6 +88,8 @@ function tabPath(tab: Tab): string {
     case "monitor":
     case "redisKeys":
       return tab.title;
+    case "redisConsole":
+      return `${tab.title}（db${tab.db}）`;
   }
 }
 

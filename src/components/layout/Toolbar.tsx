@@ -1,4 +1,4 @@
-import { FilePlus2, Import, PanelRight, Pencil, Plug, PlugZap, Plus, RefreshCw } from "lucide-react";
+import { FilePlus2, Import, PanelRight, Pencil, Plug, PlugZap, Plus, RefreshCw, SquareTerminal } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { useConnections } from "../../hooks/useCatalog";
 import { useConnectionActions } from "../../hooks/useConnectionActions";
@@ -79,8 +79,8 @@ export function Toolbar() {
           onClick={() => connection && openConnectionDialog({ mode: "edit", connection })}
         />
         <ToolbarButton
-          icon={<FilePlus2 />}
-          label="新建查询"
+          icon={connection?.driver === "redis" ? <SquareTerminal /> : <FilePlus2 />}
+          label={connection?.driver === "redis" ? "命令行" : "新建查询"}
           shortcut={shortcut("T")}
           disabled={!connection}
           onClick={() => void newQuery()}

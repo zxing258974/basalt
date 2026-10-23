@@ -1,6 +1,8 @@
 // 对象树里 Redis 连接以下的节点:一个库一行,行尾是键数。
-import { Database, KeyRound } from "lucide-react";
+import { Database, KeyRound, SquareTerminal } from "lucide-react";
 import { useRedisKeyspace } from "../../hooks/useCatalog";
+import { useQueryTabs } from "../../hooks/useQueryTabs";
+import { shortcut } from "../../lib/platform";
 import type { ConnectionView } from "../../lib/types";
 import type { RedisDatabase } from "../../lib/redisTypes";
 import { Children } from "./CatalogNodes";
@@ -42,6 +44,7 @@ function RedisDatabaseNode(props: {
 }) {
   const { connection, database, depth } = props;
   const openMenu = useTreeMenu();
+  const { openRedisConsole } = useQueryTabs();
   const name = `db${database.index}`;
   const expiring = database.expires > 0 ? `，其中 ${database.expires.toLocaleString()} 个会过期` : "";
   return (
@@ -60,6 +63,12 @@ function RedisDatabaseNode(props: {
             label: "浏览键",
             icon: <KeyRound />,
             onSelect: () => useTabs.getState().open(redisKeysTab(connection.id, database.index)),
+          },
+          {
+            label: "在这个库打开命令行",
+            icon: <SquareTerminal />,
+            shortcut: shortcut("T"),
+            onSelect: () => void openRedisConsole(connection, database.index),
           },
         ])
       }

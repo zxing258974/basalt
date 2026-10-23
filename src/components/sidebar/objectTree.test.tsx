@@ -70,6 +70,30 @@ describe("expanding", () => {
     expect(tree().getAllByRole("treeitem", { name: /^db\d+/ })).toHaveLength(16);
   });
 
+  it("opens Redis consoles from the menus and with ⌘T", async () => {
+    const { user } = renderApp();
+    await user.dblClick(await findRow("开发"));
+    await user.dblClick(await findRow("本地 Redis"));
+    await findItem("db0（默认库）");
+
+    await user.pointer({ keys: "[MouseRight]", target: rowOf("本地 Redis") });
+    await user.click(screen.getByRole("menuitem", { name: /^命令行/ }));
+    await user.pointer({ keys: "[MouseRight]", target: rowOf("db3") });
+    await user.click(screen.getByRole("menuitem", { name: /^在这个库打开命令行/ }));
+    await user.click(rowOf("db5"));
+    expect(screen.getByRole("button", { name: /^命令行/ })).toBeInTheDocument();
+    await user.keyboard("{Meta>}t{/Meta}");
+
+    await waitFor(() => expect(useTabs.getState().tabs).toHaveLength(3));
+    const consoles = useTabs.getState().tabs.map((t) => (t.kind === "redisConsole" ? [t.title, t.db] : null));
+    expect(consoles).toEqual([
+      ["命令行", 0],
+      ["命令行 2", 3],
+      ["命令行 3", 5],
+    ]);
+    expect(await screen.findByRole("textbox", { name: "Redis 命令" })).toHaveFocus();
+  });
+
   it("opens the object list from an empty group", async () => {
     const { user } = renderApp();
     await user.dblClick(await findRow("开发"));

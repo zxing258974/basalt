@@ -1,6 +1,7 @@
-//! Redis 连接的命令:库列表、键浏览与编辑(命令行、监控在后面加)。
+//! Redis 连接的命令:库列表、键浏览与编辑、命令行(监控在后面加)。
 
 use basalt_core::redis_db::RedisKeyspace;
+use basalt_core::redis_db::console::ConsoleOutcome;
 use basalt_core::redis_db::edit::NewKey;
 use basalt_core::redis_db::keys::{KeyDetail, KeyName, ScanPage, ScanRequest};
 use basalt_core::table::{ApplyOutcome, RowChange};
@@ -106,4 +107,34 @@ pub async fn set_ttl(
 ) -> CommandResult<()> {
     let session = state.sessions.get_redis(id).await?;
     Ok(session.set_ttl(db, key, seconds).await?)
+}
+
+pub async fn run_console(
+    state: &AppState,
+    id: &str,
+    console: &str,
+    db: u32,
+    line: &str,
+    confirmed: bool,
+) -> CommandResult<ConsoleOutcome> {
+    let session = state.sessions.get_redis(id).await?;
+    Ok(session.run_console(console, db, line, confirmed).await?)
+}
+
+/// 停下、关掉命令行:连接已经关了就没什么可做的。
+pub async fn cancel_console(state: &AppState, id: &str, console: &str) {
+    if let Ok(session) = state.sessions.get_redis(id).await {
+        session.cancel_console(console).await;
+    }
+}
+
+pub async fn close_console(state: &AppState, id: &str, console: &str) {
+    if let Ok(session) = state.sessions.get_redis(id).await {
+        session.close_console(console).await;
+    }
+}
+
+pub async fn command_names(state: &AppState, id: &str) -> CommandResult<Vec<String>> {
+    let session = state.sessions.get_redis(id).await?;
+    Ok(session.command_names().await?)
 }

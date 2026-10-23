@@ -82,3 +82,23 @@ export interface NewKey {
 
 /** 能新建、能在类型筛选里选的几种。 */
 export const REDIS_KINDS = ["string", "hash", "list", "set", "zset", "stream"] as const;
+
+/** 命令行里一条命令的回复,结构照 RESP 原样。整数按字符串传(64 位整数在 number 里会丢精度)。 */
+export type Reply =
+  | { kind: "nil" }
+  | { kind: "status"; text: string }
+  | { kind: "error"; text: string }
+  | { kind: "int"; value: string }
+  | { kind: "number"; text: string }
+  | { kind: "bool"; value: boolean }
+  /** 不是 UTF-8 时 `text` 是 `\xHH` 转义过的,`binary` 为真;`truncated` 时只带回了前面一段,原文 `bytes` 字节。 */
+  | { kind: "bulk"; text: string; binary: boolean; bytes: number; truncated: boolean }
+  /** `total` 比 `items` 多时后面的没带回来。 */
+  | { kind: "array"; items: Reply[]; total: number }
+  | { kind: "map"; entries: [Reply, Reply][]; total: number };
+
+export type ConsoleOutcome =
+  /** 执行了。`db` 是执行后这条连接所在的库,`transaction` 表示在 MULTI 里。 */
+  | { outcome: "ran"; reply: Reply; db: number; transaction: boolean; elapsedMs: number }
+  /** 危险的命令,没有执行;确认之后带上 `confirmed` 再发一次。 */
+  | { outcome: "confirm"; reason: string };

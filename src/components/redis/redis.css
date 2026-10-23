@@ -467,3 +467,260 @@
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+
+/* ---------- 命令行:上面是一条条命令和回复(终端那样),下面是输入框 ---------- */
+.redis-console {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.console-where {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.console-tx {
+  padding: 1px var(--space-3);
+  border-radius: var(--radius-xs);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+}
+.console-actions {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+.console-log {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-5) var(--space-6) var(--space-6);
+  border-top: 1px solid var(--line);
+  background: var(--surface-canvas);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  cursor: text;
+}
+.console-intro {
+  max-width: 64ch;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.console-intro p {
+  margin: 0 0 var(--space-3);
+}
+.console-intro code {
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-xs);
+  background: var(--surface-sunken);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-strong);
+}
+.console-entry + .console-entry {
+  margin-top: var(--space-4);
+}
+.console-command {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+.console-prompt {
+  flex: none;
+  color: var(--accent);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+}
+.console-line {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-strong);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.console-elapsed {
+  flex: none;
+  font-family: var(--font-ui);
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.console-output {
+  margin-top: 2px;
+  color: var(--text);
+}
+.console-output-line {
+  display: flex;
+}
+.console-index {
+  flex: none;
+  white-space: pre;
+  color: var(--text-faint);
+}
+.console-value {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tone-string {
+  color: var(--syntax-string);
+}
+.tone-int {
+  color: var(--syntax-number);
+}
+.tone-status {
+  color: var(--syntax-keyword);
+  font-weight: var(--weight-medium);
+}
+.tone-nil,
+.tone-meta {
+  color: var(--text-faint);
+}
+.tone-meta {
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+}
+.tone-error,
+.console-failure {
+  color: var(--danger);
+}
+.console-failure,
+.console-declined,
+.console-pending {
+  margin: 2px 0 0;
+  font-size: var(--text-xs);
+}
+.console-declined,
+.console-pending {
+  color: var(--text-faint);
+}
+.console-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.console-more {
+  margin-top: var(--space-2);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+}
+.console-more:hover {
+  text-decoration: underline;
+}
+
+/* 输入框:贴在底部,打字时左边一道余烬色的线 */
+.console-input-area {
+  position: relative;
+  border-top: 1px solid var(--line);
+  background: var(--surface-sidebar);
+  box-shadow: inset 2px 0 0 transparent;
+  transition: box-shadow var(--duration-fast) ease;
+}
+.console-input-area:focus-within {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.console-input {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6) var(--space-2);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+.console-input textarea {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--text-strong);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.console-input textarea::placeholder {
+  font-family: var(--font-ui);
+  color: var(--text-faint);
+}
+.console-input.is-running .console-prompt {
+  opacity: 0.5;
+}
+.console-hint {
+  display: flex;
+  gap: var(--space-4);
+  min-height: 26px;
+  margin: 0;
+  padding: 0 var(--space-6) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.console-hint-usage {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+.console-suggest {
+  position: absolute;
+  bottom: calc(100% + var(--space-2));
+  left: var(--space-6);
+  z-index: 5;
+  width: min(560px, calc(100% - 2 * var(--space-6)));
+  margin: 0;
+  padding: var(--space-2);
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-popover);
+}
+.console-suggest li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: default;
+}
+.console-suggest li.is-picked {
+  background: var(--surface-selected);
+}
+.console-suggest-name {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-strong);
+}
+.console-suggest-args {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+.console-suggest-summary {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.console-confirm-where {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}

@@ -5,6 +5,8 @@ import {
   newTableTab,
   objectsTab,
   queryTab,
+  redisConsoleTab,
+  redisKeysTab,
   tableDataTab,
   tableDesignTab,
   type QueryTab,
@@ -29,6 +31,8 @@ const orders = tableDataTab("c1", "shop", null, "orders");
 const shop = objectsTab("c2", "app", "public");
 const design = tableDesignTab("c1", "shop", null, "orders");
 const monitor = monitorTab("c2");
+const keys = redisKeysTab("c3", 2);
+const console3 = redisConsoleTab("c3", 4, []);
 
 describe("snapshot", () => {
   it("records the SQL being edited and what it was when last saved", () => {
@@ -80,7 +84,7 @@ describe("insertByOrder", () => {
 });
 
 describe("parseWorkspace", () => {
-  const good = snapshot({ tabs: [draft, orders, shop, design, monitor], activeId: shop.id }, {});
+  const good = snapshot({ tabs: [draft, orders, shop, design, monitor, keys, console3], activeId: shop.id }, {});
 
   it("reads back what was written", () => {
     expect(parseWorkspace(JSON.stringify(good))).toEqual(good);
@@ -99,6 +103,9 @@ describe("parseWorkspace", () => {
       { kind: "tableData", id: "t:x", title: "坏的", connectionId: "c1", table: { database: "shop" } },
       { kind: "unknown", id: "u", title: "?", connectionId: "c1" },
       { kind: "monitor", id: "monitor:c9", title: "服务器监控", connectionId: "c1" },
+      { kind: "redisKeys", id: "redis:c3:-1", title: "db-1", connectionId: "c3", db: -1 },
+      { kind: "redisConsole", id: "redis-console:c9:x", title: "命令行", connectionId: "c3", db: 0 },
+      { kind: "redisConsole", id: "redis-console:c3:y", title: "命令行", connectionId: "c3", db: 1.5 },
       "not a tab",
       good.tabs[0],
     ];

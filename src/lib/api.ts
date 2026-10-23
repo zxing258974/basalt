@@ -1,5 +1,14 @@
 import type { DdlOutcome, DdlPreview, TableDesign } from "./designTypes";
-import type { KeyDetail, KeyName, NewKey, RedisKeyspace, RedisKind, ScanPage, ScanRequest } from "./redisTypes";
+import type {
+  ConsoleOutcome,
+  KeyDetail,
+  KeyName,
+  NewKey,
+  RedisKeyspace,
+  RedisKind,
+  ScanPage,
+  ScanRequest,
+} from "./redisTypes";
 import type { ImportCandidate, ImportReport, ImportSource } from "./importTypes";
 import type { KillTarget, ServerSnapshot } from "./monitorTypes";
 import type {
@@ -102,6 +111,13 @@ export interface Backend {
   redisDeleteKeys(id: string, db: number, keys: string[]): Promise<number>;
   /** `seconds` 为 null 时不过期。 */
   redisSetTtl(id: string, db: number, key: string, seconds: number | null): Promise<void>;
+  /** 在命令行标签页 `console` 里执行一行;危险的命令要 `confirmed` 才执行。`db` 是界面上的库,重连时按它连。 */
+  redisConsoleRun(id: string, console: string, db: number, line: string, confirmed: boolean): Promise<ConsoleOutcome>;
+  /** 停下正在跑的命令(断开这个命令行的连接,下一条命令重连)。 */
+  redisConsoleCancel(id: string, console: string): Promise<void>;
+  redisConsoleClose(id: string, console: string): Promise<void>;
+  /** 服务器认识的命令名,大写、排好序(补全用)。 */
+  redisCommandNames(id: string): Promise<string[]>;
   listSchemas(id: string, database: string): Promise<string[]>;
   listTables(id: string, database: string, schema?: string | null): Promise<TableInfo[]>;
   readTablePage(id: string, table: TableRef, request: PageRequest): Promise<TablePage>;
@@ -268,6 +284,11 @@ function createTauriBackend(): Backend {
     redisRenameKey: (id, db, key, name) => call("redis_rename_key", { id, db, key, name }),
     redisDeleteKeys: (id, db, keys) => call("redis_delete_keys", { id, db, keys }),
     redisSetTtl: (id, db, key, seconds) => call("redis_set_ttl", { id, db, key, seconds }),
+    redisConsoleRun: (id, console, db, line, confirmed) =>
+      call("redis_console_run", { id, console, db, line, confirmed }),
+    redisConsoleCancel: (id, console) => call("redis_console_cancel", { id, console }),
+    redisConsoleClose: (id, console) => call("redis_console_close", { id, console }),
+    redisCommandNames: (id) => call("redis_command_names", { id }),
     listSchemas: (id, database) => call("list_schemas", { id, database }),
     listTables: (id, database, schema) => call("list_tables", { id, database, schema: schema ?? null }),
     dropTable: (id, table) => call("drop_table", { id, table }),

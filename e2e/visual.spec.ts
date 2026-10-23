@@ -163,6 +163,35 @@ test("redis: JSON string", async ({ page }) => {
   await snapshot(page, "redis-string");
 });
 
+test("redis: console", async ({ page }) => {
+  await openWelcome(page);
+  await row(page, "开发").dblclick();
+  await row(page, "本地 Redis").dblclick();
+  await row(page, "db0（默认库）").waitFor();
+  await row(page, "本地 Redis").click({ button: "right" });
+  await page.getByRole("menuitem", { name: /^命令行/ }).click();
+  const input = page.getByRole("textbox", { name: "Redis 命令" });
+  const log = page.getByRole("log", { name: "命令行输出" });
+  const commands = [
+    "HGETALL user:1001",
+    "zrange leaderboard:weekly 0 2 WITHSCORES",
+    "incr counter:visits",
+    "select 1",
+    "multi",
+    "llen queue:email",
+    "exec",
+    "nosuch thing",
+  ];
+  for (const command of commands) {
+    await input.fill(command);
+    await input.press("Enter");
+    await expect(log.getByRole("region", { name: command })).not.toContainText("正在等回复");
+  }
+  await input.fill("hg");
+  await expect(page.getByRole("listbox", { name: "命令补全" })).toBeVisible();
+  await snapshot(page, "redis-console");
+});
+
 test("copy table dialog", async ({ page }) => {
   await openWelcome(page);
   await expandShop(page);

@@ -1,6 +1,8 @@
 //! Redis 单机。连接流自己建(直连、SSH 隧道、TLS,见 [`link`]),交给 redis 的多路复用连接。
-//! `SELECT` 只对当前连接生效:每个库号各开一条连接,几个标签页看不同的库互不干扰。
+//! `SELECT` 只对当前连接生效:每个库号各开一条连接,几个标签页看不同的库互不干扰;
+//! 命令行每个标签页另有自己的连接(见 [`console`])。
 
+pub mod console;
 pub mod edit;
 mod error;
 pub mod keys;
@@ -8,6 +10,8 @@ mod link;
 mod tls;
 
 use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use redis::aio::MultiplexedConnection;
@@ -53,6 +57,10 @@ pub struct RedisSession {
     server: ServerInfo,
     default_db: u32,
     connections: Mutex<HashMap<u32, Live>>,
+    /// 命令行标签页 id → 它的连接。
+    consoles: Mutex<HashMap<String, Arc<console::Console>>>,
+    /// 关了:还在路上的命令行命令不再开新连接。
+    closed: AtomicBool,
     tunnel: Option<Tunnel>,
 }
 
@@ -66,6 +74,8 @@ impl RedisSession {
                 server,
                 default_db,
                 connections: Mutex::new(HashMap::from([(default_db, live)])),
+                consoles: Mutex::new(HashMap::new()),
+                closed: AtomicBool::new(false),
                 tunnel: route.tunnel,
             }),
             Err(error) => Err(abandon(route.tunnel, error).await),
@@ -238,6 +248,12 @@ impl RedisSession {
         for (_, live) in self.connections.lock().await.drain() {
             live.driver.abort();
         }
+        let mut consoles = self.consoles.lock().await;
+        self.closed.store(true, Ordering::SeqCst);
+        for (_, console) in consoles.drain() {
+            console.close();
+        }
+        drop(consoles);
         if let Some(tunnel) = &self.tunnel {
             tunnel.close().await;
         }

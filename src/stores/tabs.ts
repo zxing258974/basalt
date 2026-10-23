@@ -64,7 +64,17 @@ export interface RedisKeysTab {
   db: number;
 }
 
-export type Tab = ObjectsTab | TableDataTab | QueryTab | TableDesignTab | MonitorTab | RedisKeysTab;
+/** Redis 命令行:每个标签页一条自己的连接,SELECT、MULTI 只对它生效。一个连接可以开几个。 */
+export interface RedisConsoleTab {
+  kind: "redisConsole";
+  id: string;
+  title: string;
+  connectionId: string;
+  /** 打开时在哪个库;之后 SELECT 换了库只在界面上跟着变。 */
+  db: number;
+}
+
+export type Tab = ObjectsTab | TableDataTab | QueryTab | TableDesignTab | MonitorTab | RedisKeysTab | RedisConsoleTab;
 
 export interface TabsState {
   tabs: Tab[];
@@ -105,6 +115,24 @@ export function monitorTab(connectionId: string): MonitorTab {
 
 export function redisKeysTab(connectionId: string, db: number): RedisKeysTab {
   return { kind: "redisKeys", id: `redis:${connectionId}:${db}`, title: `db${db}`, connectionId, db };
+}
+
+const CONSOLE_TITLE = /^命令行(?: (\d+))?$/;
+
+/** 新开一个命令行。标题「命令行」「命令行 2」……,编号比这个连接开着的都大。 */
+export function redisConsoleTab(connectionId: string, db: number, tabs: readonly Tab[]): RedisConsoleTab {
+  const used = tabs.flatMap((t) => {
+    const match = t.kind === "redisConsole" && t.connectionId === connectionId ? CONSOLE_TITLE.exec(t.title) : null;
+    return match ? [Number(match[1] ?? 1)] : [];
+  });
+  const n = Math.max(0, ...used) + 1;
+  return {
+    kind: "redisConsole",
+    id: `redis-console:${connectionId}:${crypto.randomUUID()}`,
+    title: n === 1 ? "命令行" : `命令行 ${n}`,
+    connectionId,
+    db,
+  };
 }
 
 const UNTITLED = /^查询 (\d+)$/;

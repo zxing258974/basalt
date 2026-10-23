@@ -49,7 +49,7 @@ describe("running statements", { timeout: FLOW_TIMEOUT }, () => {
     expect(within(log).getByText("5 行")).toBeInTheDocument();
   });
 
-  it("sorts a result through the backend and only offers copying when it can't be edited", async () => {
+  it("sorts a result through the backend and only offers copying and viewing when it can't be edited", async () => {
     const { user, view } = await openShopQuery();
     setSql(view, "SELECT * FROM (SELECT * FROM customers) c LIMIT 5");
     await user.click(header().getByRole("button", { name: /^执行/ }));
@@ -71,7 +71,7 @@ describe("running statements", { timeout: FLOW_TIMEOUT }, () => {
       within(menu)
         .getAllByRole("menuitem")
         .map((item) => item.textContent),
-    ).toEqual(["复制⌘C"]);
+    ).toEqual(["复制⌘C", "在右侧查看完整内容"]);
   });
 
   it("marks where a statement went wrong", async () => {

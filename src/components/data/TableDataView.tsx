@@ -3,6 +3,7 @@ import { Lock } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useConnections } from "../../hooks/useCatalog";
 import { useConnectionActions } from "../../hooks/useConnectionActions";
+import { usePublishCellPeek } from "../../hooks/usePublishCellPeek";
 import { tableDataKeys, useTablePage } from "../../hooks/useTableData";
 import { getBackend } from "../../lib/api";
 import { errorMessage, type PageRequest } from "../../lib/types";
@@ -10,6 +11,7 @@ import type { TableDataTab } from "../../stores/tabs";
 import { useTabs } from "../../stores/tabs";
 import { useTransfer } from "../../stores/transfer";
 import { DriverBadge } from "../connection/DriverBadge";
+import { peekCell } from "../inspector/cellPeekModel";
 import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/EmptyState";
 import { DataFooter } from "./DataFooter";
@@ -62,6 +64,14 @@ export function TableDataView({ tab, active }: { tab: TableDataTab; active: bool
   const fitted = fitSelection(selection, rows.length, page?.columns.length ?? 0);
   if (fitted !== selection) setSelection(fitted);
   const selectedRow = fitted ? rows[fitted.row] : undefined;
+  // 选中的那一格报给信息面板的「值」页。连接关了表格就不显示,也不报。
+  const showsGrid = Boolean(connection && isOpen && page);
+  const peek = useMemo(
+    () =>
+      page && showsGrid ? peekCell(page, edits, rows, fitted, { source: tab.title, rowOffset: request.offset }) : null,
+    [edits, fitted, page, request.offset, rows, showsGrid, tab.title],
+  );
+  usePublishCellPeek(peek);
 
   // 告诉标签栏这页有多少行没提交:关闭标签页或连接前要确认。
   const setPending = useTabs((s) => s.setPending);

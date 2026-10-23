@@ -122,6 +122,22 @@ test("inspector: table DDL", async ({ page }) => {
   await snapshot(page, "inspector-ddl");
 });
 
+/** 表格里右键一格「在右侧查看完整内容」:信息面板切到「值」页,JSON 排好版。 */
+test("inspector: cell value", async ({ page }) => {
+  await openWelcome(page);
+  await expandShop(page);
+  await row(page, "orders").dblclick();
+  const grid = page.getByRole("grid", { name: "orders 的数据" });
+  await grid
+    .getByRole("gridcell", { name: /"city"/ })
+    .first()
+    .click({ button: "right" });
+  await page.getByRole("menuitem", { name: "在右侧查看完整内容" }).click();
+  const panel = page.getByRole("complementary", { name: "信息" });
+  await expect(panel.getByLabel("单元格内容")).toContainText('"express": "SF"');
+  await snapshot(page, "inspector-cell-value");
+});
+
 test("copy table dialog", async ({ page }) => {
   await openWelcome(page);
   await expandShop(page);

@@ -59,6 +59,35 @@ describe("query results", { timeout: FLOW_TIMEOUT }, () => {
     await waitFor(() => expect(cell(grid, 1499, 0)).toBeInTheDocument());
   });
 
+  it("shows the selected cell of the result in the inspector's value tab", async () => {
+    const { grid, user } = await runInShop("SELECT id, shipping FROM orders");
+    await user.pointer({ keys: "[MouseRight]", target: cell(grid, 1, 1) });
+    await user.click(screen.getByRole("menuitem", { name: "在右侧查看完整内容" }));
+    const panel = within(screen.getByRole("complementary", { name: "信息" }));
+    expect(panel.getByRole("heading", { name: "shipping" })).toBeInTheDocument();
+    expect(panel.getByText(/查询 1 的结果 1 · 第 2 行$/)).toBeInTheDocument();
+    expect(panel.getByLabelText("单元格内容")).toHaveTextContent('"express": "SF"');
+
+    // 重新执行:结果表格换了一个,旧的那一格不再显示,等选中新的格子。
+    await user.click(header().getByRole("button", { name: "全部执行" }));
+    await waitFor(() => expect(panel.getByText(/在表格里选中一格/)).toBeInTheDocument());
+  });
+
+  it("shows the cell of the result tab in front, not of the one switched away from", async () => {
+    const { grid, user } = await runInShop("SELECT id, shipping FROM orders;\nSELECT name FROM customers;");
+    await user.pointer({ keys: "[MouseRight]", target: cell(grid, 1, 1) });
+    await user.click(screen.getByRole("menuitem", { name: "在右侧查看完整内容" }));
+    const panel = within(screen.getByRole("complementary", { name: "信息" }));
+    expect(panel.getByRole("heading", { name: "shipping" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: /结果 2/ }));
+    const second = await screen.findByRole("grid", { name: "查询 1 的结果 2" });
+    expect(panel.getByText(/在表格里选中一格/)).toBeInTheDocument();
+    await user.click(cell(second, 0, 0));
+    expect(panel.getByRole("heading", { name: "name" })).toBeInTheDocument();
+    expect(panel.getByText(/查询 1 的结果 2 · 第 1 行$/)).toBeInTheDocument();
+  });
+
   it("exports in the order the result is sorted by", async () => {
     const { user, grid } = await runInShop("SELECT id, name FROM customers LIMIT 5");
     await user.click(within(grid).getByRole("button", { name: /^name/ }));

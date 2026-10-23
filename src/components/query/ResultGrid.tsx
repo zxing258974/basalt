@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { usePublishCellPeek } from "../../hooks/usePublishCellPeek";
 import { tableDataKeys } from "../../hooks/useTableData";
 import { getBackend } from "../../lib/api";
 import { hasPrimaryModifier } from "../../lib/platform";
@@ -11,6 +12,7 @@ import { nextSort } from "../data/GridHeader";
 import { fitSelection, gridRows, type GridSelection } from "../data/gridModel";
 import { PreviewDialog } from "../data/PreviewDialog";
 import { useGridEdits } from "../data/useGridEdits";
+import { peekCell } from "../inspector/cellPeekModel";
 import { EmptyState } from "../ui/EmptyState";
 import {
   editPlan,
@@ -145,6 +147,12 @@ export function ResultGrid(props: ResultGridProps) {
   const fitted = fitSelection(selection, rows.length, page.columns.length);
   if (fitted !== selection) setSelection(fitted);
   const selectedRow = fitted ? rows[fitted.row] : undefined;
+  // 选中的那一格报给信息面板的「值」页。
+  const peek = useMemo(
+    () => peekCell(page, edits, rows, fitted, { source: props.label, rowOffset: 0 }),
+    [edits, fitted, page, props.label, rows],
+  );
+  usePublishCellPeek(peek);
 
   const { onPendingChange, onSortChange } = props;
   useEffect(() => onPendingChange(pending), [onPendingChange, pending]);

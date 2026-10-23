@@ -42,16 +42,30 @@
   white-space: nowrap;
 }
 
+/* 放不下时(窄窗口里开着信息面板)按钮换到下一行,不把筛选框挤没 */
 .data-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-5);
+  gap: var(--space-3) var(--space-5);
   min-width: 0;
+  container-type: inline-size;
+}
+/* 再窄一些,按钮也只留图标(提交除外);字一直在,读屏照念,鼠标停上去有提示。 */
+@container (max-width: 640px) {
+  .data-actions .btn:not(.edit-commit) .btn-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 .filter-box {
   display: flex;
   align-items: center;
-  flex: 1;
+  flex: 1 1 240px;
   min-width: 0;
   max-width: 720px;
   height: 28px;

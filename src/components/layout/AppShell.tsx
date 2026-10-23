@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useMemo } from "react";
 import { useConnections } from "../../hooks/useCatalog";
 import { usePanelWidth, type PanelWidthOptions } from "../../hooks/usePanelWidth";
 import { useInspector } from "../../stores/inspector";
@@ -13,6 +13,7 @@ import { ObjectTree } from "../sidebar/ObjectTree";
 import { TabBar } from "../tabs/TabBar";
 import { WelcomeView } from "../tabs/WelcomeView";
 import { StatusBar } from "./StatusBar";
+import { TabScope } from "./tabScope";
 import { Toolbar } from "./Toolbar";
 
 // SQL 编辑器(CodeMirror)只在打开查询标签页时才加载,不拖慢启动。
@@ -86,11 +87,20 @@ function TabPanels() {
   return (
     <>
       {tabs.map((tab) => (
-        <div key={tab.id} className="tab-panel" hidden={tab.id !== activeId}>
-          <TabContent tab={tab} active={tab.id === activeId} />
-        </div>
+        <TabPanel key={tab.id} tab={tab} active={tab.id === activeId} />
       ))}
     </>
+  );
+}
+
+function TabPanel({ tab, active }: { tab: Tab; active: boolean }) {
+  const scope = useMemo(() => ({ tabId: tab.id, active }), [tab.id, active]);
+  return (
+    <div className="tab-panel" hidden={!active}>
+      <TabScope.Provider value={scope}>
+        <TabContent tab={tab} active={active} />
+      </TabScope.Provider>
+    </div>
   );
 }
 

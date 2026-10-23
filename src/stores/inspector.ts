@@ -1,7 +1,9 @@
-// 右侧信息面板开没开、看的是属性还是建表语句。只是个人偏好:读写本机存储失败就用默认值。
+// 右侧信息面板开没开、看的是选中格子的值、属性还是建表语句。只是个人偏好:读写本机存储失败就用默认值。
 import { create } from "zustand";
 
-export type InspectorTab = "properties" | "ddl";
+export type InspectorTab = "value" | "properties" | "ddl";
+
+const TABS: readonly InspectorTab[] = ["value", "properties", "ddl"];
 
 const OPEN_KEY = "basalt.inspector.open";
 const TAB_KEY = "basalt.inspector.tab";
@@ -35,11 +37,18 @@ interface InspectorStore {
   tab: InspectorTab;
   toggle(): void;
   setTab(tab: InspectorTab): void;
+  /** 打开面板,看选中格子的值(表格右键「在右侧查看完整内容」)。 */
+  showValue(): void;
+}
+
+function savedTab(): InspectorTab {
+  const saved = read(TAB_KEY);
+  return TABS.find((tab) => tab === saved) ?? "properties";
 }
 
 export const useInspector = create<InspectorStore>((set) => ({
   open: initialOpen(),
-  tab: read(TAB_KEY) === "ddl" ? "ddl" : "properties",
+  tab: savedTab(),
   toggle: () =>
     set((s) => {
       save(OPEN_KEY, s.open ? "0" : "1");
@@ -48,5 +57,10 @@ export const useInspector = create<InspectorStore>((set) => ({
   setTab: (tab) => {
     save(TAB_KEY, tab);
     set({ tab });
+  },
+  showValue: () => {
+    save(OPEN_KEY, "1");
+    save(TAB_KEY, "value");
+    set({ open: true, tab: "value" });
   },
 }));

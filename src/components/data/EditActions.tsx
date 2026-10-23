@@ -23,7 +23,14 @@ export function EditActions(props: EditActionsProps) {
     <>
       {(props.rowEdits ?? true) && (
         <>
-          <Button variant="ghost" size="sm" icon={<Plus />} disabled={!editable} onClick={props.onAddRow}>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<Plus />}
+            disabled={!editable}
+            title="新增一行"
+            onClick={props.onAddRow}
+          >
             新增行
           </Button>
           <Button
@@ -31,7 +38,7 @@ export function EditActions(props: EditActionsProps) {
             size="sm"
             icon={props.selectedDeleted ? <RotateCcw /> : <Minus />}
             disabled={!editable || !props.canDelete}
-            title={shortcut("Backspace")}
+            title={`${props.selectedDeleted ? "恢复选中的行" : "删除选中的行"}（${shortcut("Backspace")}）`}
             onClick={props.onToggleDelete}
           >
             {props.selectedDeleted ? "恢复行" : "删除行"}
@@ -39,13 +46,21 @@ export function EditActions(props: EditActionsProps) {
           <span className="data-actions-divider" aria-hidden />
         </>
       )}
-      <Button variant="ghost" size="sm" icon={<Undo2 />} disabled={pending === 0} onClick={props.onRevert}>
+      <Button
+        variant="ghost"
+        size="sm"
+        icon={<Undo2 />}
+        disabled={pending === 0}
+        title="撤销所有没提交的修改"
+        onClick={props.onRevert}
+      >
         撤销修改
       </Button>
       <Button
         variant={pending > 0 ? "primary" : "secondary"}
         size="sm"
         icon={<Check />}
+        className="edit-commit"
         disabled={pending === 0}
         title={shortcut("S")}
         onClick={props.onCommit}

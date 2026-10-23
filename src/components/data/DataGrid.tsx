@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Ban, Copy, Eraser, Pencil, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { Ban, Copy, Eraser, PanelRight, Pencil, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import {
   useEffect,
   useId,
@@ -11,6 +11,7 @@ import {
   type MouseEvent,
 } from "react";
 import type { ColumnInfo, EditInput, SortSpec, TablePage } from "../../lib/types";
+import { useInspector } from "../../stores/inspector";
 import { ContextMenu, type MenuEntry } from "../ui/ContextMenu";
 import type { EditMove } from "./CellEditor";
 import type { EditState, RowTarget } from "./editState";
@@ -210,7 +211,13 @@ export function DataGrid(props: DataGridProps) {
       shortcut: shortcut("C"),
       onSelect: () => copy(row, col),
     };
-    if (props.copyOnlyMenu) return [copyItem];
+    // 右键时已经选中了这一格,信息面板的「值」页显示的就是它。
+    const peekItem: MenuEntry = {
+      label: "在右侧查看完整内容",
+      icon: <PanelRight />,
+      onSelect: () => useInspector.getState().showValue(),
+    };
+    if (props.copyOnlyMenu) return [copyItem, peekItem];
     const view = viewOf(row, col);
     const target = rows[row]!;
     const column = page.columns[col]!;
@@ -243,6 +250,7 @@ export function DataGrid(props: DataGridProps) {
       },
       "separator",
       copyItem,
+      peekItem,
       ...(rowEdits ? (["separator", rowItem(target)] as const) : []),
     ];
   };

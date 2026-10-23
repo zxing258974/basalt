@@ -154,3 +154,132 @@
   color: var(--text);
   white-space: pre;
 }
+
+/* 「值」页:选中那一格的完整内容。工具条(未提交、格式化 / 原文、复制)、等宽内容框、字数 */
+.inspector-value-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 0 var(--space-5) var(--space-5);
+}
+.inspector-value-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 24px;
+  padding-left: var(--space-2);
+}
+.inspector-value-copy {
+  margin-left: auto;
+}
+/* 和表格里改过没提交的格子同一个颜色 */
+.inspector-value-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-xs);
+  background: var(--change-edited);
+  box-shadow: inset 2px 0 0 var(--change-edited-mark);
+  color: var(--text-strong);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+}
+.inspector-value-mode {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+.inspector-value-mode button {
+  height: 20px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) ease,
+    color var(--duration-fast) ease;
+}
+.inspector-value-mode button:hover {
+  color: var(--text-strong);
+}
+.inspector-value-mode button[aria-pressed="true"] {
+  background: var(--surface-raised);
+  color: var(--text-strong);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.inspector-value-mode button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+/* 长内容在框里折行、竖着滚;面板拖宽了一行就放得下更多 */
+.inspector-value {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: var(--space-5);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-canvas);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}
+.inspector-value-note {
+  margin: 0;
+  padding: var(--space-5);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+.inspector-value-stats {
+  margin: 0;
+  padding-left: var(--space-2);
+  font-size: var(--text-2xs);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.json-key {
+  color: var(--syntax-keyword);
+}
+.json-string {
+  color: var(--syntax-string);
+}
+.json-number {
+  color: var(--syntax-number);
+}
+.json-literal {
+  color: var(--syntax-type);
+}
+.inspector-value-badge.is-deleted {
+  background: var(--change-removed);
+  box-shadow: inset 2px 0 0 var(--change-removed-mark);
+}
+.inspector-value:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.inspector-value-clipped {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0;
+  padding-left: var(--space-2);
+  font-size: var(--text-2xs);
+  color: var(--text-muted);
+}

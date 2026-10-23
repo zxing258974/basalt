@@ -6,14 +6,16 @@ import { useInspector, type InspectorTab } from "../../stores/inspector";
 import { useUi } from "../../stores/ui";
 import { tableFromKey } from "../sidebar/treeKeys";
 import { Button } from "../ui/Button";
+import { CellValuePane } from "./CellValuePane";
 import { formatProperty } from "./inspectorModel";
 
 const TABS: { tab: InspectorTab; label: string }[] = [
+  { tab: "value", label: "值" },
   { tab: "properties", label: "属性" },
   { tab: "ddl", label: "DDL" },
 ];
 
-/** 右侧信息面板:对象树里选中的表或视图的属性与建表语句。 */
+/** 右侧信息面板:表格里选中的那一格的完整内容,对象树里选中的表或视图的属性与建表语句。 */
 export function InspectorPanel() {
   // 只订阅 key 字符串:选择器每次返回新对象会让 zustand 以为状态一直在变,无限重渲染。
   const selectedKey = useUi((s) => s.selectedKey);
@@ -36,7 +38,9 @@ export function InspectorPanel() {
           </button>
         ))}
       </div>
-      {selected ? (
+      {tab === "value" ? (
+        <CellValuePane />
+      ) : selected ? (
         <Details
           key={`${selected.connectionId}/${selected.database}/${selected.schema ?? ""}/${selected.table}`}
           connectionId={selected.connectionId}
@@ -50,7 +54,7 @@ export function InspectorPanel() {
   );
 }
 
-function Details({ connectionId, table, tab }: { connectionId: string; table: TableRef; tab: InspectorTab }) {
+function Details({ connectionId, table, tab }: { connectionId: string; table: TableRef; tab: "properties" | "ddl" }) {
   const connection = useConnections().data?.find((c) => c.id === connectionId);
   const query = useTableDetails(connectionId, table);
   const [copied, setCopied] = useState(false);
